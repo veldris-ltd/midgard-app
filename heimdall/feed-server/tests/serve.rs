@@ -356,12 +356,13 @@ fn a_source_bursting_past_its_rate_limit_is_throttled_and_the_other_is_served() 
     std::fs::create_dir_all(&state).unwrap();
     std::fs::write(state.join("policy.json"), POLICY).unwrap();
 
-    // Ten records an identity, and no refill: the burst is a hard quota. A call is
-    // two records, the request and the end-of-stream marker, so five calls fit.
+    // Five requests an identity, and no refill: the burst is a hard quota. The
+    // client's end-of-stream marker is not a request and is not counted
+    // [VLD-ANB-MIDGARD-0016], so five calls fit.
     let server = start_with(
         &server_identity,
         &state,
-        &["--rate-burst", "10", "--rate-per-sec", "0"],
+        &["--rate-burst", "5", "--rate-per-sec", "0"],
     );
     let observe = |service: &str, entity: &str| {
         source(

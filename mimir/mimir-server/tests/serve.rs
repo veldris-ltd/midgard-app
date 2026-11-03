@@ -583,3 +583,72 @@ fn the_sidecar_loads_a_staged_copy_that_a_swap_in_the_model_directory_never_reac
     drop(server);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// With a burst of three requests and no refill, a consumer's fourth call is refused
+/// at the gateway and counted as `inference_refused_total{reason="throttled"}`; an
+/// inference limit that is not a whole number of at least 1 is a usage error. [VLD-ANB-MIDGARD-0016] [AC-62.4]
+/// [AC-62.5]
+#[test]
+fn a_burst_over_the_rate_limit_is_throttled() {
+    let root = scratch("throttle");
+    let idp = Idp::generate("midgard-idp", &mut OsRng).unwrap();
+    let server_identity = root.join("server");
+    let consumers = root.join("consumers");
+    let state = root.join("state");
+    issue(
+        &idp,
+        &server_identity,
+        "mimir-server",
+        &["inference-server"],
+    );
+    issue(&idp, &consumers, "forge-worker", &["inference-consumer"]);
+    std::fs::create_dir_all(&state).unwrap();
+    std::fs::write(state.join("policy.json"), POLICY).unwrap();
+
+    let server = start_with(
+        &server_identity,
+        &state,
+        &["--rate-burst", "3", "--rate-per-sec", "0"],
+    );
+    for call in 1..=3 {
+        let served = probe(&consumers, "forge-worker", &server.mesh);
+        assert!(
+            served.status.success(),
+            "call {call}: {}",
+            text(&served.stderr)
+        );
+    }
+    let throttled = probe(&consumers, "forge-worker", &server.mesh);
+    assert!(!throttled.status.success(), "the fourth call is throttled");
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let (status, metrics) = get(&server.health, "/metrics");
+        assert_eq!(status, 200);
+        if metrics.contains("inference_refused_total{reason=\"throttled\"} 1") {
+            break;
+        }
+        assert!(Instant::now() < deadline, "{metrics}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    drop(server);
+
+    let (identity_arg, state_arg) = (
+        server_identity.display().to_string(),
+        state.display().to_string(),
+    );
+    for junk in [
+        ["--max-tokens", "0"],
+        ["--max-concurrent", "many"],
+        ["--infer-timeout", "1.5"],
+    ] {
+        let out = Command::new(env!("CARGO_BIN_EXE_mimir-server"))
+            .args(server_args(&identity_arg, &state_arg))
+            .args(junk)
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(2), "{junk:?}");
+        assert!(text(&out.stderr).contains(junk[0]), "{}", text(&out.stderr));
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}

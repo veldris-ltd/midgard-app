@@ -13,6 +13,8 @@
 //!               --serve-dir DIR [--sidecar ADDR]]
 //!              [--max-connections N] [--idle-timeout SECONDS]
 //!              [--rate-burst N] [--rate-per-sec N] [--requests-per-conn N]
+//!              [--max-tokens N] [--max-prompt-bytes N] [--max-concurrent N]
+//!              [--max-concurrent-per-identity N] [--infer-timeout SECONDS]
 //! ```
 //!
 //! `--identity-dir` holds what `mg-admin mesh issue --service NAME` wrote (NAME
@@ -51,20 +53,30 @@
 //! limit off), and a connection is closed after `--requests-per-conn` requests (default
 //! 10000; 0 is unlimited). A value that is not a number is a usage error.
 //! [VLD-ANB-MIDGARD-0004]
+//!
+//! Every permitted call is admitted against an inference budget. `max_tokens` is
+//! clamped to `--max-tokens` (default 1024); a prompt over `--max-prompt-bytes` (default
+//! 262144) is refused `PROMPT_TOO_LARGE`; and a call over `--max-concurrent` calls in
+//! flight (default 4, twice the sidecar's two slots) or `--max-concurrent-per-identity`
+//! for its caller (default 2) is refused `BUSY`. Each refusal is audited and counted as
+//! `inference_refused_total{reason}`, as is a request over the rate limit
+//! (`reason="throttled"`). A completion waits at most `--infer-timeout` seconds (default
+//! 60) on any read from the sidecar, after which it fails and its slot is free. Each of
+//! these must be a whole number of at least 1. [VLD-ANB-MIDGARD-0016]
 
 use std::collections::BTreeSet;
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use gateway::{Gateway, RequestHandler};
 use governance::Governance;
 use model_server::{
     parse_trust_key, probe, reference_registry, stage_verified_weights, withdraw_staged, Clock,
-    FamilyAdapter, GemmaAdapter, GraniteAdapter, InferenceHandler, LicencePolicy, MistralAdapter,
-    ModelBackend, ModelLoader, NemotronAdapter, ReleaseFloor, Server, SidecarBackend,
-    StagedWeights,
+    FamilyAdapter, GemmaAdapter, GraniteAdapter, InferenceHandler, InferenceLimits, LicencePolicy,
+    MistralAdapter, ModelBackend, ModelLoader, NemotronAdapter, ReleaseFloor, Server,
+    SidecarBackend, StagedWeights,
 };
 use policy::{
     ClassificationLevel, DefaultPdp, Marking, PolicyDecisionPoint, Purpose, Resource, ResourceId,
@@ -82,7 +94,9 @@ const USAGE: &str = "usage: mimir-server --identity-dir DIR --state-dir DIR --pu
                      [--engine reference|llama-cpp|vllm --model-dir DIR --model-trust FILE \
                      --serve-dir DIR [--sidecar ADDR]] \
                      [--max-connections N] [--idle-timeout SECONDS] [--rate-burst N] \
-                     [--rate-per-sec N] [--requests-per-conn N]";
+                     [--rate-per-sec N] [--requests-per-conn N] \
+                     [--max-tokens N] [--max-prompt-bytes N] [--max-concurrent N] \
+                     [--max-concurrent-per-identity N] [--infer-timeout SECONDS]";
 
 /// The id of the service's audit ledger.
 const LEDGER_ID: &str = "mimir-inference";
@@ -90,6 +104,53 @@ const LEDGER_ID: &str = "mimir-inference";
 /// The release floor of the models this service has accepted, in its state directory.
 /// [MG-SEC-14]
 const MODEL_FLOOR_FILE: &str = "model-release.floor";
+
+/// How long a completion may wait on the sidecar for any one read, by default.
+/// [VLD-ANB-MIDGARD-0016]
+const DEFAULT_INFER_TIMEOUT_SECS: u64 = 60;
+
+/// The inference budget and the sidecar timeout the command line asks for.
+/// [VLD-ANB-MIDGARD-0016]
+struct Admission {
+    limits: InferenceLimits,
+    infer_timeout: Duration,
+}
+
+/// [`InferenceLimits::default`] and a 60 s inference timeout, with what
+/// `--max-tokens`, `--max-prompt-bytes`, `--max-concurrent`,
+/// `--max-concurrent-per-identity` and `--infer-timeout` say instead. Each must be a
+/// whole number of at least 1. [VLD-ANB-MIDGARD-0016]
+fn admission_from_args(args: &Args) -> Result<Admission, String> {
+    let positive = |key: &str| -> Result<Option<u64>, String> {
+        args.get(key)
+            .map(|v| match v.parse::<u64>() {
+                Ok(n) if n >= 1 => Ok(n),
+                _ => Err(format!(
+                    "--{key} must be a whole number of at least 1, not {v:?}"
+                )),
+            })
+            .transpose()
+    };
+    let mut limits = InferenceLimits::default();
+    if let Some(n) = positive("max-tokens")? {
+        limits.max_tokens = u32::try_from(n).unwrap_or(u32::MAX);
+    }
+    let size = |n: u64| usize::try_from(n).unwrap_or(usize::MAX);
+    if let Some(n) = positive("max-prompt-bytes")? {
+        limits.max_prompt_bytes = size(n);
+    }
+    if let Some(n) = positive("max-concurrent")? {
+        limits.max_concurrent = size(n);
+    }
+    if let Some(n) = positive("max-concurrent-per-identity")? {
+        limits.max_concurrent_per_identity = size(n);
+    }
+    let secs = positive("infer-timeout")?.unwrap_or(DEFAULT_INFER_TIMEOUT_SECS);
+    Ok(Admission {
+        limits,
+        infer_timeout: Duration::from_secs(secs),
+    })
+}
 
 /// Extra fields for the `serving` log line.
 type LogFields = Vec<(&'static str, String)>;
@@ -200,6 +261,11 @@ fn main() {
             "rate-burst",
             "rate-per-sec",
             "requests-per-conn",
+            "max-tokens",
+            "max-prompt-bytes",
+            "max-concurrent",
+            "max-concurrent-per-identity",
+            "infer-timeout",
             "engine",
             "model-dir",
             "model-trust",
@@ -221,7 +287,14 @@ fn main() {
             std::process::exit(2);
         }
     };
-    if let Err(e) = run(&args, &limits) {
+    let admission = match admission_from_args(&args) {
+        Ok(admission) => admission,
+        Err(e) => {
+            eprintln!("mimir-server: {e}\n{USAGE}");
+            std::process::exit(2);
+        }
+    };
+    if let Err(e) = run(&args, &limits, &admission) {
         eprintln!("mimir-server: {e}");
         std::process::exit(1);
     }
@@ -235,6 +308,7 @@ fn sidecar_backend(
     args: &Args,
     engine: EngineChoice,
     state_dir: &Path,
+    infer_timeout: Duration,
 ) -> Result<(Arc<SidecarBackend>, StagedWeights, LogFields), String> {
     let dir = Path::new(args.require("model-dir")?);
     let serve = serve_dir(args, dir)?;
@@ -279,7 +353,10 @@ fn sidecar_backend(
         ),
     }
     .map_err(|e| e.to_string())?
-    .with_adapter(adapter);
+    .with_adapter(adapter)
+    // A stuck completion fails at the inference timeout and frees its admission slot.
+    // [VLD-ANB-MIDGARD-0016]
+    .with_timeouts(Duration::from_millis(500), infer_timeout);
 
     let fields = vec![
         ("model", manifest.id.clone()),
@@ -291,7 +368,7 @@ fn sidecar_backend(
     Ok((Arc::new(backend), staged, fields))
 }
 
-fn run(args: &Args, limits: &MeshLimits) -> Result<(), String> {
+fn run(args: &Args, limits: &MeshLimits, admission: &Admission) -> Result<(), String> {
     let service = args.get("service").unwrap_or("mimir-server");
     let identity_dir = args.require("identity-dir")?;
     let state_dir = Path::new(args.require("state-dir")?);
@@ -373,7 +450,8 @@ fn run(args: &Args, limits: &MeshLimits) -> Result<(), String> {
     let (registry, model_fields): (Vec<Arc<dyn ModelBackend>>, LogFields) = match engine {
         EngineChoice::Reference => (reference_registry(), Vec::new()),
         _ => {
-            let (sidecar, weights, fields) = sidecar_backend(args, engine, state_dir)?;
+            let (sidecar, weights, fields) =
+                sidecar_backend(args, engine, state_dir, admission.infer_timeout)?;
             let _ = sidecar_cell.set(sidecar.clone());
             let _ = weights_cell.set(weights);
             model_ready.set(true);
@@ -391,12 +469,23 @@ fn run(args: &Args, limits: &MeshLimits) -> Result<(), String> {
         },
         allowed_purposes: purposes.clone(),
     };
-    let handler: Arc<dyn RequestHandler> = Arc::new(InferenceHandler::new(
-        Arc::new(server),
-        governance,
-        resource("mimir-inference"),
-        Arc::new(WallClock),
-    ));
+    // Admission refusals and throttled requests are counted by reason.
+    // [VLD-ANB-MIDGARD-0016]
+    let refused = metrics.clone();
+    let throttled = metrics.clone();
+    let handler: Arc<dyn RequestHandler> = Arc::new(
+        InferenceHandler::new(
+            Arc::new(server),
+            governance,
+            resource("mimir-inference"),
+            Arc::new(WallClock),
+        )
+        .with_limits(admission.limits)
+        .on_refusal(Arc::new(move |reason| {
+            let reason = reason.to_ascii_lowercase();
+            refused.inc("inference_refused_total", &[("reason", &reason)]);
+        })),
+    );
     let channel_pdp: Arc<dyn PolicyDecisionPoint + Send + Sync> = Arc::new(pdp()?);
     let gateway = apply_mesh_limits(
         Gateway::new(
@@ -407,7 +496,10 @@ fn run(args: &Args, limits: &MeshLimits) -> Result<(), String> {
             channel_pdp,
             resource("mimir-channel"),
             handler,
-        ),
+        )
+        .on_throttle(Arc::new(move |_| {
+            throttled.inc("inference_refused_total", &[("reason", "throttled")]);
+        })),
         limits,
     );
 
@@ -424,6 +516,11 @@ fn run(args: &Args, limits: &MeshLimits) -> Result<(), String> {
         recovered.to_string(),
     );
     let limits_text = limits.to_string();
+    let inference_text = format!(
+        "{}, infer-timeout {}s",
+        admission.limits,
+        admission.infer_timeout.as_secs()
+    );
     let mut fields: Vec<(&str, &str)> = vec![
         ("mesh", &mesh),
         ("health", &health_text),
@@ -431,6 +528,7 @@ fn run(args: &Args, limits: &MeshLimits) -> Result<(), String> {
         ("recovered_audit_entries", &recovered),
         ("engine", &engine_id),
         ("limits", &limits_text),
+        ("inference_limits", &inference_text),
     ];
     fields.extend(model_fields.iter().map(|(k, v)| (*k, v.as_str())));
     logger.info("serving", &fields);

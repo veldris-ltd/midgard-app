@@ -67,7 +67,7 @@ pub use backend::{
     BackendDescriptor, InferError, Locality, ModelBackend, PreparedRequest, RawCompletion,
 };
 pub use backends::{Engine, GpuDockerBackend, LaunchSpec, LocalReference, SidecarBackend};
-pub use handler::{Clock, InferenceHandler, LogicalClock};
+pub use handler::{Clock, InferenceHandler, InferenceLimits, LogicalClock, RefusalHook};
 pub use hardware::{probe, HwProfile, NodeProfile};
 #[cfg(feature = "backend-fips")]
 pub use model_registry::{LifecycleState, LoadEvent, ModelRegistry, RegisteredArtefact};

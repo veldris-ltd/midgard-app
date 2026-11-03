@@ -365,14 +365,20 @@ Seven console interfaces: Midgard core, Forge, Mimir, Bifrost, Heimdall, Admin a
 
 ### `mimir-inference-cpu` (operable)
 
-mimir-server answers inference requests from a real model inside the enclosure: an OpenAI-compatible engine on loopback (llama.cpp on CPU), reached only over PQ-mTLS by a certified caller, with every call audited.
+mimir-server answers inference requests from a real model inside the enclosure: an OpenAI-compatible engine on loopback (llama.cpp on CPU), reached only over PQ-mTLS by a certified caller, with every call audited and admitted against a budget: max_tokens clamped to a ceiling, a bounded prompt, and bounded calls in flight per identity and in all.
 
-**Limit.** One model has been served: IBM Granite 3.3 2B Instruct on CPU. The caller receives one whole completion, not a token stream.
+**Limit.** One model has been served: IBM Granite 3.3 2B Instruct on CPU. The caller receives one whole completion, not a token stream. A completion the sidecar is generating cannot be cancelled: it fails after the inference timeout passes with nothing read, and its slot is then free.
 
 - Source:
   - [`mimir/model-server/src/backends/openai_compat.rs:60`](../../mimir/model-server/src/backends/openai_compat.rs)
+  - [`mimir/model-server/src/handler.rs:324`](../../mimir/model-server/src/handler.rs)
 - Tests:
   - [`mimir/mimir-server/tests/serve.rs::inference_is_served_over_pqmtls_audited_and_survives_a_restart`](../../mimir/mimir-server/tests/serve.rs)
+  - [`mimir/model-server/tests/security_admission.rs::max_tokens_is_clamped_to_the_ceiling`](../../mimir/model-server/tests/security_admission.rs)
+  - [`mimir/model-server/tests/security_admission.rs::oversized_prompt_is_refused_and_audited`](../../mimir/model-server/tests/security_admission.rs)
+  - [`mimir/model-server/tests/security_admission.rs::third_concurrent_call_for_one_identity_is_busy`](../../mimir/model-server/tests/security_admission.rs)
+  - [`mimir/model-server/tests/security_admission.rs::global_limit_applies_across_identities`](../../mimir/model-server/tests/security_admission.rs)
+  - [`mimir/mimir-server/tests/serve.rs::a_burst_over_the_rate_limit_is_throttled`](../../mimir/mimir-server/tests/serve.rs)
 - Service tests:
   - [`deploy/compose/smoke.sh:19`](../../deploy/compose/smoke.sh)
   - [`deploy/compose/granite-smoke.sh:40`](../../deploy/compose/granite-smoke.sh)
