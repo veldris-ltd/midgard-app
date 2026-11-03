@@ -1183,6 +1183,98 @@ fn a_passkey_without_a_second_factor_is_refused() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// [VLD-ANB-MIDGARD-0002] [VLD-ANB-MIDGARD-0066] [AC-15.4] [AC-AD-3] Nothing about the
+/// served policy or the parked enrolments is told to a caller who has not proved
+/// themselves: with a bad proof, a role outside the policy and an enrolment id that is
+/// not waiting are refused 401 like any other request, not 400 or 404. Once the
+/// administrator has proved themselves and holds the approving capability, they are
+/// told; an auditor, signed in but not qualified, is refused 403 before the id is
+/// looked up.
+#[test]
+fn an_unproven_caller_learns_nothing_about_roles_or_enrolments() {
+    let dir = scratch("unproven");
+    let (state, devices) = provision(&dir);
+    let served = open_state_dir(
+        &state,
+        Vec::new(),
+        &pin(&state),
+        &RootWrap::Passphrase(&test_passphrase()),
+    )
+    .expect("boots");
+    let gw = &served.gateway;
+    let alice = device(&devices, "alice");
+    let bob = device(&devices, "bob");
+    let audra = device(&devices, "audra");
+    // bob's passkey answering a challenge issued to alice: a proof that does not verify.
+    let forged = || {
+        next_step();
+        let mut proof = answer(bob, fetch_challenge(gw, "alice"), true);
+        proof.2 = format!(r#","totp":"{}""#, alice.totp.code_at(now()));
+        proof
+    };
+    let unknown_role = r#"{"subject":"olivia","roles":["zz-unknown-role"],"clearance":"internal","purposes":["operations"]}"#;
+    let missing = "enrol-nobody-1";
+    for (path, body) in [
+        (
+            "/api/v1/admin/enrolments",
+            request_with("alice", &forged(), unknown_role),
+        ),
+        (
+            "/api/v1/admin/enrolments/approve",
+            approve_body("alice", &forged(), missing, "nobody"),
+        ),
+        (
+            "/api/v1/admin/enrolments/reject",
+            reject_body("alice", &forged(), missing),
+        ),
+    ] {
+        let r = post(gw, path, &body, None);
+        assert_eq!(r.status, 401, "{path}: {}", r.body);
+        assert_eq!(r.body, r#"{"error":"unauthorised"}"#, "{path}: {}", r.body);
+    }
+
+    // Signed in, but not qualified to approve: refused before the id is looked up.
+    for (path, body) in [
+        (
+            "/api/v1/admin/enrolments/approve",
+            approve_body("audra", &proof(gw, "audra", audra), missing, "nobody"),
+        ),
+        (
+            "/api/v1/admin/enrolments/reject",
+            reject_body("audra", &proof(gw, "audra", audra), missing),
+        ),
+    ] {
+        let r = post(gw, path, &body, None);
+        assert_eq!(r.status, 403, "{path}: {}", r.body);
+    }
+
+    // Proved and qualified, the administrator is told what is wrong.
+    let r = post(
+        gw,
+        "/api/v1/admin/enrolments",
+        &request_with("alice", &proof(gw, "alice", alice), unknown_role),
+        None,
+    );
+    assert_eq!(r.status, 400, "{}", r.body);
+    assert!(r.body.contains("zz-unknown-role"), "{}", r.body);
+    for (path, body) in [
+        (
+            "/api/v1/admin/enrolments/approve",
+            approve_body("bob", &proof(gw, "bob", bob), missing, "nobody"),
+        ),
+        (
+            "/api/v1/admin/enrolments/reject",
+            reject_body("bob", &proof(gw, "bob", bob), missing),
+        ),
+    ] {
+        let r = post(gw, path, &body, None);
+        assert_eq!(r.status, 404, "{path}: {}", r.body);
+    }
+    assert_eq!(admin_control_parked(gw, bob), 0, "nothing was parked");
+    drop(served);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// How many enrolments are parked, as bob lists them.
 fn admin_control_parked(gw: &DurableGateway, bob: &Admin) -> usize {
     let listed = post(

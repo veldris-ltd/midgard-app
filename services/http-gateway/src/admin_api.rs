@@ -394,8 +394,11 @@ impl AdminControl {
     /// `POST /api/v1/admin/enrolments` — request that a principal be enrolled. The
     /// request is parked for a second administrator; `enrolled` says whether the
     /// subject already exists, which refuses it, and `catalogue` the roles and
-    /// purposes it may grant. Returns the response and the requester, for the
-    /// gateway's own audit record.
+    /// purposes it may grant. Only the body's shape is checked before the
+    /// administrator proves themselves; the catalogue and the directory are consulted
+    /// after the step-up, so a caller who cannot sign in learns nothing of either.
+    /// Returns the response and the requester, for the gateway's own audit record.
+    /// [VLD-ANB-MIDGARD-0002]
     pub fn request_enrolment(
         &mut self,
         body: &Json,
@@ -417,7 +420,7 @@ impl AdminControl {
             ],
         )
         .map_err(|e| refuse(400, e))?;
-        let principal = parse_principal(body.get("principal"), catalogue)?;
+        let principal = parse_principal(body.get("principal"))?;
         let justification = text(body, at, "justification")
             .map_err(|e| refuse(400, e))?
             .to_string();
@@ -430,6 +433,7 @@ impl AdminControl {
             .step_up(&mut session, scope.clone(), &challenge, &assertion, now)
             .map_err(|e| refuse(401, e.to_string()))?;
 
+        within_catalogue(&principal, catalogue)?;
         if enrolled(&principal.subject) {
             return Err(refuse(
                 409,
@@ -504,9 +508,10 @@ impl AdminControl {
     /// identity directory with credentials minted here, the activation code hashed
     /// with `hasher`. The response carries the activation code, once, and never the
     /// second factor. An enrolment approved before but not written is completed by
-    /// its original approver without a second privilege approval. Returns the
-    /// response, the approver and the subject, for the gateway's own audit record.
-    /// [VLD-ANB-MIDGARD-0002] [VLD-ANB-MIDGARD-0066]
+    /// its original approver without a second privilege approval. Whether `id` is
+    /// waiting is told only to an administrator who has re-authenticated and is
+    /// qualified to approve. Returns the response, the approver and the subject, for
+    /// the gateway's own audit record. [VLD-ANB-MIDGARD-0002] [VLD-ANB-MIDGARD-0066]
     pub fn approve_enrolment(
         &mut self,
         body: &Json,
@@ -527,12 +532,10 @@ impl AdminControl {
         let named = text(body, at, "subject")
             .map_err(|e| refuse(400, e))?
             .to_string();
-        if !self.parked.contains_key(&id) {
-            return Err(refuse(404, format!("no enrolment {id} is waiting")));
-        }
 
         let (admin, session) = self.reauthenticated(body, now)?;
-        let enrolment = self.parked.get(&id).cloned().expect("checked above");
+        self.require_enrolment_capability(&admin, now)?;
+        let enrolment = self.waiting(&id)?.clone();
         let subject = enrolment.subject.clone();
         if named != subject {
             return Err(refuse(409, format!("{id} enrols {subject}, not {named}")));
@@ -554,7 +557,6 @@ impl AdminControl {
                         ),
                     ));
                 }
-                self.require_enrolment_capability(&admin, now)?;
             }
             _ => self
                 .privilege
@@ -600,9 +602,10 @@ impl AdminControl {
 
     /// `POST /api/v1/admin/enrolments/reject` — an administrator qualified to approve
     /// enrolments, other than the requester, rejects a parked enrolment with a reason.
-    /// It is settled and purged, and the subject may be requested again. Returns the
-    /// response, the administrator and the subject, for the gateway's own audit
-    /// record. [VLD-ANB-MIDGARD-0066]
+    /// It is settled and purged, and the subject may be requested again. As at
+    /// approval, whether `id` is waiting is told only to a qualified administrator who
+    /// has re-authenticated. Returns the response, the administrator and the subject,
+    /// for the gateway's own audit record. [VLD-ANB-MIDGARD-0066]
     pub fn reject_enrolment(
         &mut self,
         body: &Json,
@@ -625,12 +628,10 @@ impl AdminControl {
         if reason.is_empty() {
             return Err(refuse(400, "\"reason\" must say why"));
         }
-        if !self.parked.contains_key(&id) {
-            return Err(refuse(404, format!("no enrolment {id} is waiting")));
-        }
 
         let (admin, session) = self.reauthenticated(body, now)?;
         self.require_enrolment_capability(&admin, now)?;
+        let subject = self.waiting(&id)?.subject.clone();
         match self.privilege.service().state_of(&id) {
             // Rejected before, but the settlement was not recorded: settle it now.
             Some(ActionState::Rejected { .. }) => {}
@@ -639,7 +640,6 @@ impl AdminControl {
                 .reject(&session, &id, &reason, &now.to_string())
                 .map_err(|e| refuse(403, format!("{e:?}")))?,
         }
-        let subject = self.parked.get(&id).expect("checked above").subject.clone();
         self.settle(&id)
             .map_err(|e| refuse(500, format!("rejected, but not marked settled: {e}")))?;
 
@@ -746,6 +746,14 @@ impl AdminControl {
         }
     }
 
+    /// The enrolment `id` parked, or a 404. Asked only once the caller has proved
+    /// themselves and is qualified, so the answer is no oracle. [VLD-ANB-MIDGARD-0066]
+    fn waiting(&self, id: &str) -> Result<&ParkedEnrolment, AdminError> {
+        self.parked
+            .get(id)
+            .ok_or_else(|| refuse(404, format!("no enrolment {id} is waiting")))
+    }
+
     /// Record `id` settled, then forget it.
     fn settle(&mut self, id: &str) -> Result<(), AuditError> {
         self.journal.append(&encode(id, None))?;
@@ -830,13 +838,12 @@ impl AdminControl {
     }
 }
 
-/// The principal an enrolment request describes, validated before anyone signs in.
-/// It carries no credential material: a password hash or TOTP secret is an unknown
-/// key, refused like any other. [VLD-ANB-MIDGARD-0002]
-fn parse_principal(
-    item: Option<&Json>,
-    catalogue: &RoleCatalogue,
-) -> Result<ParkedEnrolment, AdminError> {
+/// The principal an enrolment request describes, its shape checked before anyone
+/// signs in; what it grants is checked against the served policy by
+/// [`within_catalogue`] only once the requester has stepped up. It carries no
+/// credential material: a password hash or TOTP secret is an unknown key, refused like
+/// any other. [VLD-ANB-MIDGARD-0002]
+fn parse_principal(item: Option<&Json>) -> Result<ParkedEnrolment, AdminError> {
     let at = "the principal";
     let item = item.ok_or_else(|| refuse(400, "missing \"principal\""))?;
     only_keys(
@@ -874,24 +881,8 @@ fn parse_principal(
             }
         }
     };
-    // Only what the served policy names may be granted, and the refusal says what is.
-    let within = |key: &str, values: &[String], allowed: Vec<&str>| match values
-        .iter()
-        .find(|v| !allowed.contains(&v.as_str()))
-    {
-        None => Ok(()),
-        Some(unknown) => Err(refuse(
-            400,
-            format!(
-                "\"{key}\" may only name what the served policy names ({}), not \"{unknown}\"",
-                allowed.join(", ")
-            ),
-        )),
-    };
     let roles = list("roles", true)?;
-    within("roles", &roles, catalogue.roles().collect())?;
     let purposes = list("purposes", true)?;
-    within("purposes", &purposes, catalogue.purposes().collect())?;
     let compartments = list("compartments", false)?;
     if let Some(bad) = compartments.iter().find(|c| {
         c.is_empty()
@@ -914,6 +905,34 @@ fn parse_principal(
         compartments,
         purposes,
     })
+}
+
+/// Refuse a principal granted a role or purpose the served policy does not name; the
+/// refusal says what it does name. Told only to a requester who has stepped up.
+/// [VLD-ANB-MIDGARD-0002]
+fn within_catalogue(
+    principal: &ParkedEnrolment,
+    catalogue: &RoleCatalogue,
+) -> Result<(), AdminError> {
+    let within = |key: &str, values: &[String], allowed: Vec<&str>| match values
+        .iter()
+        .find(|v| !allowed.contains(&v.as_str()))
+    {
+        None => Ok(()),
+        Some(unknown) => Err(refuse(
+            400,
+            format!(
+                "\"{key}\" may only name what the served policy names ({}), not \"{unknown}\"",
+                allowed.join(", ")
+            ),
+        )),
+    };
+    within("roles", &principal.roles, catalogue.roles().collect())?;
+    within(
+        "purposes",
+        &principal.purposes,
+        catalogue.purposes().collect(),
+    )
 }
 
 // ---- parked-enrolment journal ----------------------------------------------------------

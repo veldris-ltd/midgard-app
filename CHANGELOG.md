@@ -53,6 +53,13 @@ CONTRIBUTING.md for the version policy.
   to a caller who may read that target, as `GET /approvals` already filtered, so the
   ledger view is no oracle for a compartmented object behind a human gate.
   [VLD-ANB-MIDGARD-0031] [VLD-ANB-MIDGARD-0038]
+- **Administration says nothing about the policy or the parked enrolments before the
+  administrator proves themselves.** An enrolment request's roles and purposes are
+  checked against the served policy only after the step-up, and approve and reject
+  look the enrolment id up only after re-authentication and the approver's capability
+  check, so a bad proof is one 401 whatever the body names. An auditor approving or
+  rejecting now gets 403 before the id is looked up. [VLD-ANB-MIDGARD-0002]
+  [VLD-ANB-MIDGARD-0066]
 - **GitLab jobs run only digest-pinned images, and merge requests no longer run
   privileged.** [VLD-ANB-MIDGARD-0022] [VLD-ANB-MIDGARD-0043]
   - Every `image:` and service in `.gitlab-ci.yml` is pinned as
