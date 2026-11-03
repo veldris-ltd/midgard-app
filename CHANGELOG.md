@@ -67,6 +67,13 @@ CONTRIBUTING.md for the version policy.
   ledger row names that address. The header is ignored from any other peer, a list
   over 1,024 bytes is refused with 400, and the allowance is still never keyed on the
   username. [VLD-ANB-MIDGARD-0005]
+- **The passkey verifier reads the client data it checks from the signed bytes.**
+  `AuthAssertion` no longer carries caller-parsed `client_data`;
+  `WebAuthnCredential::verify_assertion` takes a `ClientDataParser` and runs it on the
+  assertion's own `clientDataJSON`, so the type, challenge and origin checked are what
+  the signature covers. `MfaProof::WebAuthn` carries the parser; the edge supplies
+  `webauthn_client_data::parse_client_data`. A document the parser refuses is
+  `BadClientData`. [VLD-ANB-MIDGARD-0084]
 - **GitLab jobs run only digest-pinned images, and merge requests no longer run
   privileged.** [VLD-ANB-MIDGARD-0022] [VLD-ANB-MIDGARD-0043]
   - Every `image:` and service in `.gitlab-ci.yml` is pinned as

@@ -1,7 +1,8 @@
-//! WebAuthn client data, parsed at the edge. A browser login handler reads the raw
-//! `clientDataJSON` of an assertion with [`parse_client_data`] and hands `iam` the
-//! typed [`iam::ClientData`] alongside the raw bytes (which stay what the signature
-//! covers). The JSON is read by the shared, depth-limited parser and the strict
+//! WebAuthn client data, parsed at the edge. A browser login handler hands `iam`
+//! [`parse_client_data`] with the assertion (`MfaProof::WebAuthn`), and `iam` runs it
+//! on the assertion's raw `clientDataJSON`, the bytes the signature covers, so the
+//! client data checked is the client data signed. The JSON is read by the shared,
+//! depth-limited parser and the strict
 //! readers, so `iam` holds no JSON parser and nothing is found by substring: a
 //! `"webauthn.get"` in some other field, or a challenge nested in an object, is not
 //! taken for the real one. No route calls this yet; no browser flow is wired.
