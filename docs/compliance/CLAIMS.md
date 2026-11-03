@@ -705,7 +705,7 @@ Input guardrails against prompt injection, applied to each untrusted item (groun
 
 - Source:
   - [`mimir/agent-runtime/src/assembly.rs:300`](../../mimir/agent-runtime/src/assembly.rs)
-  - [`mimir/agent-runtime/src/defend.rs:383`](../../mimir/agent-runtime/src/defend.rs)
+  - [`mimir/agent-runtime/src/defend.rs:607`](../../mimir/agent-runtime/src/defend.rs)
   - [`mimir/prompts/src/delimit.rs:245`](../../mimir/prompts/src/delimit.rs)
 - Tests:
   - [`mimir/agent-runtime/tests/guardrail_scope.rs::sanitise_rewrites_only_the_offending_item`](../../mimir/agent-runtime/tests/guardrail_scope.rs)

@@ -77,6 +77,13 @@ CONTRIBUTING.md for the version policy.
   observation fits. The refusal still replies `MALFORMED`, and is now in the ledger as
   `Ingest refused: oversized observation` with reason `oversized`
   (`REASON_OVERSIZED`). [VLD-ANB-MIDGARD-0017] [VLD-ANB-MIDGARD-0041]
+- **The guardrail pre-filter looks inside encodings.** `SelfDefending` also matches
+  injection, jailbreak, exfiltration and tool-abuse phrases in decoded readings of
+  each item, decoded once and no longer than the input: percent encoding, `\x`/`\u`
+  escapes, HTML character references, and each base64 run of 16 or more characters
+  that decodes to UTF-8. A hit in any of them blocks. Text with a `\x` or `\u` escape
+  is now blocked rather than sanitised, since stripping cannot remove an escape.
+  [VLD-ANB-MIDGARD-0078]
 - **GitLab jobs run only digest-pinned images, and merge requests no longer run
   privileged.** [VLD-ANB-MIDGARD-0022] [VLD-ANB-MIDGARD-0043]
   - Every `image:` and service in `.gitlab-ci.yml` is pinned as
