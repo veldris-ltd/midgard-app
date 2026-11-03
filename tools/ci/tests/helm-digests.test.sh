@@ -44,7 +44,13 @@ HELM="${HELM:-helm}"
 if ! command -v "$HELM" >/dev/null 2>&1; then
     echo "skip  the chart cases (helm is not on PATH)"
 else
-    render() { "$HELM" template midgard "$chart" --namespace default "$@" 2>&1 | tr -d '\r'; }
+    # Every case renders with secrets.acknowledgeEtcdEncryption=true, as deploy/k8s/render.sh
+    # does: since WP-29 the chart refuses kubernetes Secrets without it, and these cases are
+    # about image references, not secrets custody.
+    render() {
+        "$HELM" template midgard "$chart" --namespace default \
+            --set secrets.acknowledgeEtcdEncryption=true "$@" 2>&1 | tr -d '\r'
+    }
 
     # AC-37.1: the defaults are a release chart, which does not render without digests.
     if render > "$work/default.yaml"; then
