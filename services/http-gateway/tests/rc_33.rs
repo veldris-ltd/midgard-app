@@ -22,6 +22,7 @@ fn get(gw: &SecuredGateway, path: &str) -> http_gateway::http::Response {
         body: String::new(),
         authorization: None,
         origin: None,
+        forwarded_for: None,
     };
     gw.handle(&req, NOW)
 }
@@ -104,6 +105,7 @@ fn call(
             body: body.into(),
             authorization: token.map(|t| format!("Bearer {t}")),
             origin: None,
+            forwarded_for: None,
         },
         now(),
     )

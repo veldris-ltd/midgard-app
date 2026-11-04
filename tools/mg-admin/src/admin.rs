@@ -4,7 +4,8 @@
 //! post-quantum passkey in a sealed keystore **the administrator keeps** — never in the
 //! state directory — registers only its public half, and binds a standard role for a
 //! bounded time. The `enrol` commands run against a live gateway: each fetches a
-//! single-use challenge issued to the administrator it names, answers it with the
+//! single-use challenge issued to the administrator it names, for that command's one
+//! operation, answers it with the
 //! administrator's passkey, and sends the request. A requested enrolment waits until a
 //! second administrator approves it, and carries no credentials: the gateway creates them at approval and returns a
 //! single-use activation code, which the approver hands to the principal out of band.
@@ -347,12 +348,22 @@ fn one_time_code(o: &Options, admin: &str) -> Result<String, Failure> {
     Ok(code)
 }
 
-/// A fresh challenge from `gateway`, issued to `signer`'s administrator and answered by
-/// `signer`: the fields every administration request starts with, the one-time code
-/// among them. The gateway binds the challenge to the administrator named, so only
-/// they can answer it. [VLD-ANB-MIDGARD-0020]
-fn signed(gateway: &str, signer: &Signer) -> Result<Vec<(&'static str, Json)>, Failure> {
-    let request = Json::obj(vec![("admin", Json::s(&signer.admin))]).encode();
+/// A fresh challenge from `gateway`, issued to `signer`'s administrator for `purpose`
+/// (`request`, `approve`, `reject` or `list`) and answered by `signer`: the fields every
+/// administration request starts with, the one-time code among them. The gateway binds
+/// the challenge to the administrator named and to that one operation, and the passkey
+/// signs the purpose with the nonce, so the answer serves nothing else.
+/// [VLD-ANB-MIDGARD-0020]
+fn signed(
+    gateway: &str,
+    signer: &Signer,
+    purpose: &str,
+) -> Result<Vec<(&'static str, Json)>, Failure> {
+    let request = Json::obj(vec![
+        ("admin", Json::s(&signer.admin)),
+        ("purpose", Json::s(purpose)),
+    ])
+    .encode();
     let reply = post_json(gateway, "/api/v1/admin/challenge", &request)?;
     let challenge = reply
         .str_field("challenge")
@@ -365,7 +376,7 @@ fn signed(gateway: &str, signer: &Signer) -> Result<Vec<(&'static str, Json)>, F
         .device
         .authenticate(
             &fips_provider(),
-            &AdminChallenge::new(nonce),
+            &AdminChallenge::new(nonce).for_purpose(purpose),
             signer.user_verified,
         )
         .map_err(|e| Failure::Run(format!("the passkey could not sign the challenge: {e}")))?;
@@ -416,7 +427,7 @@ pub(crate) fn enrol_request(o: &Options) -> Result<String, Failure> {
         ("purposes", strings(&purposes)),
     ];
 
-    let mut body = signed(gateway, &signer)?;
+    let mut body = signed(gateway, &signer, "request")?;
     body.push(("justification", Json::s(justification)));
     body.push(("principal", Json::obj(principal)));
     let reply = post_json(
@@ -436,7 +447,7 @@ pub(crate) fn enrol_approve(o: &Options) -> Result<String, Failure> {
     let id = o.require("id")?;
     let subject = o.require("subject")?;
     let signer = device(o)?;
-    let mut body = signed(gateway, &signer)?;
+    let mut body = signed(gateway, &signer, "approve")?;
     body.push(("id", Json::s(id)));
     body.push(("subject", Json::s(subject)));
     let reply = post_json(
@@ -467,7 +478,7 @@ pub(crate) fn enrol_reject(o: &Options) -> Result<String, Failure> {
     let id = o.require("id")?;
     let reason = o.require("reason")?;
     let signer = device(o)?;
-    let mut body = signed(gateway, &signer)?;
+    let mut body = signed(gateway, &signer, "reject")?;
     body.push(("id", Json::s(id)));
     body.push(("reason", Json::s(reason)));
     let reply = post_json(
@@ -484,7 +495,7 @@ pub(crate) fn enrol_reject(o: &Options) -> Result<String, Failure> {
 pub(crate) fn enrol_list(o: &Options) -> Result<String, Failure> {
     let gateway = o.require("gateway")?;
     let signer = device(o)?;
-    let body = signed(gateway, &signer)?;
+    let body = signed(gateway, &signer, "list")?;
     let reply = post_json(
         gateway,
         "/api/v1/admin/enrolments/list",

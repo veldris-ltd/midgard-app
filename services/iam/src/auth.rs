@@ -9,7 +9,7 @@ use policy::Purpose;
 
 use crate::directory::{Directory, DurableDirectory};
 use crate::idp::{Idp, IssueError};
-use crate::mfa::{AuthAssertion, WebAuthnPolicy};
+use crate::mfa::{AuthAssertion, ClientDataParser, WebAuthnPolicy};
 use crate::password::PasswordHasher;
 
 /// The second-factor proof a caller presents.
@@ -22,6 +22,9 @@ pub enum MfaProof<'a> {
         assertion: AuthAssertion,
         /// The challenge the server issued for this login.
         challenge: &'a [u8],
+        /// The edge's parser for the assertion's `clientDataJSON`, which the verifier
+        /// runs on the signed bytes. [VLD-ANB-MIDGARD-0084]
+        parse_client_data: &'a ClientDataParser<'a>,
     },
     /// No second factor presented (only valid if the user has none enrolled).
     None,
@@ -201,6 +204,7 @@ impl<'a, H: PasswordHasher + ?Sized, D: Directory + ?Sized> Authenticator<'a, H,
                 MfaProof::WebAuthn {
                     assertion,
                     challenge,
+                    parse_client_data,
                 } => {
                     let cred = entry
                         .credentials
@@ -214,6 +218,7 @@ impl<'a, H: PasswordHasher + ?Sized, D: Directory + ?Sized> Authenticator<'a, H,
                             &self.webauthn,
                             challenge,
                             &assertion,
+                            parse_client_data,
                         )
                         .map_err(|_| AuthError::BadMfa)?;
                     passkey_count = Some((cred.credential_id.clone(), count));

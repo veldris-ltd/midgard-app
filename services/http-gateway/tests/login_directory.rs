@@ -91,6 +91,7 @@ fn login_at(gw: &SecuredGateway, body: &str, now: u64) -> Response {
             body: body.into(),
             authorization: None,
             origin: None,
+            forwarded_for: None,
         },
         now,
     )
@@ -187,6 +188,7 @@ fn a_durable_principal_needs_both_factors_and_survives_a_restart() {
             body: String::new(),
             authorization: Some(format!("Bearer {token}")),
             origin: None,
+            forwarded_for: None,
         },
         NOW,
     );

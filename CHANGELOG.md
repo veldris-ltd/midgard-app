@@ -48,6 +48,49 @@ CONTRIBUTING.md for the version policy.
   [VLD-ANB-MIDGARD-0094] [VLD-ANB-MIDGARD-0023]
 
 ### Security
+- **The audit view hides a row whose target the caller may not read.** An approval's
+  `APPROVAL` rows, and an action's own row, name their target; they are now shown only
+  to a caller who may read that target, as `GET /approvals` already filtered, so the
+  ledger view is no oracle for a compartmented object behind a human gate.
+  [VLD-ANB-MIDGARD-0031] [VLD-ANB-MIDGARD-0038]
+- **Administration says nothing about the policy or the parked enrolments before the
+  administrator proves themselves.** An enrolment request's roles and purposes are
+  checked against the served policy only after the step-up, and approve and reject
+  look the enrolment id up only after re-authentication and the approver's capability
+  check, so a bad proof is one 401 whatever the body names. An auditor approving or
+  rejecting now gets 403 before the id is looked up. [VLD-ANB-MIDGARD-0002]
+  [VLD-ANB-MIDGARD-0066]
+- **Clients behind a reverse proxy no longer share one login allowance.** The
+  gateway's new repeatable `--trusted-proxy IP` names the operator's proxies; a login,
+  activation or administration request from one is charged to the right-most address
+  in its `X-Forwarded-For` that is not itself a trusted proxy, and the throttled-source
+  ledger row names that address. The header is ignored from any other peer, a list
+  over 1,024 bytes is refused with 400, and the allowance is still never keyed on the
+  username. [VLD-ANB-MIDGARD-0005]
+- **The passkey verifier reads the client data it checks from the signed bytes.**
+  `AuthAssertion` no longer carries caller-parsed `client_data`;
+  `WebAuthnCredential::verify_assertion` takes a `ClientDataParser` and runs it on the
+  assertion's own `clientDataJSON`, so the type, challenge and origin checked are what
+  the signature covers. `MfaProof::WebAuthn` carries the parser; the edge supplies
+  `webauthn_client_data::parse_client_data`. A document the parser refuses is
+  `BadClientData`. [VLD-ANB-MIDGARD-0084]
+- **An administrator's challenge answers one operation only.** `POST
+  /api/v1/admin/challenge` now takes `{"admin": ..., "purpose": ...}`, the purpose
+  `request`, `approve`, `reject` or `list` (a request without one is 400), and the reply
+  echoes it. The gateway keeps the purpose with the challenge and refuses an answer
+  presented to another operation with the same 401; the passkey signs it with the
+  nonce (`AdminChallenge::for_purpose`, the signed payload now
+  `nonce ‖ user_verified ‖ purpose`), so the assertion cannot be relabelled. A challenge
+  fetched to list the parked enrolments can no longer approve one. `mg-admin enrol`
+  asks for the purpose of each command; an older `mg-admin` is refused.
+  [VLD-ANB-MIDGARD-0020]
+- **Password hashing no longer holds the gateway's directory lock.** A login checks
+  its password (Argon2id), and any rehash, on a snapshot of the principal's enrollment
+  taken under the lock, then takes the lock again to commit only if the enrollment is
+  exactly the one checked; otherwise it is the uniform 401. Activation checks its code
+  and hashes the new password the same way, committing only while the same activation
+  is pending and unexpired. One slow hash no longer stalls every other login,
+  activation and enrolment. Unknown names still cost the same work.
 - **Keystore format version 3: the header is bound to the wrapped root.** A version 2
   keystore's wrapped root bound only its key id, so whoever could write the file could
   swap the verifying key a reader trusts or the root public key data is sealed to

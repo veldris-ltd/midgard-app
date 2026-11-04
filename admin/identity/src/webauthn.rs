@@ -15,23 +15,36 @@ use crate::error::IdentityError;
 pub const PASSKEY_SIG_ALG: SigId = SigId::MlDsa65;
 
 /// A random challenge the relying party asks the authenticator to sign. The nonce
-/// binds an assertion to this one attempt (anti-replay). [RC-30]
+/// binds an assertion to this one attempt (anti-replay), and the purpose to the one
+/// operation it was issued for, so an assertion answering a challenge for one
+/// operation does not verify for another. [RC-30] [VLD-ANB-MIDGARD-0020]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdminChallenge {
     /// 32-byte random challenge.
     pub nonce: [u8; 32],
+    /// What the answer may be used for, signed with the nonce; empty for a challenge
+    /// issued for no one operation.
+    pub purpose: String,
 }
 
 impl AdminChallenge {
-    /// A challenge over a fixed nonce.
+    /// A challenge over a fixed nonce, for no one operation.
     pub fn new(nonce: [u8; 32]) -> Self {
-        Self { nonce }
+        Self {
+            nonce,
+            purpose: String::new(),
+        }
     }
-    /// A freshly-sampled challenge.
+    /// A freshly-sampled challenge, for no one operation.
     pub fn sample(rng: &mut dyn Rng) -> Self {
         let mut nonce = [0u8; 32];
         rng.fill(&mut nonce);
-        Self { nonce }
+        Self::new(nonce)
+    }
+    /// This challenge, issued for `purpose` only. [VLD-ANB-MIDGARD-0020]
+    pub fn for_purpose(mut self, purpose: &str) -> Self {
+        self.purpose = purpose.to_string();
+        self
     }
 }
 
@@ -56,21 +69,25 @@ pub struct WebAuthnAssertion {
     pub credential_id: String,
     /// Whether the authenticator verified the user (UV flag).
     pub user_verified: bool,
-    /// Signature over `nonce ‖ user_verified`.
+    /// Signature over `nonce ‖ user_verified ‖ purpose`.
     pub signature: Signature,
 }
 
-/// The bytes an authenticator signs: the challenge nonce followed by the UV flag.
-fn signed_payload(nonce: &[u8; 32], user_verified: bool) -> Vec<u8> {
-    let mut p = Vec::with_capacity(33);
-    p.extend_from_slice(nonce);
+/// The bytes an authenticator signs: the challenge nonce, the UV flag, then the
+/// challenge's purpose. The nonce and flag are fixed-length, so the purpose is
+/// everything after them and no two purposes sign the same bytes; a challenge for no
+/// one operation signs what it always has. [RC-30] [VLD-ANB-MIDGARD-0020]
+fn signed_payload(challenge: &AdminChallenge, user_verified: bool) -> Vec<u8> {
+    let mut p = Vec::with_capacity(33 + challenge.purpose.len());
+    p.extend_from_slice(&challenge.nonce);
     p.push(user_verified as u8);
+    p.extend_from_slice(challenge.purpose.as_bytes());
     p
 }
 
 /// Verify a WebAuthn assertion against a registered passkey and the challenge that
-/// was issued. `Ok(())` iff the signature (over the nonce + UV flag) verifies; fails
-/// closed otherwise. This is the sole gate through which an
+/// was issued. `Ok(())` iff the signature (over the nonce, the UV flag and the
+/// challenge's purpose) verifies; fails closed otherwise. This is the sole gate through which an
 /// [`AdminSession`](crate::AdminSession) is authenticated. Whether `user_verified`
 /// is *required* is the caller's policy (sign-in requires it). [RC-30]
 pub fn verify_admin_assertion(
@@ -85,7 +102,7 @@ pub fn verify_admin_assertion(
     let scheme = provider
         .sig_for(credential.public_key.alg())
         .map_err(|_| IdentityError::WebAuthnRejected)?;
-    let payload = signed_payload(&challenge.nonce, assertion.user_verified);
+    let payload = signed_payload(challenge, assertion.user_verified);
     scheme
         .verify(&credential.public_key, &payload, &assertion.signature)
         .map_err(|_| IdentityError::WebAuthnRejected)
@@ -166,7 +183,7 @@ impl SoftwareAdminAuthenticator {
         let scheme = provider
             .sig_for(self.signing_key.alg())
             .map_err(|_| IdentityError::WebAuthnRejected)?;
-        let payload = signed_payload(&challenge.nonce, user_verified);
+        let payload = signed_payload(challenge, user_verified);
         let signature = scheme
             .sign(&self.signing_key, &payload)
             .map_err(|_| IdentityError::WebAuthnRejected)?;

@@ -125,6 +125,7 @@ fn login(gw: &SecuredGateway, username: &str, password: &str, at: u64) -> Respon
             body,
             authorization: None,
             origin: None,
+            forwarded_for: None,
         },
         at,
     )
@@ -211,6 +212,7 @@ fn the_first_throttled_attempt_is_on_the_ledger_and_later_ones_are_coalesced() {
             body: String::new(),
             authorization: Some(format!("Bearer {}", token_of(&after.body))),
             origin: None,
+            forwarded_for: None,
         },
         NOW + FIRST_LOCKOUT,
     );

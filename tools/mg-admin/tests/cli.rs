@@ -278,6 +278,7 @@ fn a_principal_enrolled_by_mg_admin_logs_in_through_the_gateway() {
                     body: format!(r#"{{"username":"alice","password":"{password}"}}"#),
                     authorization: None,
                     origin: None,
+                    forwarded_for: None,
                 },
                 1_800_000_000,
             )
