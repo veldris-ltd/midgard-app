@@ -33,7 +33,8 @@ use pqc_agility::{SigId, SignatureScheme, VerifyingKey};
 const ALG: SigId = SigId::MlDsa65;
 const NOW: u64 = 10_000;
 
-type Controller = BreakGlassController<RecordingAlerter, InMemoryLedger>;
+type Controller =
+    BreakGlassController<RecordingAlerter, InMemoryLedger, BreakGlassService<RecordingAlerter>>;
 
 fn controller() -> (Controller, VerifyingKey) {
     let (vk, sk) = FipsSig::new(ALG).keypair(&mut SeedRng(5)).unwrap();
