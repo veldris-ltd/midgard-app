@@ -333,8 +333,12 @@ naming files on that runner, all outside the job's workspace:
 | `MIDGARD_BIFROST_KEYSTORE_PATH` | the Bifrost admission keystore (ML-DSA-65) |
 | `MIDGARD_BIFROST_REGISTRY_PATH` | the Bifrost registry directory |
 | `MIDGARD_ALLOWED_SIGNERS_PATH` | the runner's own copy of `deploy/trust/allowed_signers`, which release tags are verified against |
+| `MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE` | the passphrase the release keystore's root is wrapped under, a secret of its own |
+| `MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE` | the passphrase the admission keystore's root is wrapped under, a secret of its own |
 
-On GitHub these are repository secrets; on GitLab, CI/CD variables. The public halves
+On GitHub these are repository secrets; on GitLab, CI/CD variables. None of this needs a
+forge: the same release runs on one machine with `bash tools/ci/run.sh release-offline
+<tag>` ([PKI.md, "Releasing without a forge"](../ops/PKI.md#releasing-without-a-forge)). The public halves
 are committed as `deploy/trust/release-trust.pub` and `deploy/trust/bifrost-trust.pub`,
 beside `deploy/trust/model-signing.pub`, the model-signing key's public half. The
 preflight (`release-preflight`) refuses a release unless all three are committed, each
@@ -393,7 +397,9 @@ the tag against the runner's copy of `deploy/trust/allowed_signers` before anyth
 built or signed, so an unsigned tag, a lightweight tag, one signed by a key not listed
 there, one whose commit changed the signers, or one on a commit not on `main` starts no
 release. `tag-release.sh` checks that the commit is the tip of `origin/main` on your
-side; the runner checks again, since a tag can be pushed by other means.
+side; the runner checks again, since a tag can be pushed by other means. With no forge
+to fetch `main` from, `MIDGARD_MAINLINE_REF=refs/heads/main` names it locally for both
+scripts, and the tag is released with `run.sh release-offline` instead of a push.
 
 Because the gate record names the commit it gated, the order is: merge to `main`; run
 the gate on that commit and record it (see "The gate record"); write the numbers sheet;

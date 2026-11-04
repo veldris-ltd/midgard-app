@@ -27,7 +27,11 @@ called() {
 
 github_jobs() { called "$GITHUB_DIR"/*.yml; }
 gitlab_jobs() { called "$GITLAB_FILE"; }
-defined_jobs() { bash tools/ci/run.sh names | sort -u; }
+# Jobs that exist to be run by hand where there is no pipeline, so neither pipeline
+# calls them: release-offline runs, on one machine, the jobs the release pipeline runs
+# (docs/ops/PKI.md, "Releasing without a forge"). [VLD-ANB-MIDGARD-0035]
+BY_HAND_ONLY="release-offline"
+defined_jobs() { bash tools/ci/run.sh names | grep -vxF -e "$BY_HAND_ONLY" | sort -u; }
 
 # Lines that run something other than run.sh. Setup that only a CI system can do —
 # checking out, caching, fetching an artefact, installing a shell into a bare image —

@@ -13,7 +13,11 @@
 #   - carries an SSH signature that git verifies, from a key listed for the namespace
 #     "git" in the allowed-signers file (below);
 #   - points at the commit checked out, when the checkout is a commit and not a branch;
-#   - points at a commit on main: an ancestor of origin/main, fetched afresh.
+#   - points at a commit on main: an ancestor of origin/main, fetched afresh where a
+#     forge can be reached. No forge is needed: where there is none, or it is offline,
+#     MIDGARD_MAINLINE_REF names the local ref that is main (refs/heads/main), and that
+#     ref stands for it (docs/ops/PKI.md, "Releasing without a forge"). A pipeline may
+#     not set it, so there main is always the remote's.
 #
 # The allowed-signers file is git's format (ssh-keygen(1), "ALLOWED SIGNERS"): one
 # `<principal> namespaces="git" <key type> <public key>` per line, published by the key
@@ -104,17 +108,22 @@ if [ -n "$head" ] && [ "$head" != "$target" ]; then
 fi
 
 # On main: an ancestor of origin/main as the remote has it now. When the fetch cannot be
-# made (a checkout that keeps no credentials), the main the job's own checkout fetched
-# moments ago stands in for it; with neither, the tag is refused.
+# made (a checkout that keeps no credentials, or no forge at all), the main this
+# checkout already has stands in for it; with none, the tag is refused. Without a forge
+# MIDGARD_MAINLINE_REF names main locally and nothing is fetched.
 if [ "$ancestry" = 1 ]; then
-    GIT_TERMINAL_PROMPT=0 git fetch --quiet --no-tags origin '+refs/heads/main:refs/remotes/origin/main' 2>/dev/null ||
-        ci_warning "verify-tag: could not fetch main from origin; checking against the origin/main this checkout fetched"
-    git rev-parse --verify --quiet refs/remotes/origin/main >/dev/null ||
-        fail "there is no origin/main here to check $tag against" \
-            "Check out with the full history (fetch-depth: 0), or let this job fetch main."
-    git merge-base --is-ancestor "$target" refs/remotes/origin/main ||
-        fail "the tagged commit is not on main: ${target:0:12} is not an ancestor of origin/main" \
-            "A release is tagged on main as pushed; merge first (docs/dev/CI.md, \"Cutting the tag\")."
+    if [ -n "${MIDGARD_MAINLINE_REF:-}" ] && [ "$(ci_platform)" != local ]; then
+        fail "MIDGARD_MAINLINE_REF is for releases made without a forge; a pipeline checks the tag against main as the remote has it"
+    fi
+    refresh_mainline "verify-tag"
+    main="$(mainline_ref)"
+    git rev-parse --verify --quiet "$main" >/dev/null ||
+        fail "there is no $main here to check $tag against" \
+            "Check out with the full history (fetch-depth: 0), or let this job fetch main." \
+            "Without a forge, name main locally: MIDGARD_MAINLINE_REF=refs/heads/main (docs/ops/PKI.md, \"Releasing without a forge\")."
+    git merge-base --is-ancestor "$target" "$main" ||
+        fail "the tagged commit is not on main: ${target:0:12} is not an ancestor of $main" \
+            "A release is tagged on main; merge first (docs/dev/CI.md, \"Cutting the tag\")."
     where=", on main"
 fi
 

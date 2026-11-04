@@ -67,7 +67,8 @@ release-tag|host|the release tag is annotated, signed, and verifies against depl
 release|toolchain|gate every binary, admit each to Bifrost, account for all of them
 release-images|host|build the verify-before-run images from the gated binaries
 release-bundle|toolchain|pack the signed air-gap bundle
-release-publish|host|attach the release to a draft pre-release
+release-publish|host|publish the release: a draft pre-release on the forge, or with no forge a local directory with SHA256SUMS
+release-offline|host|the whole release, in order, with no forge: release-offline <tag>
 shell-audit|host|build one client shell and audit it on this runner: shell-audit <shell> <release>
 shell-audit-gate|host|every shell has a fresh passing audit record: shell-audit-gate <release>
 '
@@ -502,8 +503,28 @@ job_release_preflight() { bash tools/ci/release-preflight.sh; }
 # A release is built from a signed tag, verified here before anything is built or signed.
 job_release_tag() { bash tools/ci/verify-tag.sh "$@"; }
 
+# The tag a release run here is for: the one named, or the release tag on the commit
+# checked out. Empty when there is none.
+release_tag_here() {
+    local tag="${1:-${MIDGARD_RELEASE_TAG:-$(ci_tag)}}"
+    [ -n "$tag" ] || tag="$(git tag --points-at HEAD --list 'v*' | head -n 1)"
+    echo "$tag"
+}
+
 job_release() {
-    local mounts
+    local mounts tag
+    # In a pipeline the preflight job has verified the tag, from a checkout of main. With
+    # no forge nothing has, so the signed tag is verified here, on the host, before
+    # anything is signed: a release is never made from an unverified commit.
+    # [VLD-ANB-MIDGARD-0035]
+    if [ "$(ci_platform)" = local ]; then
+        tag="$(release_tag_here "${1:-}")"
+        [ -n "$tag" ] || {
+            ci_error "release: no release tag on this commit; make one with tools/ci/tag-release.sh"
+            exit 1
+        }
+        bash tools/ci/verify-tag.sh "$tag" || exit 1
+    fi
     signing_mounts mounts
     in_toolchain "${mounts[@]}" -- bash tools/ci/release.sh
 }
@@ -563,7 +584,7 @@ job_release_bundle() {
 # a draft release. GitLab has no draft state, so the files go to the project's package
 # registry and the release entry is left for a person to create.
 job_release_publish() {
-    local tag out=target/release-out files=() f
+    local tag out="${MIDGARD_RELEASE_OUT:-target/release-out}" files=() f
     tag="${1:-${MIDGARD_PUBLISH_TAG:-$(ci_tag)}}"
     [[ "$tag" =~ ^v[0-9A-Za-z.+-]+$ ]] || [ -z "$tag" ] || {
         ci_error "release-publish: $tag is not a release tag"
@@ -612,10 +633,63 @@ job_release_publish() {
             echo "release-publish: ${#files[@]} file(s) are in the package registry as midgard/${tag#v}; no release entry was created"
             ;;
         *)
-            ci_error "release-publish: only runs in a pipeline; ${#files[@]} file(s) are ready in $out"
-            exit 1
+            # No forge: the same files, in a directory of their own with a checksum list,
+            # ready to carry to the enclosure or to put wherever releases are kept. Nothing
+            # here needs a forge, and an existing release is never written over.
+            # [VLD-ANB-MIDGARD-0035]
+            local dest="${MIDGARD_RELEASE_DIR:-target/release-publish}/$tag"
+            [ ! -e "$dest" ] || {
+                ci_error "release-publish: $dest already exists; a published release is never replaced"
+                exit 1
+            }
+            local staging="$dest.partial"
+            rm -rf "$staging"
+            mkdir -p "$staging"
+            for f in "${files[@]}"; do
+                [ ! -e "$staging/$(basename "$f")" ] || {
+                    ci_error "release-publish: two files are named $(basename "$f")"
+                    rm -rf "$staging"
+                    exit 1
+                }
+                cp -p "$f" "$staging/"
+            done
+            (cd "$staging" && find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\n' | LC_ALL=C sort |
+                xargs sha256sum > SHA256SUMS)
+            mv "$staging" "$dest"
+            echo "release-publish: ${#files[@]} file(s) and SHA256SUMS are in $dest"
             ;;
     esac
+}
+
+# The whole release, in the order a forge's release pipeline runs it, on this machine
+# and with no forge: the signed tag, the preflight, the gate record, the numbers, the
+# JavaScript build, the gate and admission, the images, the air-gap bundle, and a local
+# publish. Each step stops the rest when it fails. The signing runner's settings are
+# the same as a pipeline's (docs/ops/PKI.md, "Releasing without a forge").
+# [VLD-ANB-MIDGARD-0035]
+job_release_offline() {
+    local tag
+    tag="$(release_tag_here "${1:-}")"
+    [ -n "$tag" ] || {
+        ci_error "release-offline: name the tag, or check out the commit it is on (make it with tools/ci/tag-release.sh)"
+        exit 1
+    }
+    [ "$(git rev-parse --verify --quiet "refs/tags/$tag^{commit}" || true)" = "$(git rev-parse HEAD)" ] || {
+        ci_error "release-offline: check out $tag first; a release is built from exactly the commit its tag names"
+        exit 1
+    }
+    local step
+    for step in "release-tag $tag" release-preflight "gate-record --release" numbers js-build \
+        "release $tag" release-images release-bundle "release-publish $tag"; do
+        ci_group "release-offline: $step"
+        # shellcheck disable=SC2086 # a step and its arguments, split on purpose
+        bash tools/ci/run.sh $step || {
+            ci_error "release-offline: $step failed; the release stops here"
+            exit 1
+        }
+        ci_endgroup
+    done
+    echo "release-offline: $tag is released, with no forge involved"
 }
 
 # Build one shell and audit it on this runner, writing the record the release gate

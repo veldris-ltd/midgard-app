@@ -139,9 +139,10 @@ the handoff. Neither has a default; a runner missing either fails the release.
 
 ## HSM key ceremony (CA + release signing key)
 
-**To hold the ceremony, use Dvalin** (veldris-ltd/dvalin-app), and
-follow its `docs/KEY_CEREMONY.md`, step by step; [KEY_CEREMONY.md](KEY_CEREMONY.md)
-here says what it leaves in this repository. It is a guided Windows (and Linux) app
+**To hold the ceremony**, follow [KEY_CEREMONY.md](KEY_CEREMONY.md): with this
+repository's own tools ("Your own ceremony"), or with Dvalin where you have it (Veldris's
+ceremony application, available internally and to enterprise customers, with its own
+procedure). Neither needs a forge or a network. Dvalin is a guided Windows (and Linux) app
 that generates the release signing key (ML-DSA-87) and the Bifrost admission key
 (ML-DSA-65) into sealed keystores outside the checkout, proves each signs and verifies
 through this repository's `attest`, writes `deploy/trust/release-trust.pub`,
@@ -317,7 +318,9 @@ here if any is missing:
    `release-managers` team as its only bypass actor; on GitLab, `v*` protected so that
    only maintainers create one (`tools/ci/gitlab-rules.sh`). Nothing on the runner can
    check this; the exported ruleset evidence in `docs/compliance/evidence/` is the
-   record.
+   record. Without a forge there is no ruleset, and the control is `allowed_signers`
+   itself: list only release managers' keys in it, and `verify-tag.sh` refuses a tag
+   anyone else signed ([Releasing without a forge](#releasing-without-a-forge)).
 
 If any is absent, the preflight **fails closed**, so a release never ships unsigned,
 unscanned, or from a half-provisioned runner.
@@ -348,6 +351,54 @@ release, admission and model-signing keystores, a mesh service's identity keysto
 `keys/*.keystore` and a mesh service's `<service>.audit.keystore` seal the enclosure's
 data (identity directory, ledgers, object store) under their root, so `rotate-root`
 refuses them; re-initialise the enclosure instead. [VLD-ANB-MIDGARD-0007]
+
+## Releasing without a forge
+
+No step of signing or releasing Midgard needs a forge: not a connection to one, not
+its API, not a signature or a "verified" mark it makes, and not its pipeline. GitHub
+and GitLab are conveniences that run the same scripts; with neither, or with both
+offline, a release is made on one machine. [VLD-ANB-MIDGARD-0035]
+
+**The machine** is provisioned as the signing runner above, without the forge's runner:
+the toolchain image built locally (`bash tools/ci/run.sh toolchain`), the vendored
+advisory database, pnpm with its store filled (or the `js-build` output carried in),
+each keystore and passphrase file outside every checkout, and its own copy of
+`allowed_signers` outside the checkout. Set the same variables a pipeline maps from its
+secrets, and name `main` locally, since there is no remote to fetch it from:
+
+```bash
+export MIDGARD_SIGNING_KEYSTORE=/srv/midgard-keys/release.keystore
+export MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE=/srv/midgard-passphrases/release.passphrase
+export MIDGARD_BIFROST_KEYSTORE=/srv/midgard-keys/bifrost.keystore
+export MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE=/srv/midgard-passphrases/bifrost.passphrase
+export MIDGARD_BIFROST_REGISTRY=/srv/midgard-registry
+export MIDGARD_ALLOWED_SIGNERS_PATH=/srv/midgard-trust/allowed_signers
+export MIDGARD_MAINLINE_REF=refs/heads/main
+```
+
+**Then**, on the commit to release, checked out:
+
+```bash
+bash tools/ci/tag-release.sh                    # the signed tag, verified
+bash tools/ci/run.sh release-offline v1.2.3     # every release step, in order
+```
+
+`release-offline` runs what the release workflow's `preflight`, `release` and `publish`
+jobs run, in their order: the tag gate, the preflight, the gate record, the numbers, the
+JavaScript build, the gate and Bifrost admission, the images, the air-gap bundle, and a
+local publish. It stops at the first step that fails. The publish writes every file a
+forge would attach, with a `SHA256SUMS`, to `target/release-publish/<tag>/` (or
+`MIDGARD_RELEASE_DIR`), and never writes over a release already there. Carry that
+directory to the enclosure; `mg-verify` checks each binary against
+`deploy/trust/release-trust.pub` there, again with no forge.
+
+**What changes without one.** `MIDGARD_MAINLINE_REF` names `main` locally, so "on
+`main`" means the `main` of that machine: keep it the reviewed history. Who may release
+is decided by `allowed_signers` alone (item 8 above). There is no runner to clean up
+after a job, so the preflight's job-completed hook check does not apply: use a machine
+for nothing else, and remove the checkout's `target/` when the release has been copied
+off. Publishing the same release on a forge later is optional: push the tag and let its
+pipeline run, or attach the published directory's files by hand.
 
 ## Tested
 
