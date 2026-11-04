@@ -50,13 +50,13 @@ log, which is always valid and re-verifiable).
 
 **Do not** back up decrypted state. In the software tier the custody root is inside
 each keystore file (`keys/*.keystore`, and each mesh service's identity directory),
-wrapped under that keystore's passphrase (keystore format version 2: PBKDF2-HMAC-SHA256,
+wrapped under that keystore's passphrase (keystore format version 3: PBKDF2-HMAC-SHA256,
 600,000 iterations, AES-256-GCM). **The passphrase is the recovery secret**: hold it in
 the secret store, separately from the data backup and from the keystores, and never
 copy it into the backup vault. The backup is useless to an attacker without it, which
 is the point; without it the stores cannot be unsealed either, so a lost passphrase is
 a lost enclosure. Custody today is this software keystore and nothing else: no HSM or
-TPM holds the root. Keystore version 2 can also seal the root to an external trust root
+TPM holds the root. Keystore version 3 can also seal the root to an external trust root
 (`RootWrap::External`, tested against the SoftHSM stand-in), which is the GA target but
 is not yet wired to a device; once it is, the root is recovered from the device instead
 (see [DR_PLAN.md](DR_PLAN.md) step 4). [VLD-ANB-MIDGARD-0007] [VLD-ANB-MIDGARD-0087]

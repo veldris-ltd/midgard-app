@@ -1,15 +1,18 @@
-//! WP-50: `mg-admin keystore migrate|verify`, driving the real binary. A version 1
-//! keystore (custody root in the clear), as an earlier release wrote, is refused by
-//! every reader with the migrate hint; `keystore migrate` converts it in place to
-//! version 2 under the passphrase, keeping the key, and `keystore verify` then unlocks
-//! it. An enclosure upgraded from an earlier build is migrated the same way before
-//! `mesh upgrade` (the compose `init` does this). With no passphrase source, mg-admin
-//! refuses and names both. AC-50.2, AC-50.3, AC-50.4. `[VLD-ANB-MIDGARD-0007]`
+//! WP-50: `mg-admin keystore migrate|verify|rotate-root`, driving the real binary. A
+//! version 1 keystore (custody root in the clear) or version 2 keystore (header not
+//! authenticated), as an earlier release wrote, is refused by every reader with the
+//! migrate hint; `keystore migrate` converts it in place to version 3 under the
+//! passphrase, keeping the key, and `keystore verify` then unlocks it. An enclosure
+//! upgraded from an earlier build is migrated the same way before `mesh upgrade` (the
+//! compose `init` does this). `keystore rotate-root` gives a keystore whose root seals
+//! nothing else a new root, and refuses one whose root seals an enclosure's data. With
+//! no passphrase source, mg-admin refuses and names both. AC-50.2, AC-50.3, AC-50.4.
+//! `[VLD-ANB-MIDGARD-0007]`
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
-use attest::keystore::test_support::{encode_v1, root_secret_bytes, test_passphrase};
+use attest::keystore::test_support::{encode_v1, encode_v2, root_secret_bytes, test_passphrase};
 use attest::keystore::{format_version, VERSION};
 use attest::{Keystore, RootWrap};
 use http_gateway::state_dir::StateDir;
@@ -52,13 +55,17 @@ fn contains(haystack: &[u8], needle: &[u8]) -> bool {
     haystack.windows(needle.len()).any(|w| w == needle)
 }
 
-/// Rewrite a version 2 keystore on disk as the version 1 file an earlier release
-/// would have written for the same keys.
+/// Rewrite a current keystore on disk as the version 1 file an earlier release would
+/// have written for the same keys.
 fn downgrade_to_v1(path: &Path) -> Vec<u8> {
-    let keystore = Keystore::read(path, &RootWrap::Passphrase(&test_passphrase())).unwrap();
+    let keystore = read_test(path);
     let v1 = encode_v1(&keystore);
     std::fs::write(path, &v1).unwrap();
     root_secret_bytes(&keystore)
+}
+
+fn read_test(path: &Path) -> Keystore {
+    Keystore::read(path, &RootWrap::Passphrase(&test_passphrase())).unwrap()
 }
 
 /// AC-50.3: a version 1 file migrates in place, keeps its key and loses its root
@@ -85,7 +92,7 @@ fn migrate_then_verify_round_trip() {
     let migrated = mg_admin(&["keystore", "migrate", "--keystore", &path_arg]);
     assert!(migrated.status.success(), "{}", stderr(&migrated));
     assert!(stdout(&migrated).contains("destroy every other copy"));
-    assert!(!dir.join("release.keystore.v2").exists());
+    assert!(!dir.join("release.keystore.v3").exists());
 
     let bytes = std::fs::read(&path).unwrap();
     assert_eq!(format_version(&bytes), Some(VERSION));
@@ -113,13 +120,195 @@ fn migrate_then_verify_round_trip() {
     let out = stdout(&verified);
     assert!(out.contains("release-key-1"), "{out}");
     assert!(out.contains("ML-DSA-87"), "{out}");
-    assert!(out.contains("format version: 2"), "{out}");
+    assert!(out.contains("format version: 3"), "{out}");
     assert!(out.contains("unlocks: yes"), "{out}");
 
     let again = mg_admin(&["keystore", "migrate", "--keystore", &path_arg]);
     assert!(again.status.success(), "{}", stderr(&again));
     assert!(stdout(&again).contains("nothing changed"));
     assert_eq!(std::fs::read(&path).unwrap(), bytes);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A version 2 keystore, as the previous release wrote, is refused by readers and
+/// migrates in place to version 3: the same root, the same key.
+// [AC-50.3] [VLD-ANB-MIDGARD-0007]
+#[test]
+fn a_version_2_keystore_migrates_in_place() {
+    let dir = scratch("migrate-v2");
+    let path = dir.join("release.keystore");
+    let original = Keystore::generate("release-key-1", kms::RELEASE_SIG_ALG, &mut OsRng).unwrap();
+    std::fs::write(&path, encode_v2(&original)).unwrap();
+    let path_arg = path.display().to_string();
+
+    let refused = mg_admin(&["keystore", "verify", "--keystore", &path_arg]);
+    assert_eq!(refused.status.code(), Some(1), "{}", stderr(&refused));
+    assert!(
+        stderr(&refused).contains("keystore migrate"),
+        "{}",
+        stderr(&refused)
+    );
+
+    let migrated = mg_admin(&["keystore", "migrate", "--keystore", &path_arg]);
+    assert!(migrated.status.success(), "{}", stderr(&migrated));
+    assert!(stdout(&migrated).contains("to keystore version 3"));
+    let bytes = std::fs::read(&path).unwrap();
+    assert_eq!(format_version(&bytes), Some(VERSION));
+    let reread = read_test(&path);
+    assert_eq!(root_secret_bytes(&reread), root_secret_bytes(&original));
+    assert_eq!(
+        reread.into_signing_root().unwrap().verifying_key(),
+        &original.verifying_key
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `keystore rotate-root` on a release keystore, after migrating it from version 1:
+/// a new custody root, the same signing key and verifying key, recorded in the
+/// enclosure's audit ledger when --state-dir is given.
+// [AC-50.3] [VLD-ANB-MIDGARD-0007]
+#[test]
+fn rotate_root_gives_a_new_root_and_keeps_the_key() {
+    let dir = scratch("rotate");
+    let state = StateDir::new(dir.join("state"));
+    let state_arg = state.root().display().to_string();
+    assert!(mg_admin(&["init", "--state-dir", &state_arg])
+        .status
+        .success());
+    let path = dir.join("release.keystore");
+    let original = Keystore::generate("release-key-1", kms::RELEASE_SIG_ALG, &mut OsRng).unwrap();
+    std::fs::write(&path, encode_v1(&original)).unwrap();
+    let path_arg = path.display().to_string();
+
+    // A version 1 file is migrated first: rotate-root reads only the current format.
+    let early = mg_admin(&["keystore", "rotate-root", "--keystore", &path_arg]);
+    assert_eq!(early.status.code(), Some(1), "{}", stderr(&early));
+    assert!(
+        stderr(&early).contains("keystore migrate"),
+        "{}",
+        stderr(&early)
+    );
+    let migrated = mg_admin(&["keystore", "migrate", "--keystore", &path_arg]);
+    assert!(migrated.status.success(), "{}", stderr(&migrated));
+    let before = read_test(&path);
+
+    let rotated = mg_admin(&[
+        "keystore",
+        "rotate-root",
+        "--keystore",
+        &path_arg,
+        "--state-dir",
+        &state_arg,
+    ]);
+    assert!(rotated.status.success(), "{}", stderr(&rotated));
+    assert!(
+        stdout(&rotated).contains("rotated the custody root"),
+        "{}",
+        stdout(&rotated)
+    );
+    assert!(!dir.join("release.keystore.rotated").exists());
+
+    let after = read_test(&path);
+    assert_eq!(after.key_id, "release-key-1");
+    assert_ne!(after.root_key_id(), before.root_key_id(), "a new root id");
+    assert_ne!(
+        root_secret_bytes(&after),
+        root_secret_bytes(&original),
+        "a new root"
+    );
+    let (after, before) = (
+        after.into_signing_root().unwrap(),
+        before.into_signing_root().unwrap(),
+    );
+    assert_eq!(
+        after.verifying_key(),
+        &original.verifying_key,
+        "the same verifying key"
+    );
+    assert_eq!(
+        after.expose_signing_key().expose(),
+        before.expose_signing_key().expose(),
+        "the same signing key"
+    );
+    // The rotation was recorded, and the enclosure still opens.
+    let listed = mg_admin(&["user", "list", "--state-dir", &state_arg]);
+    assert!(listed.status.success(), "{}", stderr(&listed));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `keystore rotate-root` refuses a keystore whose root seals an enclosure's data: a
+/// state directory's keystores and a mesh service's audit keystore, even when copied
+/// elsewhere, and changes nothing. A mesh identity keystore is allowed.
+// [AC-50.3] [VLD-ANB-MIDGARD-0007]
+#[test]
+fn rotate_root_refuses_a_keystore_that_seals_data() {
+    let dir = scratch("rotate-refused");
+    let state = StateDir::new(dir.join("state"));
+    let state_arg = state.root().display().to_string();
+    assert!(mg_admin(&["init", "--state-dir", &state_arg])
+        .status
+        .success());
+    let out = dir.join("svc");
+    let out_arg = out.display().to_string();
+    let mesh = |command: &str| {
+        mg_admin(&[
+            "mesh",
+            command,
+            "--state-dir",
+            &state_arg,
+            "--service",
+            "svc",
+            "--roles",
+            "inference-server",
+            "--out",
+            &out_arg,
+        ])
+    };
+    let issued = mesh("issue");
+    assert!(issued.status.success(), "{}", stderr(&issued));
+    // The audit keystore, copied under another name, is still refused by its key id.
+    let copied = dir.join("copy.keystore");
+    std::fs::copy(state.audit_keystore(), &copied).unwrap();
+
+    for keystore in [
+        state.idp_keystore(),
+        state.audit_keystore(),
+        out.join("svc.audit.keystore"),
+        copied,
+    ] {
+        let before = std::fs::read(&keystore).unwrap();
+        let refused = mg_admin(&[
+            "keystore",
+            "rotate-root",
+            "--keystore",
+            &keystore.display().to_string(),
+        ]);
+        assert_eq!(refused.status.code(), Some(1), "{}", keystore.display());
+        assert!(
+            stderr(&refused).contains("re-initialise the enclosure instead"),
+            "{}",
+            stderr(&refused)
+        );
+        assert_eq!(std::fs::read(&keystore).unwrap(), before, "unchanged");
+    }
+
+    // The identity keystore seals nothing but its key: rotated, it holds the same
+    // certified key, and the service directory still upgrades.
+    let identity = out.join("svc.keystore");
+    let vk = read_test(&identity).verifying_key;
+    let rotated = mg_admin(&[
+        "keystore",
+        "rotate-root",
+        "--keystore",
+        &identity.display().to_string(),
+    ]);
+    assert!(rotated.status.success(), "{}", stderr(&rotated));
+    assert_eq!(read_test(&identity).verifying_key, vk);
+    let upgraded = mesh("upgrade");
+    assert!(upgraded.status.success(), "{}", stderr(&upgraded));
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -201,10 +390,10 @@ fn init_and_mesh_issue_create_private_key_directories() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// The in-place upgrade path (6a9b34e) meets version 1 keystores: an enclosure and a
-/// service directory an earlier build wrote are refused until migrated, and once every
-/// keystore is migrated, `mesh upgrade` and the state directory work as before, with
-/// the same keys. `[VLD-ANB-MIDGARD-0007]` [MG-SEC-02]
+/// The in-place upgrade path (6a9b34e) meets earlier keystores: an enclosure and a
+/// service directory an earlier build wrote, in version 1 or version 2, are refused
+/// until migrated, and once every keystore is migrated, `mesh upgrade` and the state
+/// directory work as before, with the same keys. `[VLD-ANB-MIDGARD-0007]` [MG-SEC-02]
 #[test]
 fn an_enclosure_from_an_earlier_build_is_migrated_then_upgraded() {
     let dir = scratch("upgrade");
@@ -237,8 +426,23 @@ fn an_enclosure_from_an_earlier_build_is_migrated_then_upgraded() {
         out.join("svc.audit.keystore"),
     ];
     let roots: Vec<Vec<u8>> = keystores.iter().map(|k| downgrade_to_v1(k)).collect();
+    // And the identity keystore as the previous release left it: version 2, the root
+    // wrapped but the header not authenticated.
+    let identity_v1 = std::fs::read(&keystores[2]).unwrap();
+    let passphrase = test_passphrase();
+    let wrap = RootWrap::Passphrase(&passphrase);
+    let identity_v3 = attest::keystore::migrate(&identity_v1, &wrap, &mut OsRng).unwrap();
+    std::fs::write(
+        &keystores[2],
+        encode_v2(&Keystore::decode(&identity_v3, &wrap).unwrap()),
+    )
+    .unwrap();
+    assert_eq!(
+        format_version(&std::fs::read(&keystores[2]).unwrap()),
+        Some(2)
+    );
     let identity_vk = Keystore::decode(
-        &attest::keystore::migrate_v1(
+        &attest::keystore::migrate(
             &std::fs::read(&keystores[2]).unwrap(),
             &RootWrap::Passphrase(&test_passphrase()),
             &mut OsRng,

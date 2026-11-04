@@ -153,6 +153,7 @@ fn call(gw: &DurableGateway, method: &str, path: &str, body: &str, token: &str) 
             body: body.into(),
             authorization: (!token.is_empty()).then(|| format!("Bearer {token}")),
             origin: None,
+            forwarded_for: None,
         },
         NOW,
     )

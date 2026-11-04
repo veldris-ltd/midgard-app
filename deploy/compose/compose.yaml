@@ -12,7 +12,7 @@
 # `init` runs first: it creates the enclosure (issuer and audit keys) and issues every
 # mesh workload its identity. Each mesh service mounts only its own identity volume.
 # The gateway mounts core-state, which holds the enclosure's keys/ (the issuer and audit
-# keystores, passphrase-wrapped since keystore format version 2): the gateway is the
+# keystores, passphrase-wrapped since keystore format version 3): the gateway is the
 # enclosure, and signs and unseals as it. Compose is for development and evaluation
 # only; a production deployment provisions identities from key custody
 # (deploy/helm/midgard/README.md). [VLD-ANB-MIDGARD-0018]

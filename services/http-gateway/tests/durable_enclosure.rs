@@ -314,6 +314,7 @@ fn a_gateway_over_a_durable_enclosure_serves_connection_threads() {
                             body: String::new(),
                             authorization: None,
                             origin: None,
+                            forwarded_for: None,
                         },
                         NOW,
                     )

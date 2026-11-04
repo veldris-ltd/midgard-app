@@ -35,8 +35,8 @@ pub use federation::{
 pub use idp::{Idp, IssueError, IDP_SIG_ALG};
 pub use mesh_ca::{CaError, CertStatus, IssuedCert, MeshCa};
 pub use mfa::{
-    AuthAssertion, ClientData, TotpSecret, WebAuthnCredential, WebAuthnError, WebAuthnPolicy,
-    PASSKEY_SIG_ALG,
+    AuthAssertion, ClientData, ClientDataParser, TotpSecret, WebAuthnCredential, WebAuthnError,
+    WebAuthnPolicy, PASSKEY_SIG_ALG,
 };
 pub use oidc::jwks_json;
 pub use password::{

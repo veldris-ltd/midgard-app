@@ -325,17 +325,29 @@ unscanned, or from a half-provisioned runner.
 **Custody today is software.** The keystores are files: the signing key sealed under
 an ML-KEM-1024 root, and the root wrapped under an operator passphrase with
 PBKDF2-HMAC-SHA256 (600,000 iterations, a fresh 32-byte salt) and AES-256-GCM, bound to
-the key id (keystore format version 2, `crypto/attest/src/keystore.rs`). The file
+the whole header: the key id, the verifying key and the root public key (keystore format
+version 3, `crypto/attest/src/keystore.rs`). Whoever can write the file but lacks the
+passphrase cannot swap the verifying key or the root public key: the root no longer
+unwraps, and the unsealed signing key must sign under the stored verifying key. The file
 alone, or a backup of it, does not yield the root; the file and its passphrase
 together are the key, so keep them in separate secrets. The format also takes a root
 sealed to an external `kms::TrustRoot` (`RootWrap::External`), the seam an HSM or TPM
 slots into, tested against the SoftHSM stand-in. The HSM path above (keys generated
 on-device, never exportable) is the GA target and is not wired in: signing from a
 PKCS#11 token needs a signer behind the same custody seam. Keystores written before
-format version 2 hold the root in the clear; every reader refuses them, `mg-admin
-keystore migrate` converts each once, and every other copy of the old file (backups,
-volumes, Secrets) must then be destroyed. Where a version 1 copy may have been exposed,
-re-initialise rather than migrate: migration keeps the same root. [VLD-ANB-MIDGARD-0007]
+format version 2 hold the root in the clear, and version 2 keystores do not authenticate
+their header; every reader refuses both, `mg-admin keystore migrate` converts each once
+to version 3, and every other copy of the old file (backups, volumes, Secrets) must then
+be destroyed. Migration keeps the same root, so where a version 1 copy may have been
+exposed, give the keystore a new root with `mg-admin keystore rotate-root --keystore
+FILE [--state-dir DIR]`: the signing key and verifying key are kept, so trust anchors
+stay valid, and the new file must unseal the same key under a different root before it
+replaces the old one. That is for keystores whose root seals nothing but their own key:
+release, admission and model-signing keystores, a mesh service's identity keystore
+(`<service>.keystore`) and an administrator's passkey. A state directory's
+`keys/*.keystore` and a mesh service's `<service>.audit.keystore` seal the enclosure's
+data (identity directory, ledgers, object store) under their root, so `rotate-root`
+refuses them; re-initialise the enclosure instead. [VLD-ANB-MIDGARD-0007]
 
 ## Tested
 
