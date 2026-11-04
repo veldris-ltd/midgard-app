@@ -48,6 +48,17 @@ CONTRIBUTING.md for the version policy.
   [VLD-ANB-MIDGARD-0094] [VLD-ANB-MIDGARD-0023]
 
 ### Security
+- **A tagged release is handed its keystore passphrase files.** [VLD-ANB-MIDGARD-0007]
+  `run.sh`, `release.sh` and the preflight need `MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE`
+  and `MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE`, but no workflow set them, so a release
+  stopped at its preflight however the key ceremony went. The `preflight` and `release`
+  jobs in `release.yml` now map both from runner secrets of the same names, the names
+  `docs/ops/PKI.md` gives; on GitLab they are CI/CD variables of those names, which the
+  release jobs (extending `.signing`) receive as they are. Only the paths are mapped,
+  and `run.sh` still mounts each file read-only. The preflight's message for a missing
+  passphrase now names that secret, not `..._PASSPHRASE_FILE_PATH`. `workflows.test.sh`
+  fails if a job that opens a keystore loses either mapping, and
+  `release-preflight.test.sh` covers a missing, absent or in-workspace passphrase file.
 - **The Heimdall, Forge, Bifrost and admin bridges no longer default to
   UNCLASSIFIED.** `MimirOptionProvider`, `MimirSuggester`, `MimirAdvisor` and
   `MimirCopilot` take the caller's posture in `new(inference, marking)`;

@@ -22,12 +22,20 @@
 #   4. compares what the registry holds for this version with the manifest. An artefact
 #      that was gated and is not there, or is there and was not gated, fails the release.
 #
-# A real release reads, and has no default for:
+# A real release reads, and has no default for (the runner secrets they come from are
+# in brackets; docs/ops/PKI.md, "Signing runner"):
 #   MIDGARD_SIGNING_KEYSTORE   the release signing keystore (ML-DSA-87)
+#                              [MIDGARD_SIGNING_KEYSTORE_PATH]
 #   MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE  the passphrase its root is wrapped under
+#                              [MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE]
 #   MIDGARD_BIFROST_KEYSTORE   the Bifrost admission keystore (ML-DSA-65)
+#                              [MIDGARD_BIFROST_KEYSTORE_PATH]
 #   MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE  the passphrase its root is wrapped under
+#                              [MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE]
 #   MIDGARD_BIFROST_REGISTRY   the Bifrost artefact registry directory
+#                              [MIDGARD_BIFROST_REGISTRY_PATH]
+# Each passphrase file is a secret of its own, mounted read-only like its keystore and
+# never printed.
 # and the pinned anchors deploy/trust/release-trust.pub and deploy/trust/bifrost-trust.pub
 # (MIDGARD_TRUST_ANCHORS and MIDGARD_BIFROST_ANCHOR name others).
 #
