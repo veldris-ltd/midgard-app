@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use agent_runtime::{
     AssembledPrompt, AssemblyConfig, AssemblyError, Boundary, GuardVerdict, InputGuardrail, Layers,
-    Pipeline, SelfDefending, TokenCounter, WordCounter,
+    MarkedItem, Pipeline, SelfDefending, TokenCounter, WordCounter,
 };
 use oag_retriever::{Grounding, GroundingFact};
 
@@ -44,9 +44,9 @@ fn layers<'a>(g: &'a Grounding, memory: Vec<String>, user: &'a str) -> Layers<'a
         output_contract: CONTRACT,
         policy: POLICY.to_string(),
         grounding: g,
-        memory,
+        memory: memory.into_iter().map(|m| MarkedItem::new(m, 0)).collect(),
         tools: vec![TOOL.to_string()],
-        history: vec!["earlier turn about the case".to_string()],
+        history: vec![MarkedItem::new("earlier turn about the case", 0)],
         user_message: user,
     }
 }

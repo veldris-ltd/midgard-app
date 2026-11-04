@@ -84,7 +84,7 @@ grep -q '"bypass_actors": \[{ "actor_id": 4242, "actor_type": "Team", "bypass_mo
     fail "the only bypass actor for tag creation is the release-managers team: $creation"
 
 immutable="$(payload "release tags are immutable")"
-for rule in deletion non_fast_forward update; do
+for rule in required_signatures deletion non_fast_forward update; do
     grep -q "{ \"type\": \"$rule\" }" <<<"$immutable" || fail "the immutable tag ruleset has $rule: $immutable"
 done
 grep -q '"bypass_actors": \[\]' <<<"$immutable" && ! grep -q creation <<<"$immutable" &&

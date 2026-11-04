@@ -6,7 +6,7 @@
 //! JSON completion the adapter already parses. Any failure surfaces as
 //! [`AssistError::Suggest`], so Forge's non-AI features are untouched. [DD-6]
 
-use mimir_bridge::{ClassificationLevel, Inference, InferenceRequest, Marking, WorkloadClass};
+use mimir_bridge::{Inference, InferenceRequest, Marking, WorkloadClass};
 
 use crate::error::AssistError;
 use crate::prompt::AssembledPrompt;
@@ -22,15 +22,18 @@ pub struct MimirSuggester<I: Inference> {
 
 impl<I: Inference> MimirSuggester<I> {
     /// A suggester over `inference` (default "operations" purpose, transform-sized budget).
-    pub fn new(inference: I) -> Self {
+    ///
+    /// `marking` is the marking of what this product renders into the prompt: the
+    /// caller's posture (level and compartments), which bounds everything the
+    /// product can show it and so everything the prompt can hold. It has no
+    /// default, so every caller says. Mimir refuses a marking its model is not
+    /// accredited for. [VLD-ANB-MIDGARD-0034]
+    pub fn new(inference: I, marking: Marking) -> Self {
         Self {
             inference,
             purpose: "operations".into(),
             max_tokens: 512,
-            marking: Marking {
-                level: ClassificationLevel::UNCLASSIFIED,
-                compartments: Default::default(),
-            },
+            marking,
         }
     }
     /// Override the declared purpose of access.
@@ -41,15 +44,6 @@ impl<I: Inference> MimirSuggester<I> {
     /// Override the generation budget.
     pub fn with_max_tokens(mut self, max_tokens: u32) -> Self {
         self.max_tokens = max_tokens;
-        self
-    }
-    /// Declare the marking of what this product renders into the prompt: the
-    /// caller's posture (level and compartments), which bounds everything the
-    /// product can show it and so everything the prompt can hold. Mimir refuses a
-    /// marking its model is not accredited for. Default: UNCLASSIFIED, no
-    /// compartments. [VLD-ANB-MIDGARD-0034]
-    pub fn with_marking(mut self, marking: Marking) -> Self {
-        self.marking = marking;
         self
     }
 }
@@ -77,7 +71,9 @@ impl<I: Inference> TransformSuggester for MimirSuggester<I> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mimir_bridge::{text_completion, BridgeError, Completion};
+    use mimir_bridge::{
+        text_completion, BridgeError, ClassificationLevel, Compartment, Completion,
+    };
     use std::cell::RefCell;
 
     struct FakeInference {
@@ -101,13 +97,21 @@ mod tests {
         }
     }
 
+    /// The caller's posture each bridge is built with.
+    fn posture() -> Marking {
+        Marking {
+            level: ClassificationLevel::SECRET,
+            compartments: [Compartment("ALPHA".into())].into_iter().collect(),
+        }
+    }
+
     #[test]
     fn live_suggester_returns_model_text_and_routes_fast_transform() {
         let fake = FakeInference {
             reply: Ok(text_completion("{\"ops\":[]}")),
             seen: RefCell::new(None),
         };
-        let suggester = MimirSuggester::new(fake);
+        let suggester = MimirSuggester::new(fake, posture());
         assert_eq!(suggester.suggest(&prompt()).unwrap(), "{\"ops\":[]}");
         let seen = suggester.inference.seen.borrow();
         let req = seen.as_ref().unwrap();
@@ -124,7 +128,7 @@ mod tests {
             reply: Err(BridgeError::Transport("down".into())),
             seen: RefCell::new(None),
         };
-        let suggester = MimirSuggester::new(fake);
+        let suggester = MimirSuggester::new(fake, posture());
         assert!(matches!(
             suggester.suggest(&prompt()),
             Err(AssistError::Suggest(_))
@@ -133,28 +137,14 @@ mod tests {
 
     // [VLD-ANB-MIDGARD-0034]
     #[test]
-    fn the_request_carries_the_declared_marking() {
-        let fake = || FakeInference {
+    fn the_declared_marking_is_carried() {
+        let fake = FakeInference {
             reply: Ok(text_completion("{}")),
             seen: RefCell::new(None),
         };
-        // Undeclared, the prompt is marked UNCLASSIFIED with no compartments.
-        let bare = MimirSuggester::new(fake());
-        bare.suggest(&prompt()).unwrap();
-        let seen = bare.inference.seen.borrow();
-        let marking = &seen.as_ref().unwrap().marking;
-        assert_eq!(marking.level, ClassificationLevel::UNCLASSIFIED);
-        assert!(marking.compartments.is_empty());
-
-        let posture = Marking {
-            level: ClassificationLevel::SECRET,
-            compartments: [mimir_bridge::Compartment("ALPHA".into())]
-                .into_iter()
-                .collect(),
-        };
-        let marked = MimirSuggester::new(fake()).with_marking(posture.clone());
-        marked.suggest(&prompt()).unwrap();
-        let seen = marked.inference.seen.borrow();
-        assert_eq!(seen.as_ref().unwrap().marking, posture);
+        let suggester = MimirSuggester::new(fake, posture());
+        suggester.suggest(&prompt()).unwrap();
+        let seen = suggester.inference.seen.borrow();
+        assert_eq!(seen.as_ref().unwrap().marking, posture());
     }
 }

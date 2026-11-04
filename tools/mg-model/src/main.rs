@@ -13,7 +13,7 @@
 //!
 //! `keygen` writes `DIR/model-signing.keystore`, the ML-DSA-65 signing key sealed at
 //! rest, and `DIR/model-signing.pub`, the trust key `mimir-server --model-trust` reads.
-//! It never overwrites either. The keystore is format version 2: its custody root is
+//! It never overwrites either. The keystore is format version 3: its custody root is
 //! wrapped under the keystore passphrase, and keygen refuses to run without one. Keep the
 //! keystore in staging; only the public key goes into the enclosure, through the pinned
 //! trust set (`deploy/trust/model-signing.pub`, published by the key ceremony), never

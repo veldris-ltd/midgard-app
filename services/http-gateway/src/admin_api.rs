@@ -109,6 +109,41 @@ const MAX_COMPARTMENT_LEN: usize = 32;
 /// not say which. [VLD-ANB-MIDGARD-0008]
 const SECOND_FACTOR_REQUIRED: &str = "second factor required";
 
+/// The one administration operation a challenge is issued for, named in the challenge
+/// request's `purpose` and signed with its nonce, so an assertion answering a challenge
+/// for one operation is refused by every other. [VLD-ANB-MIDGARD-0020]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AdminPurpose {
+    /// `POST /api/v1/admin/enrolments`.
+    Request,
+    /// `POST /api/v1/admin/enrolments/approve`.
+    Approve,
+    /// `POST /api/v1/admin/enrolments/reject`.
+    Reject,
+    /// `POST /api/v1/admin/enrolments/list`.
+    List,
+}
+
+impl AdminPurpose {
+    /// Every purpose, in the order the refusal names them.
+    pub const ALL: [AdminPurpose; 4] = [Self::Request, Self::Approve, Self::Reject, Self::List];
+
+    /// The name a challenge request gives, and the passkey signs.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Request => "request",
+            Self::Approve => "approve",
+            Self::Reject => "reject",
+            Self::List => "list",
+        }
+    }
+
+    /// The purpose named `name`, if it is one.
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|p| p.as_str() == name)
+    }
+}
+
 /// A refusal, already mapped to its HTTP status.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdminError {
@@ -233,10 +268,12 @@ impl ParkedEnrolment {
     }
 }
 
-/// A challenge waiting to be answered, by the administrator it was issued to.
+/// A challenge waiting to be answered, by the administrator it was issued to, for the
+/// one operation it was issued for. [VLD-ANB-MIDGARD-0020]
 #[derive(Debug, Clone)]
 struct Challenge {
     admin: AdminId,
+    purpose: AdminPurpose,
     expires: u64,
 }
 
@@ -324,13 +361,15 @@ impl AdminControl {
     }
 
     /// `POST /api/v1/admin/challenge` — a fresh, single-use challenge to sign, bound to
-    /// the administrator the body `{"admin": ...}` names. [VLD-ANB-MIDGARD-0020]
+    /// the administrator and the operation the body `{"admin": ..., "purpose": ...}`
+    /// names: `request`, `approve`, `reject` or `list`. The purpose is signed with the
+    /// nonce, and the challenge answers that operation only. [VLD-ANB-MIDGARD-0020]
     pub fn challenge(&mut self, body: &Json, now: u64) -> Result<Json, AdminError> {
         let at = "the challenge request";
         only_keys(
             object(body, at).map_err(|e| refuse(400, e))?,
             at,
-            &["admin"],
+            &["admin", "purpose"],
         )
         .map_err(|e| refuse(400, e))?;
         let admin = AdminId(
@@ -338,6 +377,9 @@ impl AdminControl {
                 .map_err(|e| refuse(400, e))?
                 .to_string(),
         );
+        let named = text(body, at, "purpose").map_err(|e| refuse(400, e))?;
+        let purpose = AdminPurpose::from_name(named)
+            .ok_or_else(|| refuse(400, "\"purpose\" must be request, approve, reject or list"))?;
 
         self.challenges.retain(|_, c| c.expires > now);
         let challenge = AdminChallenge::sample(&mut OsRng);
@@ -364,12 +406,14 @@ impl AdminControl {
                 challenge.nonce,
                 Challenge {
                     admin,
+                    purpose,
                     expires: now.saturating_add(CHALLENGE_TTL),
                 },
             );
         }
         Ok(Json::obj(vec![
             ("challenge", Json::s(&hex_encode(&challenge.nonce))),
+            ("purpose", Json::s(purpose.as_str())),
             ("expiresIn", Json::Int(CHALLENGE_TTL as i64)),
         ]))
     }
@@ -394,8 +438,11 @@ impl AdminControl {
     /// `POST /api/v1/admin/enrolments` — request that a principal be enrolled. The
     /// request is parked for a second administrator; `enrolled` says whether the
     /// subject already exists, which refuses it, and `catalogue` the roles and
-    /// purposes it may grant. Returns the response and the requester, for the
-    /// gateway's own audit record.
+    /// purposes it may grant. Only the body's shape is checked before the
+    /// administrator proves themselves; the catalogue and the directory are consulted
+    /// after the step-up, so a caller who cannot sign in learns nothing of either.
+    /// Returns the response and the requester, for the gateway's own audit record.
+    /// [VLD-ANB-MIDGARD-0002]
     pub fn request_enrolment(
         &mut self,
         body: &Json,
@@ -417,19 +464,20 @@ impl AdminControl {
             ],
         )
         .map_err(|e| refuse(400, e))?;
-        let principal = parse_principal(body.get("principal"), catalogue)?;
+        let principal = parse_principal(body.get("principal"))?;
         let justification = text(body, at, "justification")
             .map_err(|e| refuse(400, e))?
             .to_string();
 
         let scope = ResourceScope::all(IAM_SCOPE);
-        let (admin, challenge, assertion) = self.proof(body, now)?;
+        let (admin, challenge, assertion) = self.proof(body, AdminPurpose::Request, now)?;
         let mut session = self.sign_in(body, &admin, &challenge, &assertion, now)?;
         self.passkeys
             .authenticator()
             .step_up(&mut session, scope.clone(), &challenge, &assertion, now)
             .map_err(|e| refuse(401, e.to_string()))?;
 
+        within_catalogue(&principal, catalogue)?;
         if enrolled(&principal.subject) {
             return Err(refuse(
                 409,
@@ -504,9 +552,10 @@ impl AdminControl {
     /// identity directory with credentials minted here, the activation code hashed
     /// with `hasher`. The response carries the activation code, once, and never the
     /// second factor. An enrolment approved before but not written is completed by
-    /// its original approver without a second privilege approval. Returns the
-    /// response, the approver and the subject, for the gateway's own audit record.
-    /// [VLD-ANB-MIDGARD-0002] [VLD-ANB-MIDGARD-0066]
+    /// its original approver without a second privilege approval. Whether `id` is
+    /// waiting is told only to an administrator who has re-authenticated and is
+    /// qualified to approve. Returns the response, the approver and the subject, for
+    /// the gateway's own audit record. [VLD-ANB-MIDGARD-0002] [VLD-ANB-MIDGARD-0066]
     pub fn approve_enrolment(
         &mut self,
         body: &Json,
@@ -527,12 +576,10 @@ impl AdminControl {
         let named = text(body, at, "subject")
             .map_err(|e| refuse(400, e))?
             .to_string();
-        if !self.parked.contains_key(&id) {
-            return Err(refuse(404, format!("no enrolment {id} is waiting")));
-        }
 
-        let (admin, session) = self.reauthenticated(body, now)?;
-        let enrolment = self.parked.get(&id).cloned().expect("checked above");
+        let (admin, session) = self.reauthenticated(body, AdminPurpose::Approve, now)?;
+        self.require_enrolment_capability(&admin, now)?;
+        let enrolment = self.waiting(&id)?.clone();
         let subject = enrolment.subject.clone();
         if named != subject {
             return Err(refuse(409, format!("{id} enrols {subject}, not {named}")));
@@ -554,7 +601,6 @@ impl AdminControl {
                         ),
                     ));
                 }
-                self.require_enrolment_capability(&admin, now)?;
             }
             _ => self
                 .privilege
@@ -600,9 +646,10 @@ impl AdminControl {
 
     /// `POST /api/v1/admin/enrolments/reject` — an administrator qualified to approve
     /// enrolments, other than the requester, rejects a parked enrolment with a reason.
-    /// It is settled and purged, and the subject may be requested again. Returns the
-    /// response, the administrator and the subject, for the gateway's own audit
-    /// record. [VLD-ANB-MIDGARD-0066]
+    /// It is settled and purged, and the subject may be requested again. As at
+    /// approval, whether `id` is waiting is told only to a qualified administrator who
+    /// has re-authenticated. Returns the response, the administrator and the subject,
+    /// for the gateway's own audit record. [VLD-ANB-MIDGARD-0066]
     pub fn reject_enrolment(
         &mut self,
         body: &Json,
@@ -625,12 +672,10 @@ impl AdminControl {
         if reason.is_empty() {
             return Err(refuse(400, "\"reason\" must say why"));
         }
-        if !self.parked.contains_key(&id) {
-            return Err(refuse(404, format!("no enrolment {id} is waiting")));
-        }
 
-        let (admin, session) = self.reauthenticated(body, now)?;
+        let (admin, session) = self.reauthenticated(body, AdminPurpose::Reject, now)?;
         self.require_enrolment_capability(&admin, now)?;
+        let subject = self.waiting(&id)?.subject.clone();
         match self.privilege.service().state_of(&id) {
             // Rejected before, but the settlement was not recorded: settle it now.
             Some(ActionState::Rejected { .. }) => {}
@@ -639,7 +684,6 @@ impl AdminControl {
                 .reject(&session, &id, &reason, &now.to_string())
                 .map_err(|e| refuse(403, format!("{e:?}")))?,
         }
-        let subject = self.parked.get(&id).expect("checked above").subject.clone();
         self.settle(&id)
             .map_err(|e| refuse(500, format!("rejected, but not marked settled: {e}")))?;
 
@@ -666,7 +710,7 @@ impl AdminControl {
             &["admin", "challenge", "assertion", "totp"],
         )
         .map_err(|e| refuse(400, e))?;
-        let (admin, challenge, assertion) = self.proof(body, now)?;
+        let (admin, challenge, assertion) = self.proof(body, AdminPurpose::List, now)?;
         self.sign_in(body, &admin, &challenge, &assertion, now)?;
         let names = |values: &[String]| Json::Arr(values.iter().map(|v| Json::s(v)).collect());
         let rows = self
@@ -710,14 +754,15 @@ impl AdminControl {
         Ok(Json::obj(vec![("enrolments", Json::Arr(rows))]))
     }
 
-    /// Sign in the presenting administrator and re-authenticate them freshly: what an
-    /// approval or a rejection needs.
+    /// Sign in the presenting administrator and re-authenticate them freshly, with a
+    /// challenge issued for `purpose`: what an approval or a rejection needs.
     fn reauthenticated(
         &mut self,
         body: &Json,
+        purpose: AdminPurpose,
         now: u64,
     ) -> Result<(AdminId, AdminSession), AdminError> {
-        let (admin, challenge, assertion) = self.proof(body, now)?;
+        let (admin, challenge, assertion) = self.proof(body, purpose, now)?;
         let mut session = self.sign_in(body, &admin, &challenge, &assertion, now)?;
         self.passkeys
             .authenticator()
@@ -746,6 +791,14 @@ impl AdminControl {
         }
     }
 
+    /// The enrolment `id` parked, or a 404. Asked only once the caller has proved
+    /// themselves and is qualified, so the answer is no oracle. [VLD-ANB-MIDGARD-0066]
+    fn waiting(&self, id: &str) -> Result<&ParkedEnrolment, AdminError> {
+        self.parked
+            .get(id)
+            .ok_or_else(|| refuse(404, format!("no enrolment {id} is waiting")))
+    }
+
     /// Record `id` settled, then forget it.
     fn settle(&mut self, id: &str) -> Result<(), AuditError> {
         self.journal.append(&encode(id, None))?;
@@ -755,11 +808,13 @@ impl AdminControl {
 
     /// The admin, and the challenge and assertion they present, with the challenge
     /// consumed so it can never be answered twice. A challenge issued to another
-    /// administrator is refused like an unknown one, and consumed all the same.
+    /// administrator, or for another purpose than `purpose`, is refused like an unknown
+    /// one, and consumed all the same; the assertion must sign `purpose` with the nonce.
     /// [VLD-ANB-MIDGARD-0020]
     fn proof(
         &mut self,
         body: &Json,
+        purpose: AdminPurpose,
         now: u64,
     ) -> Result<(AdminId, AdminChallenge, WebAuthnAssertion), AdminError> {
         let admin = AdminId(
@@ -773,7 +828,7 @@ impl AdminControl {
                 .and_then(|b| b.try_into().ok())
                 .ok_or_else(|| refuse(400, "\"challenge\" must be 64 hex characters"))?;
         match self.challenges.remove(&nonce) {
-            Some(c) if c.expires > now && c.admin == admin => {}
+            Some(c) if c.expires > now && c.admin == admin && c.purpose == purpose => {}
             _ => return Err(refuse(401, "the challenge is unknown, used or expired")),
         }
 
@@ -797,7 +852,11 @@ impl AdminControl {
                 .map_err(|e| refuse(400, e))?,
             signature: Signature::new(PASSKEY_SIG_ALG, signature),
         };
-        Ok((admin, AdminChallenge::new(nonce), assertion))
+        Ok((
+            admin,
+            AdminChallenge::new(nonce).for_purpose(purpose.as_str()),
+            assertion,
+        ))
     }
 
     /// Sign the administrator in with both factors: the passkey assertion, then the
@@ -830,13 +889,12 @@ impl AdminControl {
     }
 }
 
-/// The principal an enrolment request describes, validated before anyone signs in.
-/// It carries no credential material: a password hash or TOTP secret is an unknown
-/// key, refused like any other. [VLD-ANB-MIDGARD-0002]
-fn parse_principal(
-    item: Option<&Json>,
-    catalogue: &RoleCatalogue,
-) -> Result<ParkedEnrolment, AdminError> {
+/// The principal an enrolment request describes, its shape checked before anyone
+/// signs in; what it grants is checked against the served policy by
+/// [`within_catalogue`] only once the requester has stepped up. It carries no
+/// credential material: a password hash or TOTP secret is an unknown key, refused like
+/// any other. [VLD-ANB-MIDGARD-0002]
+fn parse_principal(item: Option<&Json>) -> Result<ParkedEnrolment, AdminError> {
     let at = "the principal";
     let item = item.ok_or_else(|| refuse(400, "missing \"principal\""))?;
     only_keys(
@@ -874,24 +932,8 @@ fn parse_principal(
             }
         }
     };
-    // Only what the served policy names may be granted, and the refusal says what is.
-    let within = |key: &str, values: &[String], allowed: Vec<&str>| match values
-        .iter()
-        .find(|v| !allowed.contains(&v.as_str()))
-    {
-        None => Ok(()),
-        Some(unknown) => Err(refuse(
-            400,
-            format!(
-                "\"{key}\" may only name what the served policy names ({}), not \"{unknown}\"",
-                allowed.join(", ")
-            ),
-        )),
-    };
     let roles = list("roles", true)?;
-    within("roles", &roles, catalogue.roles().collect())?;
     let purposes = list("purposes", true)?;
-    within("purposes", &purposes, catalogue.purposes().collect())?;
     let compartments = list("compartments", false)?;
     if let Some(bad) = compartments.iter().find(|c| {
         c.is_empty()
@@ -914,6 +956,34 @@ fn parse_principal(
         compartments,
         purposes,
     })
+}
+
+/// Refuse a principal granted a role or purpose the served policy does not name; the
+/// refusal says what it does name. Told only to a requester who has stepped up.
+/// [VLD-ANB-MIDGARD-0002]
+fn within_catalogue(
+    principal: &ParkedEnrolment,
+    catalogue: &RoleCatalogue,
+) -> Result<(), AdminError> {
+    let within = |key: &str, values: &[String], allowed: Vec<&str>| match values
+        .iter()
+        .find(|v| !allowed.contains(&v.as_str()))
+    {
+        None => Ok(()),
+        Some(unknown) => Err(refuse(
+            400,
+            format!(
+                "\"{key}\" may only name what the served policy names ({}), not \"{unknown}\"",
+                allowed.join(", ")
+            ),
+        )),
+    };
+    within("roles", &principal.roles, catalogue.roles().collect())?;
+    within(
+        "purposes",
+        &principal.purposes,
+        catalogue.purposes().collect(),
+    )
 }
 
 // ---- parked-enrolment journal ----------------------------------------------------------

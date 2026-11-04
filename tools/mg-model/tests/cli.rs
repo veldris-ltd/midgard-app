@@ -272,7 +272,7 @@ fn verify_refuses_a_trust_file_inside_the_model_dir() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// `keygen` writes the model-signing key as a keystore version 2, its custody root
+/// `keygen` writes the model-signing key as a keystore version 3, its custody root
 /// wrapped under the keystore passphrase, read back through the same Keystore API; a
 /// wrong passphrase does not open it, and keygen refuses to run without a passphrase.
 /// [VLD-ANB-MIDGARD-0028] [VLD-ANB-MIDGARD-0007] [AC-66.5]
@@ -290,7 +290,7 @@ fn keygen_writes_keystore_v2_under_a_passphrase() {
     let path = keys.join("model-signing.keystore");
     let bytes = std::fs::read(&path).unwrap();
     assert_eq!(format_version(&bytes), Some(VERSION));
-    assert_eq!(VERSION, 2);
+    assert_eq!(VERSION, 3);
 
     let keystore = Keystore::read(&path, &RootWrap::Passphrase(&test_passphrase())).unwrap();
     assert_eq!(keystore.alg, model_server::VELDRIS_MODEL_SIG_ALG);

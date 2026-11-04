@@ -420,7 +420,7 @@ bash tools/ci/github-rules.sh --repo veldris-ltd/midgard-app --export docs/compl
 | Ruleset | On | Rules | Bypass |
 |---|---|---|---|
 | signed history | `refs/heads/main`, `refs/heads/dev` | `required_signatures`, `non_fast_forward`, `deletion`, `pull_request` | none |
-| release tags are immutable | `refs/tags/v*` | `deletion`, `non_fast_forward`, `update` | none |
+| release tags are immutable | `refs/tags/v*` | `required_signatures`, `deletion`, `non_fast_forward`, `update` | none |
 | release tags are created by release managers | `refs/tags/v*` | `creation` | the `release-managers` team (`Team`, `always`) |
 
 The `pull_request` rule takes a change to `main` or `dev` only through a pull request

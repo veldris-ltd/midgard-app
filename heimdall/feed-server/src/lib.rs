@@ -123,6 +123,9 @@ pub const REASON_OUT_OF_WINDOW: &str = "observed-at-out-of-window";
 pub const REASON_REPLAY: &str = "replay";
 /// The reason code a refusal for an observation with no sequence is audited with.
 pub const REASON_SEQUENCE_UNSET: &str = "sequence-unset";
+/// The reason code a refusal for an observation over the size or attribute bounds is
+/// audited with. Such a refusal replies `MALFORMED`. [VLD-ANB-MIDGARD-0017]
+pub const REASON_OVERSIZED: &str = "oversized";
 /// How many recent observation ids are remembered per feed for replay refusal.
 pub const REPLAY_RING_CAPACITY: usize = MAX_SEEN_PER_FEED;
 
@@ -490,6 +493,22 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
                 refusal("another-feed", &entity_key),
             );
         }
+        // The size and attribute bounds are checked before the replay guard records
+        // the sequence, so an oversized observation does not use it up and the feed can
+        // resend it at the same sequence once it fits. [VLD-ANB-MIDGARD-0017]
+        // [VLD-ANB-MIDGARD-0041]
+        let limits = self.state().limits();
+        if let Err(e) = limits.check_observation(&signed.observation) {
+            return self.refuse_as(
+                outcome::MALFORMED,
+                peer,
+                now,
+                "Ingest refused: oversized observation",
+                &feed,
+                &e,
+                refusal(REASON_OVERSIZED, &entity_key),
+            );
+        }
         // The gateway is per request, but the replay state it records into is the
         // service's, so sequences and seen ids persist across requests. The service's
         // own clock is the receipt time; the feed's `observed_at` is only accepted near
@@ -550,11 +569,6 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
                 );
             }
         };
-
-        let limits = self.state().limits();
-        if let Err(e) = limits.check_observation(verified.observation()) {
-            return self.reply(INGEST, outcome::MALFORMED, &e);
-        }
 
         // The feed's new sequence is saved before the observation is fused: after a
         // crash it is never admitted twice.
@@ -682,6 +696,21 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
         message: &str,
         audit: AuditContext,
     ) -> Vec<u8> {
+        self.refuse_as(outcome::DENIED, peer, now, action, feed, message, audit)
+    }
+
+    /// Record an ingest refusal in the ledger and reply with `code`.
+    #[allow(clippy::too_many_arguments)]
+    fn refuse_as(
+        &self,
+        code: u8,
+        peer: &WorkloadIdentity,
+        now: u64,
+        action: &str,
+        feed: &str,
+        message: &str,
+        audit: AuditContext,
+    ) -> Vec<u8> {
         let recorded = self.governance().record_event_with(
             &peer.id.0,
             action,
@@ -693,7 +722,7 @@ impl<S: LedgerStore + Send + 'static> FeedService<S> {
             Ok(_) => message.to_string(),
             Err(_) => format!("{message} (not audited)"),
         };
-        self.reply(INGEST, outcome::DENIED, &message)
+        self.reply(INGEST, code, &message)
     }
 
     /// The governance spine, staying usable after a panic elsewhere: a recovery from

@@ -97,6 +97,7 @@ fn request(method: &str, path: &str, query: &str, body: &str, token: Option<&str
         body: body.into(),
         authorization: token.map(|t| format!("Bearer {t}")),
         origin: None,
+        forwarded_for: None,
     }
 }
 

@@ -136,6 +136,14 @@ const MISTRAL_SPECIAL: &[&str] = &[
     "[/INST]",
     "[SYSTEM_PROMPT]",
     "[/SYSTEM_PROMPT]",
+    // The tool-calling tokens: a forged tool list, call or result is a role marker
+    // too. [VLD-ANB-MIDGARD-0060]
+    "[AVAILABLE_TOOLS]",
+    "[/AVAILABLE_TOOLS]",
+    "[TOOL_CALLS]",
+    "[TOOL_RESULTS]",
+    "[/TOOL_RESULTS]",
+    "[TOOL_CONTENT]",
 ];
 
 impl FamilyAdapter for MistralAdapter {

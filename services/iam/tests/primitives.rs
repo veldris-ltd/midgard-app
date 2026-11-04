@@ -4,9 +4,11 @@
 //! [NFR-SEC-2] [MG-SEC-11] [VLD-ANB-MIDGARD-0025] [VLD-ANB-MIDGARD-0084]
 #![cfg(feature = "backend-fips")]
 
+use iam::enc::{b64url, unb64url};
 use iam::mfa::{
     AuthAssertion, ClientData, WebAuthnCredential, WebAuthnError, WebAuthnPolicy, PASSKEY_SIG_ALG,
 };
+use std::cell::RefCell;
 use std::time::{Duration, Instant};
 
 use iam::{Argon2idHasher, PasswordHasher, Pbkdf2Hasher, TotpSecret, MIN_PBKDF2_ITERATIONS};
@@ -172,7 +174,7 @@ fn policy() -> WebAuthnPolicy {
 }
 
 /// An assertion `sk` signs over authenticator data with `flags` and `count`, and
-/// client data of `type_` for `challenge` at `origin`.
+/// the client-data JSON of `client_data`.
 fn assertion(
     cred: &WebAuthnCredential,
     sk: &SigningKey,
@@ -182,17 +184,40 @@ fn assertion(
 ) -> AuthAssertion {
     let provider = fips_provider();
     let sig = provider.sig_for(PASSKEY_SIG_ALG).unwrap();
-    let client_data_json =
-        WebAuthnCredential::client_data_json(&client_data.challenge, &client_data.origin);
+    let client_data_json = format!(
+        r#"{{"type":"{}","challenge":"{}","origin":"{}"}}"#,
+        client_data.type_,
+        b64url(&client_data.challenge),
+        client_data.origin
+    )
+    .into_bytes();
     let authenticator_data = cred.authenticator_data(flags, count);
     let payload = WebAuthnCredential::signed_payload(&authenticator_data, &client_data_json);
     AuthAssertion {
         credential_id: cred.credential_id.clone(),
         authenticator_data,
         client_data_json,
-        client_data,
         signature: sig.sign(sk, &payload).unwrap(),
     }
+}
+
+/// The edge's client-data parser, as far as these tests need one (`iam` has no JSON
+/// parser): the three fields in the order [`assertion`] writes them, nothing else.
+fn canonical(raw: &[u8]) -> Result<ClientData, String> {
+    let raw = std::str::from_utf8(raw).map_err(|e| e.to_string())?;
+    let rest = raw
+        .strip_prefix(r#"{"type":""#)
+        .and_then(|r| r.strip_suffix(r#""}"#))
+        .ok_or("not client data")?;
+    let (type_, rest) = rest
+        .split_once(r#"","challenge":""#)
+        .ok_or("no challenge")?;
+    let (challenge, origin) = rest.split_once(r#"","origin":""#).ok_or("no origin")?;
+    Ok(ClientData {
+        type_: type_.into(),
+        challenge: unb64url(challenge).ok_or("challenge is not base64url")?,
+        origin: origin.into(),
+    })
 }
 
 /// Client data of a `get` for `challenge` at `origin`, as the edge parses it.
@@ -213,34 +238,43 @@ fn webauthn_assertion_verifies_and_fails_closed() {
 
     let good = assertion(&cred, &sk, UP | UV, 1, get(CHALLENGE, ORIGIN));
     assert_eq!(
-        cred.verify_assertion(&provider, &policy(), CHALLENGE, &good),
+        cred.verify_assertion(&provider, &policy(), CHALLENGE, &good, &canonical),
         Ok(1),
         "a genuine assertion verifies and presents its counter"
     );
 
     // Wrong challenge → rejected.
     assert_eq!(
-        cred.verify_assertion(&provider, &policy(), b"different-challenge", &good),
+        cred.verify_assertion(
+            &provider,
+            &policy(),
+            b"different-challenge",
+            &good,
+            &canonical
+        ),
         Err(WebAuthnError::ChallengeMismatch)
     );
 
-    // Client data of another ceremony type → rejected.
-    let create = AuthAssertion {
-        client_data: ClientData {
+    // Client data of another ceremony type, signed as such → rejected.
+    let create = assertion(
+        &cred,
+        &sk,
+        UP | UV,
+        1,
+        ClientData {
             type_: "webauthn.create".into(),
             ..get(CHALLENGE, ORIGIN)
         },
-        ..good.clone()
-    };
+    );
     assert_eq!(
-        cred.verify_assertion(&provider, &policy(), CHALLENGE, &create),
+        cred.verify_assertion(&provider, &policy(), CHALLENGE, &create, &canonical),
         Err(WebAuthnError::BadClientData)
     );
 
     // User-present flag clear, re-signed so only the UP flag is at fault → rejected.
     let no_up = assertion(&cred, &sk, UV, 1, get(CHALLENGE, ORIGIN));
     assert_eq!(
-        cred.verify_assertion(&provider, &policy(), CHALLENGE, &no_up),
+        cred.verify_assertion(&provider, &policy(), CHALLENGE, &no_up, &canonical),
         Err(WebAuthnError::UserNotPresent)
     );
 
@@ -251,14 +285,76 @@ fn webauthn_assertion_verifies_and_fails_closed() {
         ..good.clone()
     };
     assert_eq!(
-        cred.verify_assertion(&provider, &policy(), CHALLENGE, &forged),
+        cred.verify_assertion(&provider, &policy(), CHALLENGE, &forged, &canonical),
         Err(WebAuthnError::BadSignature)
     );
 
     // The default policy names no origin, so nothing verifies until one is configured.
     assert_eq!(
-        cred.verify_assertion(&provider, &WebAuthnPolicy::default(), CHALLENGE, &good),
+        cred.verify_assertion(
+            &provider,
+            &WebAuthnPolicy::default(),
+            CHALLENGE,
+            &good,
+            &canonical
+        ),
         Err(WebAuthnError::OriginMismatch)
+    );
+}
+
+/// [AC-58.4] [VLD-ANB-MIDGARD-0084] The client data checked is read from the bytes the
+/// signature covers, by the caller's parser: it is handed exactly the signed
+/// `clientDataJSON`; client data signed for another origin is refused, and honest
+/// client data put in its place after signing fails the signature; bytes the parser
+/// refuses are bad client data. There is no other client data to supply.
+#[test]
+fn webauthn_client_data_is_read_from_the_signed_bytes() {
+    let provider = fips_provider();
+    let (cred, sk) = passkey(7);
+    let good = assertion(&cred, &sk, UP | UV, 1, get(CHALLENGE, ORIGIN));
+    let seen = RefCell::new(Vec::new());
+    let spy = |raw: &[u8]| {
+        seen.borrow_mut().push(raw.to_vec());
+        canonical(raw)
+    };
+    assert_eq!(
+        cred.verify_assertion(&provider, &policy(), CHALLENGE, &good, &spy),
+        Ok(1)
+    );
+    assert_eq!(
+        *seen.borrow(),
+        vec![good.client_data_json.clone()],
+        "the parser reads the signed bytes, once"
+    );
+
+    let phished = assertion(
+        &cred,
+        &sk,
+        UP | UV,
+        1,
+        get(CHALLENGE, "https://evil.example"),
+    );
+    assert_eq!(
+        cred.verify_assertion(&provider, &policy(), CHALLENGE, &phished, &canonical),
+        Err(WebAuthnError::OriginMismatch)
+    );
+    let swapped = AuthAssertion {
+        client_data_json: good.client_data_json.clone(),
+        ..phished
+    };
+    assert_eq!(
+        cred.verify_assertion(&provider, &policy(), CHALLENGE, &swapped, &canonical),
+        Err(WebAuthnError::BadSignature),
+        "client data that is not what was signed does not verify"
+    );
+
+    let garbled = AuthAssertion {
+        client_data_json: b"not client data".to_vec(),
+        ..good
+    };
+    assert_eq!(
+        cred.verify_assertion(&provider, &policy(), CHALLENGE, &garbled, &canonical),
+        Err(WebAuthnError::BadClientData)
     );
 }
 
@@ -276,7 +372,7 @@ fn webauthn_origin_mismatch_is_refused() {
         get(CHALLENGE, "https://evil.example"),
     );
     assert_eq!(
-        cred.verify_assertion(&provider, &policy(), CHALLENGE, &phished),
+        cred.verify_assertion(&provider, &policy(), CHALLENGE, &phished, &canonical),
         Err(WebAuthnError::OriginMismatch)
     );
     // The origin must match exactly, not by prefix.
@@ -288,7 +384,7 @@ fn webauthn_origin_mismatch_is_refused() {
         get(CHALLENGE, "https://console.enclosure.local.evil.example"),
     );
     assert_eq!(
-        cred.verify_assertion(&provider, &policy(), CHALLENGE, &lookalike),
+        cred.verify_assertion(&provider, &policy(), CHALLENGE, &lookalike, &canonical),
         Err(WebAuthnError::OriginMismatch)
     );
 }
@@ -302,7 +398,7 @@ fn webauthn_uv_is_required_by_policy() {
     let (cred, sk) = passkey(7);
     let unverified = assertion(&cred, &sk, UP, 1, get(CHALLENGE, ORIGIN));
     assert_eq!(
-        cred.verify_assertion(&provider, &policy(), CHALLENGE, &unverified),
+        cred.verify_assertion(&provider, &policy(), CHALLENGE, &unverified, &canonical),
         Err(WebAuthnError::UserNotVerified)
     );
     let lenient = WebAuthnPolicy {
@@ -310,7 +406,7 @@ fn webauthn_uv_is_required_by_policy() {
         ..policy()
     };
     assert_eq!(
-        cred.verify_assertion(&provider, &lenient, CHALLENGE, &unverified),
+        cred.verify_assertion(&provider, &lenient, CHALLENGE, &unverified, &canonical),
         Ok(1)
     );
 }
@@ -329,26 +425,26 @@ fn webauthn_sign_count_must_increase() {
     for count in [10, 5] {
         let replayed = assertion(&used, &sk, UP | UV, count, get(CHALLENGE, ORIGIN));
         assert_eq!(
-            used.verify_assertion(&provider, &policy(), CHALLENGE, &replayed),
+            used.verify_assertion(&provider, &policy(), CHALLENGE, &replayed, &canonical),
             Err(WebAuthnError::CounterRegression),
             "counter {count} is not past 10"
         );
     }
     let next = assertion(&used, &sk, UP | UV, 11, get(CHALLENGE, ORIGIN));
     assert_eq!(
-        used.verify_assertion(&provider, &policy(), CHALLENGE, &next),
+        used.verify_assertion(&provider, &policy(), CHALLENGE, &next, &canonical),
         Ok(11)
     );
 
     // An authenticator that keeps no counter presents 0 every time.
     let counterless = assertion(&cred, &sk, UP | UV, 0, get(CHALLENGE, ORIGIN));
     assert_eq!(
-        cred.verify_assertion(&provider, &policy(), CHALLENGE, &counterless),
+        cred.verify_assertion(&provider, &policy(), CHALLENGE, &counterless, &canonical),
         Ok(0)
     );
     // But once a counter has been seen, 0 is a regression.
     assert_eq!(
-        used.verify_assertion(&provider, &policy(), CHALLENGE, &counterless),
+        used.verify_assertion(&provider, &policy(), CHALLENGE, &counterless, &canonical),
         Err(WebAuthnError::CounterRegression)
     );
 }

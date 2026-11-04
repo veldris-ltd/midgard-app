@@ -5,15 +5,19 @@
 //! The object fabric, governance and audit routes are caller-scoped and live behind
 //! `SecuredGateway`; they are exercised end to end in `fabric_edge.rs`. [RC-37]
 //! A request must arrive whole within the head deadline. [VLD-ANB-MIDGARD-0004]
-//! [AC-31.2]
+//! [AC-31.2] `X-Forwarded-For` is read, bounded, and believed only from a trusted
+//! proxy. [VLD-ANB-MIDGARD-0005]
 
+use std::collections::BTreeSet;
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{IpAddr, TcpListener, TcpStream};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use http_gateway::data::State;
-use http_gateway::http::{read_request_within, Request};
+use http_gateway::http::{
+    forwarded_client, read_request_within, Incoming, Request, MAX_FORWARDED_FOR_BYTES,
+};
 use http_gateway::route;
 
 fn req(method: &str, path: &str, query: &str, body: &str) -> Request {
@@ -24,6 +28,7 @@ fn req(method: &str, path: &str, query: &str, body: &str) -> Request {
         body: body.to_string(),
         authorization: None,
         origin: None,
+        forwarded_for: None,
     }
 }
 
@@ -122,6 +127,75 @@ fn real_socket_round_trip() {
         !resp2.contains("Access-Control-Allow-Origin"),
         "no grant for foreign origin"
     );
+}
+
+/// Send `head` (and nothing more) to a fresh socket and read it back as the edge does.
+fn read_head(head: &[u8]) -> Incoming {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+    let (server, _) = listener.accept().unwrap();
+    client.write_all(head).unwrap();
+    read_request_within(&server, Duration::from_secs(5))
+        .unwrap()
+        .expect("a whole head")
+}
+
+#[test]
+fn x_forwarded_for_is_read_joined_and_bounded() {
+    // [VLD-ANB-MIDGARD-0005]
+    let Incoming::Request(req) = read_head(
+        b"POST /api/v1/login HTTP/1.1\r\nHost: edge\r\n\
+          X-Forwarded-For: 203.0.113.9\r\nx-forwarded-for: 198.51.100.7\r\n\r\n",
+    ) else {
+        panic!("the request is served");
+    };
+    assert_eq!(
+        req.forwarded_for.as_deref(),
+        Some("203.0.113.9, 198.51.100.7"),
+        "repeated lines are one list, in order"
+    );
+    let Incoming::Request(req) = read_head(b"GET /api/v1/health HTTP/1.1\r\n\r\n") else {
+        panic!("the request is served");
+    };
+    assert_eq!(req.forwarded_for, None);
+
+    let long = format!(
+        "GET /api/v1/health HTTP/1.1\r\nX-Forwarded-For: {}\r\n\r\n",
+        "1".repeat(MAX_FORWARDED_FOR_BYTES + 1)
+    );
+    let Incoming::Refused { response, .. } = read_head(long.as_bytes()) else {
+        panic!("an over-long X-Forwarded-For is refused");
+    };
+    assert_eq!(response.status, 400);
+}
+
+#[test]
+fn the_forwarded_client_is_the_rightmost_address_no_trusted_proxy_wrote() {
+    // [VLD-ANB-MIDGARD-0005]
+    let ip = |s: &str| s.parse::<IpAddr>().unwrap();
+    let proxies: BTreeSet<IpAddr> = [ip("10.0.0.1"), ip("10.0.0.2")].into();
+    for (header, client) in [
+        (Some("198.51.100.7"), Some("198.51.100.7")),
+        // The left is the client's own claim; the proxy appended the right.
+        (Some("203.0.113.1, 198.51.100.7"), Some("198.51.100.7")),
+        // Trusted hops are walked past.
+        (Some("198.51.100.7, 10.0.0.2"), Some("198.51.100.7")),
+        (Some(" 198.51.100.7:4711 ,10.0.0.2"), Some("198.51.100.7")),
+        (Some("[2001:db8::7]:443"), Some("2001:db8::7")),
+        (Some("::ffff:198.51.100.7"), Some("198.51.100.7")),
+        // An entry that is not an address stops the walk: nothing left of it is
+        // believed.
+        (Some("198.51.100.7, unknown"), None),
+        (Some("10.0.0.1, 10.0.0.2"), None),
+        (Some(""), None),
+        (None, None),
+    ] {
+        assert_eq!(
+            forwarded_client(header, &proxies),
+            client.map(ip),
+            "{header:?}"
+        );
+    }
 }
 
 #[test]

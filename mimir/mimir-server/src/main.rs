@@ -86,12 +86,15 @@
 //! `--state-dir`; there is no network control surface. Every `--reload-interval`
 //! seconds (default 60, at least 1) the service looks for the stop file `STOP` there
 //! and, for a model engine, re-reads the revocation list (`--revocation-file`, default
-//! `revoked.list` in `--state-dir`; no file revokes nothing; one artefact id per line,
-//! `#` comments) and `--model-trust`, and re-checks the manifest it verified at start-up
-//! against them (its signature and gates; the weights are not hashed again). While the
-//! stop file is present, inference is refused `SERVING_STOPPED`; while the model's id is
-//! revoked, or its manifest no longer verifies against the trust key (or either file
-//! cannot be read), it is refused `MODEL_REVOKED`. Either way `/readyz` reports
+//! `revoked.list` in `--state-dir`; one artefact id per line, `#` comments) and
+//! `--model-trust`, and re-checks the manifest it verified at start-up against them (its
+//! signature and gates; the weights are not hashed again). A deployment that has never
+//! had a revocation list revokes nothing; once the list has existed (at start-up or at a
+//! re-check since), its removal is treated as unreadable, so deleting it cannot undo the
+//! revocations it held. While the stop file is present, inference is refused
+//! `SERVING_STOPPED`; while the model's id is revoked, or its manifest no longer verifies
+//! against the trust key (or either file cannot be read, or the revocation list has been
+//! removed), it is refused `MODEL_REVOKED`. Either way `/readyz` reports
 //! `model-verified` not ready, each refusal is audited and counted in
 //! `inference_refused_total`, the log says `serving stopped` with the reason, and once
 //! the completions already admitted have returned (waiting at most `--infer-timeout`)
@@ -101,6 +104,7 @@
 use std::collections::BTreeSet;
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -261,19 +265,35 @@ struct ModelRecheck {
     manifest_bytes: Vec<u8>,
     trust_path: PathBuf,
     revocation_file: PathBuf,
+    /// Whether the revocation list has existed: at start-up, or at any re-check since.
+    /// Once it has, a missing list fails closed, so deleting it cannot undo every
+    /// revocation it held.
+    revocation_list_seen: AtomicBool,
     node: NodeProfile,
 }
 
 impl ModelRecheck {
     /// Why the model may no longer be served, if it may not. An unreadable or malformed
-    /// trust key or revocation list fails closed.
+    /// trust key or revocation list fails closed, and so does a revocation list that
+    /// existed and has been removed; a deployment that never had one revokes nothing.
     fn refusal(&self) -> Option<String> {
         let revoked = match std::fs::read_to_string(&self.revocation_file) {
-            Ok(text) => match parse_revocation_list(&text) {
-                Ok(revoked) => revoked,
-                Err(e) => return Some(format!("{}: {e}", self.revocation_file.display())),
-            },
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => BTreeSet::new(),
+            Ok(text) => {
+                self.revocation_list_seen.store(true, Ordering::SeqCst);
+                match parse_revocation_list(&text) {
+                    Ok(revoked) => revoked,
+                    Err(e) => return Some(format!("{}: {e}", self.revocation_file.display())),
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                if self.revocation_list_seen.load(Ordering::SeqCst) {
+                    return Some(format!(
+                        "the revocation list {} has been removed",
+                        self.revocation_file.display()
+                    ));
+                }
+                BTreeSet::new()
+            }
             Err(e) => {
                 return Some(format!(
                     "cannot read {}: {e}",
@@ -580,13 +600,18 @@ fn sidecar_backend(
         ("model_staged", staged.path().display().to_string()),
         ("sidecar", addr.to_string()),
     ];
+    let revocation_file = args
+        .get("revocation-file")
+        .map_or_else(|| state_dir.join(REVOCATION_FILE), PathBuf::from);
+    // Whether the list is there now: if it is, its later removal stops serving. A path
+    // that cannot be checked counts as present, so the re-check fails closed on it.
+    let revocation_list_seen = AtomicBool::new(!matches!(revocation_file.try_exists(), Ok(false)));
     let recheck = ModelRecheck {
         id: manifest.id.clone(),
         manifest_bytes: model.manifest_bytes,
         trust_path: trust_path.to_path_buf(),
-        revocation_file: args
-            .get("revocation-file")
-            .map_or_else(|| state_dir.join(REVOCATION_FILE), PathBuf::from),
+        revocation_file,
+        revocation_list_seen,
         node,
     };
     Ok((Arc::new(backend), staged, fields, recheck))

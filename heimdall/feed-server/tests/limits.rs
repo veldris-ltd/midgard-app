@@ -1,6 +1,7 @@
 //! The fed picture is bounded and every read of it fits the mesh frame cap: a flood
 //! of distinct entity keys is held to the entity cap by evicting stale tracks and
-//! then refused `picture-full` and audited; oversized attributes are malformed; a
+//! then refused `picture-full` and audited; oversized attributes are malformed,
+//! audited, and refused before the feed's sequence is used up; a
 //! picture read comes in pages the shipped analyst client can read; and hidden
 //! layers are left out unless asked for. In process, over an in-memory ledger and a
 //! scratch sealed picture. [FR-H-1] [FR-H-3] [RC-13] [VLD-ANB-MIDGARD-0017]
@@ -165,7 +166,22 @@ fn submit(
     // Every submission carries the next sequence, as a feed sequencer numbers them.
     // [VLD-ANB-MIDGARD-0041]
     static SEQUENCE: AtomicU64 = AtomicU64::new(1);
-    let observation = observation.with_sequence(SEQUENCE.fetch_add(1, Ordering::SeqCst));
+    submit_at(
+        service,
+        source,
+        observation,
+        SEQUENCE.fetch_add(1, Ordering::SeqCst),
+    )
+}
+
+/// Submit `observation` at `sequence`.
+fn submit_at(
+    service: &FeedService<audit_writer::InMemoryLedger>,
+    source: &Source,
+    observation: Observation,
+    sequence: u64,
+) -> (u8, String) {
+    let observation = observation.with_sequence(sequence);
     let signed = sign_observation(&FipsSig::new(IDP_SIG_ALG), &source.key, observation).unwrap();
     let response = service.ingest(
         &source.peer,
@@ -353,6 +369,37 @@ fn oversized_attributes_are_malformed() {
 
     let (picture, _) = page(&service, &analyst(), b"");
     assert_eq!(ids(&picture), ["MOST"], "nothing oversized was fused");
+
+    // Each refusal is audited.
+    let refusals = service
+        .audited_actions()
+        .iter()
+        .filter(|a| a.as_str() == "Ingest refused: oversized observation")
+        .count();
+    assert_eq!(refusals, 2, "both oversized observations are audited");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn an_oversized_observation_does_not_use_up_its_sequence() {
+    // The size check runs before the replay guard, so the feed can resend at the
+    // same sequence once the observation fits. [VLD-ANB-MIDGARD-0017]
+    // [VLD-ANB-MIDGARD-0041] [AC-44.4]
+    let dir = scratch("attrs-resend");
+    let (service, _) = service(&dir, PictureLimits::default());
+    let radar = source("radar-1");
+
+    let big = observation(&radar, "BIG", "air-track", 100)
+        .with_attr("note", Attr::Text("x".repeat(5_000)));
+    let (code, message) = submit_at(&service, &radar, big, 7);
+    assert_eq!(code, outcome::MALFORMED, "{message}");
+
+    let fits =
+        observation(&radar, "BIG", "air-track", 100).with_attr("note", Attr::Text("x".repeat(100)));
+    let (code, message) = submit_at(&service, &radar, fits, 7);
+    assert_eq!(code, outcome::ACCEPTED, "{message}");
+    let (picture, _) = page(&service, &analyst(), b"");
+    assert_eq!(ids(&picture), ["BIG"]);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
