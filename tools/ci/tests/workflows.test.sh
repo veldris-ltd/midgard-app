@@ -136,6 +136,19 @@ for var in $passphrases; do
         pass "GitLab: the header lists $var among the release runner's variables" ||
         fail "GitLab: the header lists $var among the release runner's variables"
 done
+# A release needs no forge: run.sh release-offline runs, on one machine, the same steps
+# in the same order as the release workflow's preflight, release and publish jobs, so
+# the two paths cannot drift apart. [VLD-ANB-MIDGARD-0035]
+want_steps="$(for job in preflight release publish; do job_runs "$workflows/release.yml" "$job"; done |
+    sed -n 's#^bash \(\.ci-trusted/\)\{0,1\}tools/ci/run\.sh \([a-z-]*\).*#\2#p' | tr '\n' ' ')"
+run_sh="$workflows/../../tools/ci/run.sh"
+# The list after `for step in`, split as the shell splits it; each step's first word.
+step_list="$(awk '/^job_release_offline\(\)/ { on = 1 } on && /for step in/ { s = 1 }
+    s { print } s && /; do/ { exit }' "$run_sh" | tr '\\\n' '  ' | sed 's/.*for step in//; s/; do.*//')"
+got_steps="$(xargs printf '%s\n' <<<"$step_list" | awk '{ print $1 }' | tr '\n' ' ')"
+[ -n "$want_steps" ] && [ "$got_steps" = "$want_steps" ] &&
+    pass "release-offline runs the release workflow's steps in its order: $got_steps" ||
+    fail "release-offline runs the release workflow's steps in its order: want '$want_steps', got '$got_steps'"
 
 if [ "$failures" -gt 0 ]; then
     echo "$failures failure(s)"

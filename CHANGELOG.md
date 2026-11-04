@@ -59,6 +59,21 @@ CONTRIBUTING.md for the version policy.
   passphrase now names that secret, not `..._PASSPHRASE_FILE_PATH`. `workflows.test.sh`
   fails if a job that opens a keystore loses either mapping, and
   `release-preflight.test.sh` covers a missing, absent or in-workspace passphrase file.
+- **A release needs no forge.** [VLD-ANB-MIDGARD-0035] Signing, releasing and
+  publishing Midgard no longer depend on GitHub or GitLab being reachable, or existing.
+  - `verify-tag.sh` and `tag-release.sh` check that a tag is on `main` without having to
+    fetch it: a failed fetch is a warning, and with no forge `MIDGARD_MAINLINE_REF`
+    (`refs/heads/main`) names `main` locally. A pipeline may not set it.
+  - `run.sh release`, run outside a pipeline, verifies the signed release tag itself
+    before anything is signed; in a pipeline the preflight job has already done so.
+  - `run.sh release-publish` outside a pipeline copies the release, and the gate run it
+    rests on, to `target/release-publish/<tag>/` (or `MIDGARD_RELEASE_DIR`) with a
+    `SHA256SUMS`, and never writes over a published release. It used to fail there.
+  - `run.sh release-offline <tag>` runs every release step in the release workflow's
+    order on one machine. `workflows.test.sh` fails if the two orders drift apart.
+  - `docs/ops/PKI.md` gains "Releasing without a forge". `docs/ops/KEY_CEREMONY.md`
+    describes a ceremony with this repository's own tools, with Dvalin as the
+    enterprise option; without a forge, `allowed_signers` alone decides who may release.
 - **The Heimdall, Forge, Bifrost and admin bridges no longer default to
   UNCLASSIFIED.** `MimirOptionProvider`, `MimirSuggester`, `MimirAdvisor` and
   `MimirCopilot` take the caller's posture in `new(inference, marking)`;
