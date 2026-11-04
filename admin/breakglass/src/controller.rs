@@ -12,9 +12,11 @@
 //! Both must hold their capability (`breakglass.request`, `breakglass.approve`) over
 //! the grant's scope in the identity directory, or nothing is issued. [MG-SEC-07]
 //!
-//! Review and close revoke the grant's capability before sealing their entry, so a
-//! grant that has been reviewed, or ended early, no longer elevates anyone even
-//! though its time-box has not run out. [VLD-ANB-MIDGARD-0055]
+//! Review and close revoke the grant's capability first, before anything that can
+//! fail: the store's journal write and the audit entry come after. A grant that has
+//! been reviewed, or ended early, no longer elevates anyone even though its time-box
+//! has not run out, and a storage or audit failure on the way leaves the access off,
+//! not on. Both can be retried. [VLD-ANB-MIDGARD-0055]
 //!
 //! In a deployment the store is the [`DurableBreakGlass`](crate::DurableBreakGlass)
 //! journal, so grants, closes, expiries and reviews survive a restart. The
@@ -123,9 +125,11 @@ impl<A: Alerter, S: LedgerStore, G: GrantStore<A>> BreakGlassController<A, S, G>
         Ok(expired)
     }
 
-    /// Record the mandatory post-hoc review, revoke the grant's capability, and seal
+    /// Revoke the grant's capability, record the mandatory post-hoc review, and seal
     /// a `breakglass-review` entry. A grant reviewed before its time-box runs out
-    /// stops elevating at once. [VLD-ANB-MIDGARD-0055]
+    /// stops elevating at once, even if the review cannot be recorded: the
+    /// revocation comes first and cannot fail, and a review whose write failed can
+    /// be retried. [VLD-ANB-MIDGARD-0055]
     pub fn review(
         &mut self,
         id: &str,
@@ -134,17 +138,21 @@ impl<A: Alerter, S: LedgerStore, G: GrantStore<A>> BreakGlassController<A, S, G>
         now: u64,
         ts: &str,
     ) -> Result<(), BreakGlassError> {
-        self.service.review(id, reviewer, note, now)?;
         self.authority.revoke(id);
+        self.service.review(id, reviewer, note, now)?;
         self.audit(reviewer, "breakglass-review", id, ts)?;
         Ok(())
     }
 
-    /// End a grant early: cut its time-box to `now` (via the store, so it enters
-    /// the review backlog at once and stays closed after a restart), revoke its
-    /// capability, and seal a
-    /// `breakglass-closed` entry whose actor is `closer`. The post-hoc review is
-    /// still required. [VLD-ANB-MIDGARD-0055]
+    /// End a grant early: revoke its capability, cut its time-box to `now` (via the
+    /// store, so it enters the review backlog at once and stays closed after a
+    /// restart), and seal a `breakglass-closed` entry whose actor is `closer`. The
+    /// post-hoc review is still required.
+    ///
+    /// The revocation comes first and cannot fail, so a journal or audit failure
+    /// leaves the grant unable to elevate, and the error says the close was not
+    /// recorded. Closing again is safe: a grant already closed at or before `now`
+    /// keeps its time-box, and the record is written again. [VLD-ANB-MIDGARD-0055]
     pub fn close(
         &mut self,
         id: &str,
@@ -152,8 +160,8 @@ impl<A: Alerter, S: LedgerStore, G: GrantStore<A>> BreakGlassController<A, S, G>
         now: u64,
         ts: &str,
     ) -> Result<(), BreakGlassError> {
-        self.service.close(id, now)?;
         self.authority.revoke(id);
+        self.service.close(id, now)?;
         self.audit(closer, "breakglass-closed", id, ts)?;
         Ok(())
     }

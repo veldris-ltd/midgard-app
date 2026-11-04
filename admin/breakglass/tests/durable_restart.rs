@@ -3,8 +3,9 @@
 //!
 //! So does ending a grant early, through the store or the controller, and the
 //! one-time expiry alert. A journal record whose time-box is longer than the
-//! four-hour cap is refused on boot rather than restored. [FR-AD-8]
-//! [VLD-ANB-MIDGARD-0055]
+//! four-hour cap is refused on boot rather than restored. A close or review whose
+//! journal write fails still ends the grant's elevation, and can be retried.
+//! [FR-AD-8] [VLD-ANB-MIDGARD-0055]
 
 mod common;
 
@@ -15,7 +16,10 @@ use admin_breakglass::{
     GrantRequest, RecordingAlerter, MAX_TTL_SECS,
 };
 use admin_identity::{AdminSession, IdentityDirectory, ROLE_IAM_ADMIN, ROLE_SECURITY_OFFICER};
-use audit_writer::{AuditWriter, InMemoryLedger, LedgerId, SealedJournal};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
+use audit_writer::{AuditError, AuditWriter, InMemoryLedger, LedgerId, SealedJournal, Sealer};
 use common::{directory, Admins, APPROVAL_MAX_AGE};
 use kms::{Kms, KmsSealer, SoftwareTrustRoot};
 use pqc_agility::backend::fips::{provider as fips_provider, FipsSig};
@@ -322,6 +326,140 @@ fn the_controllers_close_survives_a_restart() {
     // after a restart no one is elevated until a grant is issued again.
     assert!(c.service().is_active("bg-2", 1_500));
     assert!(!c.elevates("responder", "kms", "kms.key.rotate", 1_500));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A sealer that seals as [`sealer`] does until `fail` is set, then refuses: the
+/// journal's append fails as it would on a full or failing disk.
+struct FailingSealer {
+    inner: KmsSealer<SoftwareTrustRoot>,
+    fail: Arc<AtomicBool>,
+}
+
+impl Sealer for FailingSealer {
+    fn seal(&self, aad: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, AuditError> {
+        if self.fail.load(Ordering::SeqCst) {
+            return Err(AuditError::Store("no space left on device".into()));
+        }
+        self.inner.seal(aad, plaintext)
+    }
+    fn unseal(&self, aad: &[u8], sealed: &[u8]) -> Result<Vec<u8>, AuditError> {
+        self.inner.unseal(aad, sealed)
+    }
+}
+
+type FailingController =
+    BreakGlassController<RecordingAlerter, InMemoryLedger, DurableBreakGlass<RecordingAlerter>>;
+
+/// A controller over a journal at `path` whose writes fail while `fail` is set.
+fn failing_controller(path: &PathBuf, fail: &Arc<AtomicBool>) -> FailingController {
+    let sealer = FailingSealer {
+        inner: sealer(),
+        fail: fail.clone(),
+    };
+    let store = DurableBreakGlass::open(path, Box::new(sealer), RecordingAlerter::new()).unwrap();
+    let alg = SigId::MlDsa65;
+    let (vk, sk) = FipsSig::new(alg).keypair(&mut SeedRng(5)).unwrap();
+    let audit = AuditWriter::new(
+        InMemoryLedger::new(),
+        Box::new(FipsSig::new(alg)),
+        sk,
+        vk,
+        LedgerId("admin-breakglass".into()),
+    );
+    BreakGlassController::new(store, audit)
+}
+
+fn grant_one(c: &mut FailingController, id: &str) {
+    let (responder, officer, roles) = people();
+    c.grant(
+        &roles,
+        req(id, 3600),
+        &responder,
+        &officer,
+        APPROVAL_MAX_AGE,
+        "kms.key.rotate",
+        1_000,
+        "t0",
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_close_whose_journal_write_fails_still_ends_elevation() {
+    // [VLD-ANB-MIDGARD-0055] [RC-32]
+    let dir = scratch();
+    let path = dir.join("breakglass.journal");
+    let fail = Arc::new(AtomicBool::new(false));
+    let mut c = failing_controller(&path, &fail);
+    grant_one(&mut c, "bg-1");
+    assert!(c.elevates("responder", "kms", "kms.key.rotate", 1_100));
+
+    fail.store(true, Ordering::SeqCst);
+    let refused = c.close("bg-1", "duty-officer", 1_200, "t1");
+    assert!(
+        matches!(refused, Err(BreakGlassError::Io(_))),
+        "the close was not recorded, and says so: {refused:?}"
+    );
+    assert!(
+        !c.elevates("responder", "kms", "kms.key.rotate", 1_300),
+        "the access is off although the close was not recorded"
+    );
+
+    // Closing again, once the disk is back, records it: a close is idempotent.
+    fail.store(false, Ordering::SeqCst);
+    c.close("bg-1", "duty-officer", 1_400, "t2").unwrap();
+    assert_eq!(
+        c.service().get("bg-1").unwrap().expires_at,
+        1_200,
+        "the retry keeps the first close's time"
+    );
+    drop(c);
+    let reopened = open(&path);
+    assert_eq!(
+        reopened.service().state("bg-1", 1_500),
+        Some(BreakGlassState::Expired),
+        "the retried close is recovered"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_review_whose_journal_write_fails_still_ends_elevation_and_can_be_retried() {
+    // [VLD-ANB-MIDGARD-0055] [RC-32]
+    let dir = scratch();
+    let path = dir.join("breakglass.journal");
+    let fail = Arc::new(AtomicBool::new(false));
+    let mut c = failing_controller(&path, &fail);
+    grant_one(&mut c, "bg-1");
+
+    fail.store(true, Ordering::SeqCst);
+    let refused = c.review("bg-1", "security-officer", "justified", 1_200, "t1");
+    assert!(
+        matches!(refused, Err(BreakGlassError::Io(_))),
+        "{refused:?}"
+    );
+    assert!(
+        !c.elevates("responder", "kms", "kms.key.rotate", 1_300),
+        "the access is off although the review was not recorded"
+    );
+    assert!(
+        c.service().get("bg-1").unwrap().review.is_none(),
+        "an unrecorded review is not kept"
+    );
+
+    // The retry is accepted, not refused as already reviewed, and is recovered.
+    fail.store(false, Ordering::SeqCst);
+    c.review("bg-1", "security-officer", "justified", 1_400, "t2")
+        .unwrap();
+    drop(c);
+    let reopened = open(&path);
+    assert_eq!(
+        reopened.service().state("bg-1", 5_000),
+        Some(BreakGlassState::Reviewed)
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }

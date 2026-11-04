@@ -63,6 +63,11 @@ CONTRIBUTING.md for the version policy.
   - `BreakGlassController::service_mut` is replaced by `alerter_mut`, so grants
     change only through the controller. Elevation tokens are still held in memory,
     so a restart drops every elevation; that fails closed.
+  - `close` and `review` revoke the grant's elevation first, before the journal
+    write and the audit entry, so a storage or audit failure leaves the access off.
+    Closing again is safe (a grant already closed keeps its time-box and is written
+    again), and a review whose write failed is undone in memory, so it can be
+    retried instead of being refused as already reviewed.
 - **The audit view hides a row whose target the caller may not read.** An approval's
   `APPROVAL` rows, and an action's own row, name their target; they are now shown only
   to a caller who may read that target, as `GET /approvals` already filtered, so the

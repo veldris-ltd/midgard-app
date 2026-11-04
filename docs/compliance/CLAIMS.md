@@ -493,7 +493,7 @@ Break-glass access: a scoped, time-boxed elevation that alerts a security office
   - [`admin/breakglass/src/alert.rs:84`](../../admin/breakglass/src/alert.rs)
   - [`admin/breakglass/src/service.rs:1`](../../admin/breakglass/src/service.rs)
   - [`admin/breakglass/src/service.rs:20`](../../admin/breakglass/src/service.rs)
-  - [`admin/breakglass/src/controller.rs:148`](../../admin/breakglass/src/controller.rs)
+  - [`admin/breakglass/src/controller.rs:156`](../../admin/breakglass/src/controller.rs)
 - Tests:
   - [`admin/breakglass/tests/rc_32.rs::grant_delivers_a_real_alert_and_elevates_access_which_auto_expires`](../../admin/breakglass/tests/rc_32.rs)
   - [`admin/breakglass/tests/rc_32.rs::alert_delivery_is_durable_across_a_transient_bus_outage`](../../admin/breakglass/tests/rc_32.rs)

@@ -74,17 +74,27 @@ impl<A: Alerter> DurableBreakGlass<A> {
         note: &str,
         now: u64,
     ) -> Result<&BreakGlassGrant, BreakGlassError> {
+        let before = self.inner.get(id).cloned();
         self.inner.review(id, reviewer, note, now)?;
-        let g = self.inner.get(id).expect("just reviewed").clone();
-        self.journal
-            .append(&encode_grant(&g))
-            .map_err(|e| BreakGlassError::Io(e.to_string()))?;
+        if let Err(e) = self.persist(id) {
+            // Not recorded, so not reviewed: the grant goes back to how it was, and
+            // the review can be retried rather than refused as already done.
+            // [VLD-ANB-MIDGARD-0055]
+            if let Some(before) = before {
+                self.inner.restore_grant(before)?;
+            }
+            return Err(e);
+        }
         Ok(self.inner.get(id).expect("reviewed"))
     }
 
     /// End a grant early (its time-box is cut to `now`), then durably persist it, so
     /// a closed grant is still closed after a restart. The record is the grant's
     /// usual one: its `expires_at` is simply the earlier time.
+    ///
+    /// Closing a grant already closed at or before `now` changes nothing and writes
+    /// its record again, so a close whose write failed is retried by closing again.
+    /// The grant stays closed in memory meanwhile, which fails closed.
     /// [VLD-ANB-MIDGARD-0055]
     pub fn close(&mut self, id: &str, now: u64) -> Result<&BreakGlassGrant, BreakGlassError> {
         self.inner.close(id, now)?;
