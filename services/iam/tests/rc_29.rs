@@ -650,13 +650,27 @@ fn passkey_assertion(
         credential_id: cred.credential_id.clone(),
         authenticator_data,
         client_data_json,
-        client_data: ClientData {
-            type_: "webauthn.get".into(),
-            challenge: challenge.to_vec(),
-            origin: ORIGIN.into(),
-        },
         signature: sig.sign(sk, &payload).unwrap(),
     }
+}
+
+/// The client data of [`WebAuthnCredential::client_data_json`], read back as the edge's
+/// parser would (`iam` has no JSON parser of its own). [VLD-ANB-MIDGARD-0084]
+fn parse_client_data(raw: &[u8]) -> Result<ClientData, String> {
+    let raw = std::str::from_utf8(raw).map_err(|e| e.to_string())?;
+    let rest = raw
+        .strip_prefix(r#"{"type":""#)
+        .and_then(|r| r.strip_suffix(r#""}"#))
+        .ok_or("not client data")?;
+    let (type_, rest) = rest
+        .split_once(r#"","challenge":""#)
+        .ok_or("no challenge")?;
+    let (challenge, origin) = rest.split_once(r#"","origin":""#).ok_or("no origin")?;
+    Ok(ClientData {
+        type_: type_.into(),
+        challenge: iam::enc::unb64url(challenge).ok_or("challenge is not base64url")?,
+        origin: origin.into(),
+    })
 }
 
 /// [AC-58.5] [VLD-ANB-MIDGARD-0084] A recorded signature counter is a small tagged
@@ -773,6 +787,7 @@ fn a_passkey_login_through_the_authenticator_records_the_counter() {
                 MfaProof::WebAuthn {
                     assertion: passkey_assertion(&cred, &sk, challenge, count),
                     challenge,
+                    parse_client_data: &parse_client_data,
                 },
                 Purpose("investigation".into()),
                 NOW,

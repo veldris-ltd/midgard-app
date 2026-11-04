@@ -116,8 +116,16 @@ impl<A: Alerter> BreakGlassService<A> {
 
     /// Rehydrate a previously-issued grant WITHOUT re-alerting — the durable store
     /// uses this to reload persisted grants on boot. [RC-14]
-    pub fn restore_grant(&mut self, grant: BreakGlassGrant) {
+    ///
+    /// A grant whose time-box is longer than [`MAX_TTL_SECS`] is refused with
+    /// [`BreakGlassError::TtlTooLong`]: [`grant`](Self::grant) could never have
+    /// issued it, so it comes from an old or tampered record. [VLD-ANB-MIDGARD-0055]
+    pub fn restore_grant(&mut self, grant: BreakGlassGrant) -> Result<(), BreakGlassError> {
+        if grant.expires_at.saturating_sub(grant.granted_at) > MAX_TTL_SECS {
+            return Err(BreakGlassError::TtlTooLong { max: MAX_TTL_SECS });
+        }
         self.grants.insert(grant.id.clone(), grant);
+        Ok(())
     }
 
     /// The state of a grant at `now`.
@@ -218,5 +226,84 @@ impl<A: Alerter> BreakGlassService<A> {
     /// queue). [RC-32]
     pub fn alerter_mut(&mut self) -> &mut A {
         &mut self.alerter
+    }
+}
+
+/// Where the [`BreakGlassController`](crate::BreakGlassController) keeps its grants:
+/// every transition it makes goes through here. In a deployment this is the
+/// [`DurableBreakGlass`](crate::DurableBreakGlass) store, which journals each
+/// transition so it survives a restart. The bare [`BreakGlassService`] keeps them in
+/// memory only and is for tests. [FR-AD-8] [RC-14] [VLD-ANB-MIDGARD-0055]
+pub trait GrantStore<A: Alerter> {
+    /// Open a grant; see [`BreakGlassService::grant`].
+    fn grant(
+        &mut self,
+        dir: &IdentityDirectory,
+        req: GrantRequest,
+        requester: &AdminSession,
+        approver: &AdminSession,
+        now: u64,
+        approval_max_age: u64,
+    ) -> Result<&BreakGlassGrant, BreakGlassError>;
+
+    /// Sweep for newly expired grants; see [`BreakGlassService::sweep`].
+    fn sweep(&mut self, now: u64) -> Result<Vec<String>, BreakGlassError>;
+
+    /// Record the post-hoc review; see [`BreakGlassService::review`].
+    fn review(
+        &mut self,
+        id: &str,
+        reviewer: &str,
+        note: &str,
+        now: u64,
+    ) -> Result<&BreakGlassGrant, BreakGlassError>;
+
+    /// End a grant early; see [`BreakGlassService::close`].
+    fn close(&mut self, id: &str, now: u64) -> Result<&BreakGlassGrant, BreakGlassError>;
+
+    /// The grants, for reads (`state`, `is_active`, `get`, `pending_reviews`).
+    fn service(&self) -> &BreakGlassService<A>;
+
+    /// Mutable access to the alert sink (e.g. to flush a durable alerter).
+    fn alerter_mut(&mut self) -> &mut A;
+}
+
+impl<A: Alerter> GrantStore<A> for BreakGlassService<A> {
+    fn grant(
+        &mut self,
+        dir: &IdentityDirectory,
+        req: GrantRequest,
+        requester: &AdminSession,
+        approver: &AdminSession,
+        now: u64,
+        approval_max_age: u64,
+    ) -> Result<&BreakGlassGrant, BreakGlassError> {
+        BreakGlassService::grant(self, dir, req, requester, approver, now, approval_max_age)
+    }
+
+    fn sweep(&mut self, now: u64) -> Result<Vec<String>, BreakGlassError> {
+        Ok(BreakGlassService::sweep(self, now))
+    }
+
+    fn review(
+        &mut self,
+        id: &str,
+        reviewer: &str,
+        note: &str,
+        now: u64,
+    ) -> Result<&BreakGlassGrant, BreakGlassError> {
+        BreakGlassService::review(self, id, reviewer, note, now)
+    }
+
+    fn close(&mut self, id: &str, now: u64) -> Result<&BreakGlassGrant, BreakGlassError> {
+        BreakGlassService::close(self, id, now)
+    }
+
+    fn service(&self) -> &BreakGlassService<A> {
+        self
+    }
+
+    fn alerter_mut(&mut self) -> &mut A {
+        BreakGlassService::alerter_mut(self)
     }
 }

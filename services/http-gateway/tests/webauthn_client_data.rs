@@ -33,9 +33,9 @@ impl Rng for SeedRng {
     }
 }
 
-/// What a browser login handler does with an assertion: parse its client data at the
-/// edge (a document that does not parse is bad client data), then verify it with a
-/// passkey that signed exactly `raw`.
+/// What a browser login handler does with an assertion: verify it, with a passkey that
+/// signed exactly `raw`, handing `iam` the edge's parser, which it runs on `raw` (a
+/// document that does not parse is bad client data).
 fn verify_at_the_edge(raw: &[u8]) -> Result<u32, WebAuthnError> {
     let provider = fips_provider();
     let sig = provider.sig_for(PASSKEY_SIG_ALG).unwrap();
@@ -46,21 +46,25 @@ fn verify_at_the_edge(raw: &[u8]) -> Result<u32, WebAuthnError> {
         rp_id: "console.enclosure.local".into(),
         sign_count: 0,
     };
-    let client_data = parse_client_data(raw).map_err(|_| WebAuthnError::BadClientData)?;
     let authenticator_data = cred.authenticator_data(0x01 | 0x04, 1);
     let payload = WebAuthnCredential::signed_payload(&authenticator_data, raw);
     let assertion = AuthAssertion {
         credential_id: cred.credential_id.clone(),
         authenticator_data,
         client_data_json: raw.to_vec(),
-        client_data,
         signature: sig.sign(&sk, &payload).unwrap(),
     };
     let policy = WebAuthnPolicy {
         origins: vec![ORIGIN.into()],
         require_uv: true,
     };
-    cred.verify_assertion(&provider, &policy, CHALLENGE, &assertion)
+    cred.verify_assertion(
+        &provider,
+        &policy,
+        CHALLENGE,
+        &assertion,
+        &parse_client_data,
+    )
 }
 
 /// [AC-58.4] [VLD-ANB-MIDGARD-0084] A `webauthn.create` whose other field contains the

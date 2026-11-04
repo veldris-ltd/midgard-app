@@ -161,6 +161,7 @@ fn login(gw: &DurableGateway) {
             body: format!(r#"{{"username":"olivia","password":"{PASSWORD}"}}"#),
             authorization: None,
             origin: None,
+            forwarded_for: None,
         },
         NOW,
     );

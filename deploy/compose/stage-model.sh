@@ -24,7 +24,7 @@
 # 1 before anything is signed.
 #
 # --development signs with a DEVELOPMENT key instead, generated on this machine into
-# `midgard-model-signing` as a keystore version 2, its root wrapped under a random
+# `midgard-model-signing` as a keystore version 3, its root wrapped under a random
 # passphrase kept in `midgard-model-signing-passphrase` (a version 1 keystore an earlier
 # release wrote is migrated first). [VLD-ANB-MIDGARD-0007] Only its public half is
 # copied, into a volume of its own, `midgard-model-trust`, which mimir-server mounts
@@ -57,7 +57,7 @@ Copies the Granite weights into the volume $MODELS, signs them and verifies them
                  $SIGNING (model-signing.keystore; its passphrase in
                  $SIGNING_PASSPHRASE as 'passphrase'). The model must verify
                  against $ANCHOR, committed by the key ceremony.
-  --development  sign with a development key generated here (keystore version 2 under
+  --development  sign with a development key generated here (keystore version 3 under
                  a passphrase), its public half in the volume $TRUST; start compose
                  with deploy/compose/compose.dev-model.yaml as well.
   --help         print this and exit.

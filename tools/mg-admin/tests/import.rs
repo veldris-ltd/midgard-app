@@ -205,6 +205,7 @@ fn an_import_fills_a_real_enclosure_that_a_gateway_then_serves() {
                 body: body.into(),
                 authorization: token.map(|t| format!("Bearer {t}")),
                 origin: None,
+                forwarded_for: None,
             },
             1_800_000_000,
         )

@@ -26,7 +26,7 @@
 //! ```
 //!
 //! The keystores are the custody devices (see `attest::keystore`). Each keystore's
-//! custody root is wrapped under the keystore passphrase (format version 2), so `keys/`
+//! custody root is wrapped under the keystore passphrase (format version 3), so `keys/`
 //! alone, or a backup of it, does not unseal anything; `keys/` and the passphrase
 //! together sign as the enclosure and read its data, so keep the passphrase apart from
 //! this directory. `mg-admin init` creates `keys/` 0700 and each keystore 0600.

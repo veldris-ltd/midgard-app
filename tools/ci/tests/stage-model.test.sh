@@ -7,7 +7,7 @@
 # The claims under test: the model-signing key's public half is never written into, or
 # read from, the models volume (no /models/trust in the staging script, the compose
 # files or the kind script); a key is generated only under --development, which writes
-# a keystore version 2 under a passphrase, copies only the public half into the
+# a keystore version 3 under a passphrase, copies only the public half into the
 # midgard-model-trust volume and prints a warning; and without --development the script
 # fails fast, before anything is signed, unless the key ceremony's anchor
 # deploy/trust/model-signing.pub is committed and the staging enclave's keystore is
@@ -112,7 +112,7 @@ else
     fail "production staging: exit $status: $(cat "$work/out"); calls: $(cat "$work/calls")"
 fi
 
-# --development: a keystore v2 under a passphrase, the public half only into the trust
+# --development: a keystore v3 under a passphrase, the public half only into the trust
 # volume, and a warning.
 rm "$work/tree/deploy/trust/model-signing.pub"
 run 1 --development

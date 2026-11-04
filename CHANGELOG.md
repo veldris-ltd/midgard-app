@@ -94,6 +94,92 @@ CONTRIBUTING.md for the version policy.
   IP address, and a job reaching the egress broker must name `127.0.0.1` (the worker's
   `--egress-routes` check no longer accepts `localhost`). `live-connectors.sh` passes
   the containers' addresses. [NFR-PRV-1] [FR-F-2]
+- **Closing a break-glass grant, and its four-hour cap, survive a restart.**
+  [VLD-ANB-MIDGARD-0055] [FR-AD-8] [RC-14]
+  - `BreakGlassController` is generic over a new `GrantStore`, and by default is
+    built over the `DurableBreakGlass` journal rather than the in-memory
+    `BreakGlassService`, which is kept for tests. `DurableBreakGlass` gains `close`
+    and `sweep`, so an early close and the one-time expiry alert are journalled as
+    grants and reviews already were. The record format is unchanged: a close is the
+    grant again with its earlier `expires_at`.
+  - A journal record whose time-box is longer than `MAX_TTL_SECS` is refused on
+    boot: `DurableBreakGlass::open` fails with `BreakGlassError::TtlTooLong`, as it
+    fails on any other invalid record. `BreakGlassService::restore_grant` now
+    returns a `Result`.
+  - `BreakGlassController::service_mut` is replaced by `alerter_mut`, so grants
+    change only through the controller. Elevation tokens are still held in memory,
+    so a restart drops every elevation; that fails closed.
+  - `close` and `review` revoke the grant's elevation first, before the journal
+    write and the audit entry, so a storage or audit failure leaves the access off.
+    Closing again is safe (a grant already closed keeps its time-box and is written
+    again), and a review whose write failed is undone in memory, so it can be
+    retried instead of being refused as already reviewed.
+- **The audit view hides a row whose target the caller may not read.** An approval's
+  `APPROVAL` rows, and an action's own row, name their target; they are now shown only
+  to a caller who may read that target, as `GET /approvals` already filtered, so the
+  ledger view is no oracle for a compartmented object behind a human gate.
+  [VLD-ANB-MIDGARD-0031] [VLD-ANB-MIDGARD-0038]
+- **Administration says nothing about the policy or the parked enrolments before the
+  administrator proves themselves.** An enrolment request's roles and purposes are
+  checked against the served policy only after the step-up, and approve and reject
+  look the enrolment id up only after re-authentication and the approver's capability
+  check, so a bad proof is one 401 whatever the body names. An auditor approving or
+  rejecting now gets 403 before the id is looked up. [VLD-ANB-MIDGARD-0002]
+  [VLD-ANB-MIDGARD-0066]
+- **Clients behind a reverse proxy no longer share one login allowance.** The
+  gateway's new repeatable `--trusted-proxy IP` names the operator's proxies; a login,
+  activation or administration request from one is charged to the right-most address
+  in its `X-Forwarded-For` that is not itself a trusted proxy, and the throttled-source
+  ledger row names that address. The header is ignored from any other peer, a list
+  over 1,024 bytes is refused with 400, and the allowance is still never keyed on the
+  username. [VLD-ANB-MIDGARD-0005]
+- **The passkey verifier reads the client data it checks from the signed bytes.**
+  `AuthAssertion` no longer carries caller-parsed `client_data`;
+  `WebAuthnCredential::verify_assertion` takes a `ClientDataParser` and runs it on the
+  assertion's own `clientDataJSON`, so the type, challenge and origin checked are what
+  the signature covers. `MfaProof::WebAuthn` carries the parser; the edge supplies
+  `webauthn_client_data::parse_client_data`. A document the parser refuses is
+  `BadClientData`. [VLD-ANB-MIDGARD-0084]
+- **An administrator's challenge answers one operation only.** `POST
+  /api/v1/admin/challenge` now takes `{"admin": ..., "purpose": ...}`, the purpose
+  `request`, `approve`, `reject` or `list` (a request without one is 400), and the reply
+  echoes it. The gateway keeps the purpose with the challenge and refuses an answer
+  presented to another operation with the same 401; the passkey signs it with the
+  nonce (`AdminChallenge::for_purpose`, the signed payload now
+  `nonce ‖ user_verified ‖ purpose`), so the assertion cannot be relabelled. A challenge
+  fetched to list the parked enrolments can no longer approve one. `mg-admin enrol`
+  asks for the purpose of each command; an older `mg-admin` is refused.
+  [VLD-ANB-MIDGARD-0020]
+- **Password hashing no longer holds the gateway's directory lock.** A login checks
+  its password (Argon2id), and any rehash, on a snapshot of the principal's enrollment
+  taken under the lock, then takes the lock again to commit only if the enrollment is
+  exactly the one checked; otherwise it is the uniform 401. Activation checks its code
+  and hashes the new password the same way, committing only while the same activation
+  is pending and unexpired. One slow hash no longer stalls every other login,
+  activation and enrolment. Unknown names still cost the same work.
+- **Keystore format version 3: the header is bound to the wrapped root.** A version 2
+  keystore's wrapped root bound only its key id, so whoever could write the file could
+  swap the verifying key a reader trusts or the root public key data is sealed to
+  without the passphrase. Version 3 makes the whole header, magic to root public key,
+  the wrapped root's AAD, and loading a signing key now checks with a probe signature
+  that it signs under the stored verifying key
+  (`kms::SoftwareSigningRoot::from_key`). Every reader refuses version 2 as it refuses
+  version 1, naming `mg-admin keystore migrate`, which now converts either to version 3
+  (checking a version 2 file's root public key and verifying key first); compose
+  `init` and `mg-install`'s repair run it on every keystore. A file claiming more than
+  10,000,000 PBKDF2 iterations is refused before any key is derived.
+  [VLD-ANB-MIDGARD-0007]
+- **`mg-admin keystore rotate-root` gives a keystore a new custody root**, keeping its
+  signing key and verifying key, for a keystore migrated from a version 1 file that
+  may have been exposed. It is staged, read back and checked as `migrate` is, and
+  recorded with `--state-dir`. It refuses a state directory's keystores and a mesh
+  service's audit keystore, whose roots seal the enclosure's data.
+  [VLD-ANB-MIDGARD-0007]
+- **`mg-verify --run-service` starts the bytes it verified.** The service binary is
+  read once and those bytes are verified (`attest::verify_artefact_bytes`); on Linux
+  they are then executed from a sealed in-memory file, so a binary swapped in at the
+  path after the check is not the one started. Other platforms execute the path, as
+  before. [AC-B-1] [VLD-ANB-MIDGARD-0068]
 - **`mg-admin mesh upgrade` keeps a certificate's purposes and clearance unless told
   otherwise.** [VLD-ANB-MIDGARD-0063] Since the upgrade compared the grant asked for,
   the routine `mesh upgrade --service X --roles Y` on a purpose-bound certificate

@@ -17,9 +17,11 @@
 //! allows, the authenticator-data RP-ID hash matches, the user-present flag is set,
 //! the user-verified flag is set when the policy requires it, the signature over
 //! `authenticatorData ‖ SHA-256(clientDataJSON)` verifies, and the signature counter
-//! has moved forward. The client data arrives already parsed ([`ClientData`]): the
-//! HTTP edge reads it with the shared, depth-limited JSON parser, so this crate holds
-//! no JSON parser of its own. Parsing of the COSE public key, CBOR attestation object,
+//! has moved forward. The client data checked is parsed from the very
+//! `clientDataJSON` bytes the signature covers, by a [`ClientDataParser`] the caller
+//! supplies: the HTTP edge's parser reads it with the shared, depth-limited JSON parser, so
+//! this crate holds no JSON parser of its own, and no caller can hand it client data
+//! other than what was signed. Parsing of the COSE public key, CBOR attestation object,
 //! and registration ceremony is out of scope (documented) — the assertion (login)
 //! path is real. [RC-29] [RC-30] [VLD-ANB-MIDGARD-0084]
 //!
@@ -133,8 +135,9 @@ pub struct WebAuthnCredential {
     pub sign_count: u32,
 }
 
-/// The client data of an assertion (`CollectedClientData`), parsed by the caller from
-/// the raw `clientDataJSON`. [VLD-ANB-MIDGARD-0084]
+/// The client data of an assertion (`CollectedClientData`), parsed from the raw
+/// `clientDataJSON` the signature covers by the [`ClientDataParser`] the caller gives
+/// [`WebAuthnCredential::verify_assertion`]. [VLD-ANB-MIDGARD-0084]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientData {
     /// The ceremony type; an assertion is `webauthn.get`.
@@ -144,6 +147,12 @@ pub struct ClientData {
     /// The origin the browser ran the ceremony in.
     pub origin: String,
 }
+
+/// Reads an assertion's raw `clientDataJSON` into its [`ClientData`], or says why it
+/// cannot. `iam` holds no JSON parser, so the edge supplies one; the verifier calls it
+/// on the very bytes the signature covers, so what is checked is what was signed.
+/// [VLD-ANB-MIDGARD-0084]
+pub type ClientDataParser<'a> = dyn Fn(&[u8]) -> Result<ClientData, String> + 'a;
 
 /// What a relying party accepts from an assertion. The default allows no origin and
 /// requires user verification, so nothing verifies until a caller configures the
@@ -173,10 +182,9 @@ pub struct AuthAssertion {
     pub credential_id: Vec<u8>,
     /// Raw authenticator data (`rpIdHash ‖ flags ‖ signCount ‖ …`).
     pub authenticator_data: Vec<u8>,
-    /// Raw client-data JSON bytes, hashed into the signed payload.
+    /// Raw client-data JSON bytes, hashed into the signed payload, and the only client
+    /// data the verifier reads: it parses them itself.
     pub client_data_json: Vec<u8>,
-    /// The same client data, parsed by the caller.
-    pub client_data: ClientData,
     /// Signature over `authenticatorData ‖ SHA-256(clientDataJSON)`.
     pub signature: Signature,
 }
@@ -186,7 +194,8 @@ pub struct AuthAssertion {
 pub enum WebAuthnError {
     /// The assertion's credential id does not match the registered passkey.
     WrongCredential,
-    /// The client data was not a `webauthn.get`, or the authenticator data was short.
+    /// The client data did not parse or was not a `webauthn.get`, or the
+    /// authenticator data was short.
     BadClientData,
     /// The client-data challenge does not match the server challenge.
     ChallengeMismatch,
@@ -240,24 +249,28 @@ impl WebAuthnCredential {
 
     /// Verify an authentication assertion against a server-issued `challenge` under
     /// `policy`, and return the signature counter it presents, which the caller
-    /// persists as this credential's `sign_count` before the login completes. Checks,
-    /// in order: credential id, client-data type, challenge, origin, RP-ID hash, user
-    /// presence, user verification (if the policy requires it), signature, counter.
-    /// The counter check is skipped only when both the stored and the presented
-    /// counter are 0 (an authenticator that keeps none). [RC-29] [RC-30]
-    /// [VLD-ANB-MIDGARD-0084]
+    /// persists as this credential's `sign_count` before the login completes. The
+    /// client data checked is `parse_client_data` of the assertion's own
+    /// `clientDataJSON`, the bytes the signature covers; a document it refuses is bad
+    /// client data. Checks, in order: credential id, client-data type, challenge,
+    /// origin, RP-ID hash, user presence, user verification (if the policy requires
+    /// it), signature, counter. The counter check is skipped only when both the stored
+    /// and the presented counter are 0 (an authenticator that keeps none). [RC-29]
+    /// [RC-30] [VLD-ANB-MIDGARD-0084]
     pub fn verify_assertion(
         &self,
         provider: &CryptoProvider,
         policy: &WebAuthnPolicy,
         challenge: &[u8],
         assertion: &AuthAssertion,
+        parse_client_data: &ClientDataParser<'_>,
     ) -> Result<u32, WebAuthnError> {
         if assertion.credential_id != self.credential_id {
             return Err(WebAuthnError::WrongCredential);
         }
-        // 1. client data: type, challenge binding and origin.
-        let cd = &assertion.client_data;
+        // 1. client data, read from the signed bytes: type, challenge binding, origin.
+        let cd = parse_client_data(&assertion.client_data_json)
+            .map_err(|_| WebAuthnError::BadClientData)?;
         if cd.type_ != "webauthn.get" {
             return Err(WebAuthnError::BadClientData);
         }

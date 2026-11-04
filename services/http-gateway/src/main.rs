@@ -51,9 +51,11 @@
 //!
 //!       --login-burst (default 20; 0 is off) and --login-per-sec (default 0.5) limit
 //!       login and administration attempts from one source address; past them the edge
-//!       answers 429 before checking any password. Under compose every client shares
-//!       the proxy's address, so this is one allowance for the whole site there.
-//!       [VLD-ANB-MIDGARD-0005]
+//!       answers 429 before checking any password. Behind a reverse proxy every
+//!       client shares the proxy's address, so this is one allowance for the whole
+//!       site unless --trusted-proxy IP (repeatable) names the proxy: a request from
+//!       it is charged to the client its X-Forwarded-For names. From any other peer
+//!       the header is ignored. [VLD-ANB-MIDGARD-0005]
 //!
 //!       --mesh-sync-clearance is the highest marking a sync may write: a band (`open`,
 //!       `internal`, `restricted`, `confidential`) and, after a colon, the compartments
@@ -122,6 +124,7 @@ fn main() {
         mesh,
         login_burst,
         login_per_sec,
+        trusted_proxies,
         mesh_sync_clearance,
     } = args;
 
@@ -202,7 +205,11 @@ fn main() {
     if let Some(clearance) = mesh_sync_clearance {
         gateway = gateway.with_sync_clearance(clearance);
     }
-    let gateway = Arc::new(gateway.with_login_source_limit(login_burst, login_per_sec));
+    let gateway = Arc::new(
+        gateway
+            .with_login_source_limit(login_burst, login_per_sec)
+            .with_trusted_proxies(trusted_proxies),
+    );
 
     if let (Some(mesh_bind), Some(identity_dir)) = (mesh_bind, mesh_identity_dir) {
         match start_mesh(

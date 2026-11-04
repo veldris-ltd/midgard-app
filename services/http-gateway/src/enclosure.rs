@@ -1216,11 +1216,18 @@ impl<S: ObjectStore, L: LedgerStore> Enclosure<S, L> {
 
     /// Whether the caller may see ledger row `entry`. A row about an object is shown
     /// only if the caller may read that object now (the same non-auditing check that
-    /// filters query results), so the view is not an oracle for hidden objects. A login
-    /// row about another principal needs `ReadAudit` on `audit-ledger:sessions`. Every
-    /// other row (route admissions, dry-runs, the caller's own logins) is shown to any
-    /// caller the edge admitted. [VLD-ANB-MIDGARD-0031]
+    /// filters query results), so the view is not an oracle for hidden objects. A row
+    /// naming a target — an approval's lifecycle rows, an action's own row — is shown
+    /// only if the caller may read that target, as the approvals list is filtered. A
+    /// login row about another principal needs `ReadAudit` on `audit-ledger:sessions`.
+    /// Every other row (route admissions, dry-runs, the caller's own logins) is shown
+    /// to any caller the edge admitted. [VLD-ANB-MIDGARD-0031] [VLD-ANB-MIDGARD-0038]
     fn audit_row_visible(&self, ctx: &PolicyContext, entry: &SealedEntry) -> bool {
+        if let Some(target) = &entry.record.context.target {
+            if !self.can_read_id(ctx, target) {
+                return false;
+            }
+        }
         let resource = entry.record.resource.0.as_str();
         if let Some(id) = resource.strip_prefix(fabric::OBJECT_PREFIX) {
             return self.can_read_id(ctx, id);

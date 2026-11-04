@@ -693,6 +693,7 @@ fn a_sync_never_touches_a_human_gated_target() {
                 body: body.into(),
                 authorization: token.map(|t| format!("Bearer {t}")),
                 origin: None,
+                forwarded_for: None,
             },
             NOW,
         )

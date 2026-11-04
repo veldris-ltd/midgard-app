@@ -46,5 +46,5 @@ pub use controller::BreakGlassController;
 pub use durable::DurableBreakGlass;
 pub use error::BreakGlassError;
 pub use grant::{BreakGlassGrant, BreakGlassState, GrantRequest, Review};
-pub use service::{BreakGlassService, CAP_APPROVE, CAP_REQUEST, MAX_TTL_SECS};
+pub use service::{BreakGlassService, GrantStore, CAP_APPROVE, CAP_REQUEST, MAX_TTL_SECS};
 pub use token::{BreakGlassAuthority, CapabilityToken};

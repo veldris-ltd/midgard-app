@@ -2,8 +2,9 @@
 //! No external HTTP framework — just enough of HTTP/1.1 to serve a JSON API to
 //! the browser consoles. Thread-per-connection (see `lib.rs`).
 
+use std::collections::BTreeSet;
 use std::io::{BufRead, BufReader, ErrorKind, Read, Write};
-use std::net::{Shutdown, TcpStream};
+use std::net::{IpAddr, Shutdown, SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
 
 use service_runtime::ListenerLimits;
@@ -20,6 +21,10 @@ pub struct Request {
     pub authorization: Option<String>,
     /// The browser `Origin` header, for origin-locked CORS.
     pub origin: Option<String>,
+    /// The `X-Forwarded-For` header, its lines joined with `, ` in order, at most
+    /// [`MAX_FORWARDED_FOR_BYTES`]. Believed only from a trusted proxy (see
+    /// [`forwarded_client`]). [VLD-ANB-MIDGARD-0005]
+    pub forwarded_for: Option<String>,
 }
 
 impl Request {
@@ -50,6 +55,9 @@ impl Request {
 pub const MAX_BODY_BYTES: usize = 1024 * 1024;
 /// Largest request line plus headers the edge reads.
 pub const MAX_HEAD_BYTES: usize = 16 * 1024;
+/// Largest `X-Forwarded-For` the edge reads, all its lines together: a chain of some
+/// dozens of proxies. A longer one is refused. [VLD-ANB-MIDGARD-0005]
+pub const MAX_FORWARDED_FOR_BYTES: usize = 1024;
 /// How long a refused connection is drained, so the client reads the refusal rather
 /// than a reset, before it is closed.
 const LINGER: Duration = Duration::from_secs(2);
@@ -144,10 +152,11 @@ fn read_request_by(reader: DeadlineReader<'_>) -> std::io::Result<Option<Incomin
     };
 
     // Headers until a blank line: Content-Length, Transfer-Encoding, Authorization,
-    // Origin.
+    // Origin, X-Forwarded-For.
     let mut content_length = 0usize;
     let mut authorization = None;
     let mut origin = None;
+    let mut forwarded_for: Option<String> = None;
     // A framing fault is answered once the whole head is read, so the refusal can
     // carry the request's origin.
     let mut fault: Option<(u16, String)> = None;
@@ -181,6 +190,20 @@ fn read_request_by(reader: DeadlineReader<'_>) -> std::io::Result<Option<Incomin
                 authorization = Some(value);
             } else if name.eq_ignore_ascii_case("origin") {
                 origin = Some(value);
+            } else if name.eq_ignore_ascii_case("x-forwarded-for") {
+                // Repeated lines are one list, in order (RFC 9110 §5.3).
+                let joined = match forwarded_for.take() {
+                    Some(before) => format!("{before}, {value}"),
+                    None => value,
+                };
+                if joined.len() > MAX_FORWARDED_FOR_BYTES {
+                    fault = Some((
+                        400,
+                        format!("X-Forwarded-For over {MAX_FORWARDED_FOR_BYTES} bytes"),
+                    ));
+                } else {
+                    forwarded_for = Some(joined);
+                }
             }
         }
     }
@@ -205,7 +228,29 @@ fn read_request_by(reader: DeadlineReader<'_>) -> std::io::Result<Option<Incomin
         body,
         authorization,
         origin,
+        forwarded_for,
     })))
+}
+
+/// The client a request through `proxies` came from: the right-most address in
+/// `forwarded_for` that is not itself one of `proxies`, each hop having appended the
+/// address it was reached from. An entry may carry a port. `None` if there is no such
+/// address, or the first entry that is not a trusted proxy is not an address: what is
+/// left of it was written by the client, so it is not believed. The caller asks only
+/// when the socket's peer is a trusted proxy. [VLD-ANB-MIDGARD-0005]
+pub fn forwarded_client(forwarded_for: Option<&str>, proxies: &BTreeSet<IpAddr>) -> Option<IpAddr> {
+    for entry in forwarded_for?.rsplit(',') {
+        let entry = entry.trim();
+        let ip = entry
+            .parse::<IpAddr>()
+            .or_else(|_| entry.parse::<SocketAddr>().map(|s| s.ip()))
+            .ok()?
+            .to_canonical();
+        if !proxies.contains(&ip) {
+            return Some(ip);
+        }
+    }
+    None
 }
 
 /// Read one head line within what is left of the head's budget. `Some(0)` is a
