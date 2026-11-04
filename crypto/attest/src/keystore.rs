@@ -6,22 +6,30 @@
 //! plaintext: an attacker who obtains the sealed blob alone — from a backup, a
 //! build cache, a leaked artefact directory — obtains nothing. `[NFR-PQ-2]`
 //!
-//! ## Format version 2: the root is wrapped
+//! ## Format version 3: the root is wrapped, and the header is bound to it
 //! The root secret is never in the file in the clear either. It is wrapped under a
 //! [`RootWrap`] the caller supplies when writing and reading:
 //!
 //! - **kind 1, passphrase**: a key-encryption key is derived from an operator
 //!   passphrase with PBKDF2-HMAC-SHA256 ([`KDF_ITERATIONS`] iterations, a fresh
 //!   32-byte salt on every write) and the root secret is sealed under it with
-//!   AES-256-GCM, the AAD binding it to its purpose and to the key id. A wrong
-//!   passphrase is [`SignError::KeystoreLocked`], never "corrupt".
+//!   AES-256-GCM. A wrong passphrase is [`SignError::KeystoreLocked`], never
+//!   "corrupt".
 //! - **kind 2, external trust root**: the root secret is a [`kms::SealedBlob`]
 //!   sealed to a [`kms::TrustRoot`] held elsewhere, an HSM or TPM behind
 //!   [`kms::HardwareTrustRoot`]. This is the GA custody target (RF-SC-8).
 //!
+//! Either way the AAD of the wrapped root is its purpose followed by the **whole
+//! header**, magic to `root_public`, exactly as stored. Whoever can write the file but
+//! does not hold the passphrase cannot change the verifying key a reader trusts, nor
+//! the root public key data is sealed to: any change to the header and the root no
+//! longer unwraps. The signing key unsealed from the file must also sign under the
+//! header's verifying key (a probe in [`kms::SoftwareSigningRoot::from_key`]), so a
+//! signing key sealed afresh to the public root is refused too.
+//!
 //! ```text
 //! magic          11  b"MGKEYSTORE1"
-//! version         1  u8 = 2
+//! version         1  u8 = 3
 //! key_id          4+n  the signing key's id
 //! sig_alg         1  u8, SigId tag
 //! verifying_key   4+n  public, exportable as a trust anchor
@@ -31,9 +39,9 @@
 //! wrap_kind       1  u8: 1 = passphrase, 2 = external trust root
 //!  -- kind 1 --
 //! kdf_salt       32
-//! kdf_iterations  4  u32 LE, at least KDF_ITERATIONS
+//! kdf_iterations  4  u32 LE, from KDF_ITERATIONS to KDF_ITERATIONS_MAX
 //! root_nonce     12
-//! root_cipher     4+n  AES-256-GCM(root secret), AAD = ROOT_AAD || key_id
+//! root_cipher     4+n  AES-256-GCM(root secret), AAD = HEADER_AAD || header
 //!  -- kind 2 --
 //! root_blob       4+n  kms::SealedBlob::encode(), sealed to the external root
 //!  --
@@ -45,9 +53,11 @@
 //! ```
 //!
 //! Version 1 kept the root secret in the clear between `root_public` and the sealed
-//! blob, so whoever read the file held every key the root protects. Every reader
-//! refuses it; [`migrate_v1`] (run by `mg-admin keystore migrate`) converts a file
-//! once, keeping the same root. `[VLD-ANB-MIDGARD-0007]`
+//! blob, so whoever read the file held every key the root protects. Version 2 wrapped
+//! the root as version 3 does, but its AAD bound only the key id, so the rest of the
+//! header could be swapped without the passphrase. Every reader refuses both, as it
+//! always refused version 1; [`migrate`] (run by `mg-admin keystore migrate`)
+//! converts a file once, keeping the same root. `[VLD-ANB-MIDGARD-0007]`
 //!
 //! Key files are created owner-only (0600 on Unix) under a temporary name with
 //! `create_new` and renamed into place, an existing keystore is never overwritten,
@@ -75,10 +85,14 @@ use crate::error::SignError;
 
 /// Keystore file magic.
 pub const MAGIC: &[u8; 11] = b"MGKEYSTORE1";
-/// Keystore format version: 2, the root secret wrapped. `[VLD-ANB-MIDGARD-0007]`
-pub const VERSION: u8 = 2;
+/// Keystore format version: 3, the root secret wrapped under an AAD that binds the
+/// whole header. `[VLD-ANB-MIDGARD-0007]`
+pub const VERSION: u8 = 3;
 /// The version that stored the root secret in the clear; refused by every reader.
 const LEGACY_VERSION: u8 = 1;
+/// The version whose wrapped root bound only the key id, not the rest of the header;
+/// refused by every reader, read only by [`migrate`].
+const UNBOUND_HEADER_VERSION: u8 = 2;
 /// Plaintext dev-key file magic.
 pub const KEY_MAGIC: &[u8; 6] = b"MGKEY1";
 /// Plaintext dev-key file version (unchanged; not a keystore).
@@ -87,6 +101,9 @@ const KEY_VERSION: u8 = 1;
 /// PBKDF2-HMAC-SHA256 iterations for the passphrase wrap, and the least a reader
 /// accepts (OWASP's 2023 figure for PBKDF2-HMAC-SHA256).
 pub const KDF_ITERATIONS: u32 = 600_000;
+/// The most PBKDF2 iterations a reader accepts, so a file cannot make opening it
+/// take hours: some sixteen times what is written.
+pub const KDF_ITERATIONS_MAX: u32 = 10_000_000;
 /// The shortest passphrase [`RootWrap::passphrase_from_file`] accepts.
 pub const MIN_PASSPHRASE_LEN: usize = 16;
 /// The environment variable that names the passphrase file, for binaries. Library
@@ -102,8 +119,11 @@ const WRAP_EXTERNAL: u8 = 2;
 /// AAD binding the sealed blob to its purpose, so a blob sealed for some other
 /// use cannot be presented here as a signing key.
 const SEAL_AAD: &[u8] = b"midgard-keystore/signing-key/v1";
-/// AAD prefix binding the wrapped root to its purpose; the key id follows it.
+/// AAD prefix of a version 2 wrapped root; the key id follows it.
 const ROOT_AAD: &[u8] = b"midgard-keystore/root-secret/v2";
+/// AAD prefix binding the wrapped root to its purpose; the whole encoded header
+/// follows it (version 3).
+const HEADER_AAD: &[u8] = b"midgard-keystore/root-secret/v3";
 
 /// How a keystore's custody root is wrapped at rest: the value callers pass to
 /// [`Keystore::write`] and [`Keystore::read`]. `[VLD-ANB-MIDGARD-0007]`
@@ -328,11 +348,31 @@ fn malformed(reason: impl Into<String>) -> SignError {
 const V1_REFUSED: &str =
     "keystore version 1 stores the custody root in clear; run mg-admin keystore migrate";
 
-/// The AAD for the wrapped root: its purpose, then the key id it belongs to.
-fn root_aad(key_id: &str) -> Vec<u8> {
-    let mut aad = ROOT_AAD.to_vec();
-    aad.extend_from_slice(key_id.as_bytes());
+/// The message every reader gives for a version 2 file.
+const V2_REFUSED: &str = "keystore version 2 does not authenticate its header; run mg-admin \
+                          keystore migrate";
+
+/// The AAD for the wrapped root of a file of `version` whose encoded header is
+/// `header`: its purpose, then the whole header (version 3), or only the key id
+/// (version 2).
+fn root_aad(version: u8, header: &[u8], key_id: &str) -> Vec<u8> {
+    if version == UNBOUND_HEADER_VERSION {
+        let mut aad = ROOT_AAD.to_vec();
+        aad.extend_from_slice(key_id.as_bytes());
+        return aad;
+    }
+    let mut aad = HEADER_AAD.to_vec();
+    aad.extend_from_slice(header);
     aad
+}
+
+/// A fresh ML-KEM-1024 custody root.
+fn new_root(rng: &mut dyn Rng) -> Result<(KemPublicKey, KemSecretKey), SignError> {
+    pqc_agility::backend::fips::provider()
+        .kem_for(WRAP_SUITE)
+        .map_err(|e| SignError::Custodian(e.to_string()))?
+        .keypair(rng)
+        .map_err(|e| SignError::Custodian(e.to_string()))
 }
 
 /// The key-encryption key for a passphrase wrap. Derived straight into a zeroised,
@@ -366,13 +406,7 @@ impl Keystore {
         let provider = pqc_agility::backend::fips::provider();
 
         // 1. The custody root (ML-KEM-1024).
-        let kem = provider
-            .kem_for(WRAP_SUITE)
-            .map_err(|e| SignError::Custodian(e.to_string()))?;
-        let (root_public, root_secret) = kem
-            .keypair(rng)
-            .map_err(|e| SignError::Custodian(e.to_string()))?;
-        let root_key_id = format!("{key_id}-root");
+        let root = new_root(rng)?;
 
         // 2. The signing key.
         let (verifying_key, signing_key) = provider
@@ -381,9 +415,31 @@ impl Keystore {
             .keypair(rng)
             .map_err(|e| SignError::Custodian(e.to_string()))?;
 
+        // 3. Seal the signing key under the root.
+        Self::sealed_under(
+            key_id,
+            format!("{key_id}-root"),
+            root,
+            verifying_key,
+            &signing_key,
+            rng,
+        )
+    }
+
+    /// A keystore for `signing_key` under the custody root `root`, called
+    /// `root_key_id`, the signing key sealed under it.
+    fn sealed_under(
+        key_id: &str,
+        root_key_id: String,
+        (root_public, root_secret): (KemPublicKey, KemSecretKey),
+        verifying_key: VerifyingKey,
+        signing_key: &SigningKey,
+        rng: &mut dyn Rng,
+    ) -> Result<Self, SignError> {
+        let provider = pqc_agility::backend::fips::provider();
         let mut keystore = Self {
             key_id: key_id.to_string(),
-            alg,
+            alg: signing_key.alg(),
             verifying_key,
             root_key_id,
             root_suite: WRAP_SUITE,
@@ -398,11 +454,51 @@ impl Keystore {
             },
         };
 
-        // 3. Seal the signing key under the root — it is never at rest in the clear.
+        // The signing key is never at rest in the clear.
         keystore.sealed = Kms::new(provider, keystore.trust_root())
             .seal(SEAL_AAD, signing_key.expose(), rng)
             .map_err(|e| SignError::Custodian(e.to_string()))?;
         Ok(keystore)
+    }
+
+    /// The same signing key under a fresh custody root: the signing key is unsealed
+    /// (and checked against the verifying key), a new ML-KEM-1024 root is generated as
+    /// [`Keystore::generate`] does, with a new root key id, and the key is resealed
+    /// under it. The key id, algorithm and verifying key are unchanged, so trust
+    /// anchors stay valid; nothing sealed under the old root opens under the new one,
+    /// so only a keystore whose root seals nothing but its own signing key may be
+    /// rotated (`mg-admin keystore rotate-root` decides which). `[VLD-ANB-MIDGARD-0007]`
+    pub fn rotate_root(&self, rng: &mut dyn Rng) -> Result<Self, SignError> {
+        let signing = self.signing_root()?;
+        let root = new_root(rng)?;
+        let mut tag = [0u8; 8];
+        rng.fill(&mut tag);
+        Self::sealed_under(
+            &self.key_id,
+            format!("{}-root-{}", self.key_id, crate::hex::hex(&tag)),
+            root,
+            self.verifying_key.clone(),
+            signing.expose_signing_key(),
+            rng,
+        )
+    }
+
+    /// Refuse a root public key that does not belong to the root secret: a probe
+    /// sealed to the public key must unseal under the secret. Versions 1 and 2 did not
+    /// authenticate the public key, and data sealed to a substituted one would be
+    /// readable by whoever substituted it.
+    fn check_root_pair(&self, rng: &mut dyn Rng) -> Result<(), SignError> {
+        let kms = Kms::new(pqc_agility::backend::fips::provider(), self.trust_root());
+        let aad = b"midgard-keystore/root-pair-probe/v1";
+        let probe = kms
+            .seal(aad, aad, rng)
+            .map_err(|e| SignError::Custodian(e.to_string()))?;
+        match kms.unseal(aad, &probe) {
+            Ok(opened) if opened == aad => Ok(()),
+            _ => Err(SignError::Custodian(
+                "the keystore's root public key does not belong to its root secret".into(),
+            )),
+        }
     }
 
     fn header(&self) -> Header {
@@ -416,13 +512,23 @@ impl Keystore {
         }
     }
 
-    /// Serialise for storage as version 2, wrapping the root under `wrap`. A fresh
-    /// salt and nonce (or a fresh encapsulation) are drawn from `rng` on every call,
-    /// so re-wrapping never reuses a nonce.
+    /// Serialise for storage as version 3, wrapping the root under `wrap` with the
+    /// whole header as its AAD. A fresh salt and nonce (or a fresh encapsulation) are
+    /// drawn from `rng` on every call, so re-wrapping never reuses a nonce.
     pub fn encode(&self, wrap: &RootWrap, rng: &mut dyn Rng) -> Result<Vec<u8>, SignError> {
+        self.encode_as(VERSION, wrap, rng)
+    }
+
+    /// [`Keystore::encode`] as `version`: 3, or 2 for the retained test encoder.
+    fn encode_as(
+        &self,
+        version: u8,
+        wrap: &RootWrap,
+        rng: &mut dyn Rng,
+    ) -> Result<Vec<u8>, SignError> {
         let mut o = Vec::new();
-        put_header(&mut o, VERSION, &self.header());
-        let aad = root_aad(&self.key_id);
+        put_header(&mut o, version, &self.header());
+        let aad = root_aad(version, &o, &self.key_id);
         match wrap {
             RootWrap::Passphrase(passphrase) => {
                 let mut salt = [0u8; KDF_SALT_LEN];
@@ -457,21 +563,31 @@ impl Keystore {
     }
 
     /// Parse a keystore and unwrap its root under `wrap`. Every malformed field is
-    /// a rejection ([`SignError::KeyUnreadable`]); so is version 1, which kept the
-    /// root in the clear. A wrap that does not open the root (a wrong passphrase,
-    /// another trust root, the other wrap kind) is [`SignError::KeystoreLocked`].
+    /// a rejection ([`SignError::KeyUnreadable`]); so are version 1, which kept the
+    /// root in the clear, and version 2, whose header is not authenticated: both name
+    /// `mg-admin keystore migrate`. A wrap that does not open the root (a wrong
+    /// passphrase, another trust root, the other wrap kind, or a header altered since
+    /// the file was written) is [`SignError::KeystoreLocked`].
     pub fn decode(bytes: &[u8], wrap: &RootWrap) -> Result<Self, SignError> {
+        Self::decode_versions(bytes, wrap, &[VERSION])
+    }
+
+    /// [`Keystore::decode`], accepting each version in `accept` (3, and 2 for
+    /// [`migrate`] alone).
+    fn decode_versions(bytes: &[u8], wrap: &RootWrap, accept: &[u8]) -> Result<Self, SignError> {
         let mut c = Cur { b: bytes, at: 0 };
         if c.take(MAGIC.len(), "magic").map_err(malformed)? != MAGIC {
             return Err(malformed("bad magic — not an MGKEYSTORE1 file"));
         }
-        match c.u8("version").map_err(malformed)? {
-            VERSION => {}
+        let version = c.u8("version").map_err(malformed)?;
+        match version {
+            v if accept.contains(&v) => {}
             LEGACY_VERSION => return Err(malformed(V1_REFUSED)),
+            UNBOUND_HEADER_VERSION => return Err(malformed(V2_REFUSED)),
             v => return Err(malformed(format!("unsupported keystore version {v}"))),
         }
         let header = take_header(&mut c).map_err(malformed)?;
-        let aad = root_aad(&header.key_id);
+        let aad = root_aad(version, &bytes[..c.at], &header.key_id);
         let kind = c.u8("wrap kind").map_err(malformed)?;
         let (root_secret, sealed) = match kind {
             WRAP_PASSPHRASE => {
@@ -480,6 +596,11 @@ impl Keystore {
                 if iterations < KDF_ITERATIONS {
                     return Err(malformed(format!(
                         "kdf iterations {iterations} is below the minimum {KDF_ITERATIONS}"
+                    )));
+                }
+                if iterations > KDF_ITERATIONS_MAX {
+                    return Err(malformed(format!(
+                        "kdf iterations {iterations} is above the maximum {KDF_ITERATIONS_MAX}"
                     )));
                 }
                 let nonce: [u8; GCM_NONCE_LEN] = c
@@ -500,7 +621,9 @@ impl Keystore {
                     .open(&nonce, &aad, cipher)
                     .map_err(|_| {
                         SignError::KeystoreLocked(
-                            "the passphrase does not unlock the custody root".into(),
+                            "the passphrase does not unlock the custody root, or the header \
+                             has been altered"
+                                .into(),
                         )
                     })?;
                 (SecretBytes::new(root), sealed)
@@ -606,6 +729,11 @@ impl Keystore {
         write_restricted(path, &self.encode(wrap, rng)?)
     }
 
+    /// The id of the custody root the signing key is sealed under.
+    pub fn root_key_id(&self) -> &str {
+        &self.root_key_id
+    }
+
     /// Export the verifying key as a trust anchor: `<alg> <key-id> <hex>`.
     pub fn export_verifying_key(&self) -> String {
         format!(
@@ -637,7 +765,7 @@ pub fn format_version(bytes: &[u8]) -> Option<u8> {
 }
 
 /// Parse a version 1 keystore, root in the clear, into an unlocked keystore. Kept
-/// only for [`migrate_v1`] (and the legacy test encoder); readers never call it.
+/// only for [`migrate`] (and the legacy test encoder); readers never call it.
 fn decode_v1(bytes: &[u8]) -> Result<Keystore, String> {
     let mut c = Cur { b: bytes, at: 0 };
     if c.take(MAGIC.len(), "magic")? != MAGIC {
@@ -663,13 +791,29 @@ fn decode_v1(bytes: &[u8]) -> Result<Keystore, String> {
     })
 }
 
-/// Convert a version 1 keystore to version 2, its root wrapped under `wrap`. Before
-/// returning, the new bytes are decoded under `wrap` and must unseal the same
-/// signing key, under the same verifying key, as the old file. The root bytes are
-/// kept: where a version 1 copy may have been exposed, re-initialise instead.
+/// Convert a version 1 or version 2 keystore to version 3, its root wrapped under
+/// `wrap` (a version 2 file must also unlock under it). Neither earlier version
+/// authenticates its header, so before anything is written the header's root public
+/// key must match the root secret and its verifying key the sealed signing key; then
+/// the new bytes are decoded under `wrap` and must unseal the same signing key, under
+/// the same verifying key, as the old file. Any other version is an error. The root
+/// bytes are kept: where an earlier copy may have been exposed, rotate the root
+/// ([`Keystore::rotate_root`]) where that is allowed, or re-initialise.
 /// `[VLD-ANB-MIDGARD-0007]`
-pub fn migrate_v1(bytes: &[u8], wrap: &RootWrap, rng: &mut dyn Rng) -> Result<Vec<u8>, SignError> {
-    let legacy = decode_v1(bytes).map_err(malformed)?;
+pub fn migrate(bytes: &[u8], wrap: &RootWrap, rng: &mut dyn Rng) -> Result<Vec<u8>, SignError> {
+    let legacy = match format_version(bytes) {
+        Some(LEGACY_VERSION) => decode_v1(bytes).map_err(malformed)?,
+        Some(UNBOUND_HEADER_VERSION) => {
+            Keystore::decode_versions(bytes, wrap, &[UNBOUND_HEADER_VERSION])?
+        }
+        Some(v) => {
+            return Err(malformed(format!(
+                "keystore version {v} is not one migration converts (1 or 2)"
+            )))
+        }
+        None => return Err(malformed("bad magic — not an MGKEYSTORE1 file")),
+    };
+    legacy.check_root_pair(rng)?;
     let before = legacy.signing_root()?;
     let migrated = legacy.encode(wrap, rng)?;
 
@@ -823,8 +967,20 @@ pub mod test_support {
         Keystore::read(path, &RootWrap::Passphrase(&test_passphrase())).expect("read test keystore")
     }
 
+    /// The retained version 2 encoder: the root wrapped, its AAD binding only the key
+    /// id. Only for proving that readers refuse it and that [`migrate`] converts it.
+    pub fn encode_v2(keystore: &Keystore) -> Vec<u8> {
+        keystore
+            .encode_as(
+                UNBOUND_HEADER_VERSION,
+                &RootWrap::Passphrase(&test_passphrase()),
+                &mut pqc_agility::OsRng,
+            )
+            .expect("encode version 2")
+    }
+
     /// The retained version 1 encoder: the root secret in the clear. Only for
-    /// proving that readers refuse it and that [`migrate_v1`] converts it.
+    /// proving that readers refuse it and that [`migrate`] converts it.
     pub fn encode_v1(keystore: &Keystore) -> Vec<u8> {
         let mut o = Vec::new();
         put_header(&mut o, LEGACY_VERSION, &keystore.header());
@@ -911,7 +1067,7 @@ impl DevKeyFile {
 
 #[cfg(test)]
 mod tests {
-    use super::test_support::{encode_v1, root_secret_bytes, test_passphrase};
+    use super::test_support::{encode_v1, encode_v2, root_secret_bytes, test_passphrase};
     use super::*;
     use kms::SigningRoot;
     // For `verify` on the concrete `FipsSig`; production paths go through
@@ -972,7 +1128,7 @@ mod tests {
         let k = ks();
         let secret = root_secret_bytes(&k);
         let file = encode(&k);
-        assert_eq!(file[MAGIC.len()], 2, "the version byte is 2");
+        assert_eq!(file[MAGIC.len()], 3, "the version byte is 3");
         assert!(
             !file.windows(secret.len()).any(|w| w == secret.as_slice()),
             "the custody root must never appear in the keystore in plaintext"
@@ -1015,6 +1171,46 @@ mod tests {
         );
     }
 
+    /// Where the header's verifying key and root public key lie in an encoded file.
+    fn header_ranges(bytes: &[u8]) -> (std::ops::Range<usize>, std::ops::Range<usize>) {
+        let mut c = Cur { b: bytes, at: 0 };
+        c.take(MAGIC.len() + 1, "").unwrap();
+        c.lp("key id").unwrap();
+        c.u8("alg").unwrap();
+        let vk = c.lp("verifying key").unwrap().len();
+        let vk = c.at - vk..c.at;
+        c.lp("root key id").unwrap();
+        c.u8("root suite").unwrap();
+        let rp = c.lp("root public").unwrap().len();
+        (vk, c.at - rp..c.at)
+    }
+
+    // A header field swapped in the file, with no passphrase, is refused at decode:
+    // the whole header is the wrapped root's AAD. [AC-50.2] [VLD-ANB-MIDGARD-0007]
+    #[test]
+    fn a_swapped_verifying_key_or_root_public_fails_to_decode() {
+        let k = ks();
+        let other = encode(&ks());
+        let good = encode(&k);
+        let (vk, rp) = header_ranges(&good);
+        let (other_vk, other_rp) = header_ranges(&other);
+        assert!(decode(&good).is_ok());
+
+        let mut bad = good.clone();
+        bad[vk.clone()].copy_from_slice(&other[other_vk]);
+        assert!(
+            decode(&bad).is_err(),
+            "a swapped verifying key must not decode"
+        );
+
+        let mut bad = good.clone();
+        bad[rp.clone()].copy_from_slice(&other[other_rp]);
+        assert!(
+            decode(&bad).is_err(),
+            "a swapped root public key must not decode"
+        );
+    }
+
     #[test]
     fn rejects_bad_magic_version_trailing_bytes_and_weak_kdf() {
         let k = ks();
@@ -1045,6 +1241,16 @@ mod tests {
             Err(SignError::KeyUnreadable { reason, .. }) => assert!(reason.contains("minimum")),
             other => panic!("expected a refusal, got {:?}", other.err()),
         }
+
+        // And so is one claiming more than the ceiling, before any key is derived: a
+        // file must not be able to make its reader spin for hours.
+        let mut bad = good.clone();
+        bad[iterations_at..iterations_at + 4]
+            .copy_from_slice(&(KDF_ITERATIONS_MAX + 1).to_le_bytes());
+        match decode(&bad) {
+            Err(SignError::KeyUnreadable { reason, .. }) => assert!(reason.contains("maximum")),
+            other => panic!("expected a refusal, got {:?}", other.err()),
+        }
     }
 
     // [AC-50.3] [VLD-ANB-MIDGARD-0007]
@@ -1058,6 +1264,94 @@ mod tests {
             }
             other => panic!("expected a refusal, got {:?}", other.err()),
         }
+    }
+
+    // Version 2, whose header is not authenticated, is refused as version 1 is, and
+    // migrates to version 3 with the same root and key. [AC-50.3] [VLD-ANB-MIDGARD-0007]
+    #[test]
+    fn version_2_is_refused_with_the_migrate_hint_and_migrates() {
+        let k = ks();
+        let v2 = encode_v2(&k);
+        assert_eq!(format_version(&v2), Some(2));
+        match decode(&v2) {
+            Err(SignError::KeyUnreadable { reason, .. }) => {
+                assert!(reason.contains("keystore migrate"), "{reason}")
+            }
+            other => panic!("expected a refusal, got {:?}", other.err()),
+        }
+        let passphrase = test_passphrase();
+        let wrap = RootWrap::Passphrase(&passphrase);
+        let v3 = migrate(&v2, &wrap, &mut pqc_agility::OsRng).expect("migrate");
+        assert_eq!(format_version(&v3), Some(VERSION));
+        let migrated = decode(&v3).expect("decodes");
+        assert_eq!(root_secret_bytes(&migrated), root_secret_bytes(&k));
+        assert_eq!(migrated.verifying_key, k.verifying_key);
+        assert!(
+            migrate(&v3, &wrap, &mut pqc_agility::OsRng).is_err(),
+            "a current file is not migrated"
+        );
+    }
+
+    // A version 2 file whose unauthenticated header was swapped is not carried into
+    // version 3, where the swap would become authenticated. [VLD-ANB-MIDGARD-0007]
+    #[test]
+    fn migration_refuses_a_version_2_file_with_a_swapped_header() {
+        let passphrase = test_passphrase();
+        let wrap = RootWrap::Passphrase(&passphrase);
+        let good = encode_v2(&ks());
+        let other = encode_v2(&ks());
+        let (vk, rp) = header_ranges(&good);
+        let (other_vk, other_rp) = header_ranges(&other);
+        for (range, from) in [(vk, other_vk), (rp, other_rp)] {
+            let mut bad = good.clone();
+            bad[range].copy_from_slice(&other[from]);
+            assert!(migrate(&bad, &wrap, &mut pqc_agility::OsRng).is_err());
+        }
+    }
+
+    // A signing key sealed afresh to the (public) root, beside the original verifying
+    // key, is refused by the probe rather than trusted. [NFR-PQ-3] [VLD-ANB-MIDGARD-0007]
+    #[test]
+    fn a_signing_key_resealed_to_the_public_root_is_refused() {
+        let mut rng = pqc_agility::OsRng;
+        let mut k = ks();
+        let impostor = ks().signing_root().unwrap();
+        k.sealed = Kms::new(crate::provider(), k.trust_root())
+            .seal(SEAL_AAD, impostor.expose_signing_key().expose(), &mut rng)
+            .unwrap();
+        let reread = decode(&encode(&k)).expect("the header is intact, so it decodes");
+        assert!(
+            reread.signing_root().is_err(),
+            "a signing key that is not the verifying key's own must not load"
+        );
+    }
+
+    // Rotating the root keeps the signing key and verifying key and changes the root:
+    // data sealed under the old root no longer opens. [VLD-ANB-MIDGARD-0007]
+    #[test]
+    fn rotating_the_root_keeps_the_key_and_replaces_the_root() {
+        let mut rng = pqc_agility::OsRng;
+        let k = ks();
+        let sealed = Kms::new(crate::provider(), k.trust_root())
+            .seal(b"store/0", b"object bytes", &mut rng)
+            .unwrap();
+        let rotated = decode(&encode(&k.rotate_root(&mut rng).expect("rotate"))).unwrap();
+        assert_eq!(rotated.key_id, k.key_id);
+        assert_eq!(rotated.verifying_key, k.verifying_key);
+        assert_ne!(rotated.root_key_id(), k.root_key_id());
+        assert_ne!(root_secret_bytes(&rotated), root_secret_bytes(&k));
+        assert_ne!(rotated.root_public, k.root_public);
+        assert!(ct_eq_keys(&rotated, &k), "the same signing key");
+        assert!(Kms::new(crate::provider(), rotated.trust_root())
+            .unseal(b"store/0", &sealed)
+            .is_err());
+    }
+
+    fn ct_eq_keys(a: &Keystore, b: &Keystore) -> bool {
+        pqc_agility::ct_eq(
+            a.signing_root().unwrap().expose_signing_key().expose(),
+            b.signing_root().unwrap().expose_signing_key().expose(),
+        )
     }
 
     #[test]

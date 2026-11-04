@@ -13,7 +13,7 @@
 #                                  certificate, the mesh trust anchor and the signed
 #                                  revocation list (mesh.crl)
 #   <service>-keystore-passphrase  the passphrase its keystores are wrapped under
-#                                  (keystore format version 2), as key `passphrase`, a
+#                                  (keystore format version 3), as key `passphrase`, a
 #                                  Secret of its own, never beside the keystores
 #                                  [VLD-ANB-MIDGARD-0007]
 #   <service>-seed                 seed.tar: what its init container unpacks on first

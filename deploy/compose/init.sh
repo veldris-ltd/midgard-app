@@ -8,10 +8,11 @@
 # an upgrade is the upgrade. [RC-35] [RC-09] [NFR-SEC-1] [MG-SEC-02]
 #
 # Every keystore's custody root is wrapped under a passphrase (keystore format
-# version 2). Each keystore holder gets its own random passphrase, in a volume of its
+# version 3). Each keystore holder gets its own random passphrase, in a volume of its
 # own, /vol/<holder>-passphrase, never beside its keystores; a passphrase that exists
-# is kept. Keystores an earlier release wrote, version 1 with the root in the clear,
-# are migrated in place under their holder's passphrase before anything opens them.
+# is kept. Keystores an earlier release wrote, version 1 with the root in the clear or
+# version 2 with its header not authenticated, are migrated in place under their
+# holder's passphrase before anything opens them.
 # [VLD-ANB-MIDGARD-0007]
 set -euo pipefail
 
@@ -33,9 +34,10 @@ pass() {
     echo "$file"
 }
 
-# migrate <holder> <keystore>...: convert any version 1 keystore to version 2 under
-# the holder's passphrase. A version 2 keystore is checked and left alone, so this
-# changes nothing on a current enclosure; one that does not unlock stops init.
+# migrate <holder> <keystore>...: convert any version 1 or version 2 keystore to
+# version 3 under the holder's passphrase. A version 3 keystore is checked and left
+# alone, so this changes nothing on a current enclosure; one that does not unlock stops
+# init.
 migrate() {
     local passphrase
     passphrase="$(pass "$1")"

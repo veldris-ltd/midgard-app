@@ -48,6 +48,29 @@ CONTRIBUTING.md for the version policy.
   [VLD-ANB-MIDGARD-0094] [VLD-ANB-MIDGARD-0023]
 
 ### Security
+- **Keystore format version 3: the header is bound to the wrapped root.** A version 2
+  keystore's wrapped root bound only its key id, so whoever could write the file could
+  swap the verifying key a reader trusts or the root public key data is sealed to
+  without the passphrase. Version 3 makes the whole header, magic to root public key,
+  the wrapped root's AAD, and loading a signing key now checks with a probe signature
+  that it signs under the stored verifying key
+  (`kms::SoftwareSigningRoot::from_key`). Every reader refuses version 2 as it refuses
+  version 1, naming `mg-admin keystore migrate`, which now converts either to version 3
+  (checking a version 2 file's root public key and verifying key first); compose
+  `init` and `mg-install`'s repair run it on every keystore. A file claiming more than
+  10,000,000 PBKDF2 iterations is refused before any key is derived.
+  [VLD-ANB-MIDGARD-0007]
+- **`mg-admin keystore rotate-root` gives a keystore a new custody root**, keeping its
+  signing key and verifying key, for a keystore migrated from a version 1 file that
+  may have been exposed. It is staged, read back and checked as `migrate` is, and
+  recorded with `--state-dir`. It refuses a state directory's keystores and a mesh
+  service's audit keystore, whose roots seal the enclosure's data.
+  [VLD-ANB-MIDGARD-0007]
+- **`mg-verify --run-service` starts the bytes it verified.** The service binary is
+  read once and those bytes are verified (`attest::verify_artefact_bytes`); on Linux
+  they are then executed from a sealed in-memory file, so a binary swapped in at the
+  path after the check is not the one started. Other platforms execute the path, as
+  before. [AC-B-1] [VLD-ANB-MIDGARD-0068]
 - **`mg-admin mesh upgrade` keeps a certificate's purposes and clearance unless told
   otherwise.** [VLD-ANB-MIDGARD-0063] Since the upgrade compared the grant asked for,
   the routine `mesh upgrade --service X --roles Y` on a purpose-bound certificate

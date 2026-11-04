@@ -18,14 +18,17 @@ the keystores among named holders (`pqc_agility::shamir`). Its contract test run
 repository's `tools/ci/release-preflight.sh`, `tools/ci/verify-tag.sh`, `mg-sign` and
 `mg-verify` against what it produces.
 
-**Keystore format version 2.** Keystores now wrap their custody root under a
-passphrase (or an external trust root); a version 1 keystore, which held the root in the
-clear, is refused by the signing runner. Dvalin must pin an `attest` revision that
-writes version 2 before the next ceremony, and each keystore holder's passphrase is
+**Keystore format version 3.** Keystores wrap their custody root under a passphrase
+(or an external trust root), the wrap bound to the whole header; a version 1 keystore,
+which held the root in the clear, and a version 2 keystore, whose header was not
+authenticated, are refused by the signing runner. Dvalin must pin an `attest` revision
+that writes version 3 before the next ceremony, and each keystore holder's passphrase is
 generated in the secret store and handed over separately from the keystore. Keystores
 from an earlier ceremony are converted once with `mg-admin keystore migrate`, checked
-with `mg-admin keystore verify`, and every version 1 copy (including escrow fragments
-of it) destroyed. [VLD-ANB-MIDGARD-0007]
+with `mg-admin keystore verify`, and every earlier copy (including escrow fragments of
+it) destroyed. Where a version 1 copy may have been exposed, `mg-admin keystore
+rotate-root` gives a release, admission or model-signing keystore a new custody root,
+keeping the signing key the published anchors pin. [VLD-ANB-MIDGARD-0007]
 
 ## What the ceremony writes here
 
@@ -51,7 +54,7 @@ repository, on the ceremony machine, with the holder's passphrase file:
 MIDGARD_KEYSTORE_PASSPHRASE_FILE=PASSPHRASE_FILE mg-model keygen --out OUT_DIR
 ```
 
-It writes `OUT_DIR/model-signing.keystore`, a keystore version 2 whose root is wrapped
+It writes `OUT_DIR/model-signing.keystore`, a keystore version 3 whose root is wrapped
 under that passphrase, and `OUT_DIR/model-signing.pub`. The public file is committed as
 `deploy/trust/model-signing.pub` with the others; the keystore and its passphrase go to
 the staging enclave, where models are signed, and never into an enclosure or a volume

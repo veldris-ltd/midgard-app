@@ -31,7 +31,10 @@
 //! distroless and has no shell to run a script in (deploy/images/service.Dockerfile).
 //! It verifies `<MIDGARD_APP_DIR, default /app>/<MIDGARD_SERVICE>` exactly as above
 //! and, only when that passes, replaces itself with the binary, handing it every
-//! argument after `--run-service`. Those arguments are the service's, never this
+//! argument after `--run-service`. The binary is read once, and on Linux what runs is
+//! those verified bytes, from a sealed in-memory file: the path is never opened again,
+//! so a binary swapped in after the check is not the one started. Elsewhere the path
+//! is executed, as before. Those arguments are the service's, never this
 //! tool's: the trust anchor is the one on the image's own command line, and nothing
 //! in the environment or the container's arguments can name another. A service
 //! started with no options is refused rather than started on a default address.
@@ -41,7 +44,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use attest::{verify_artefact, TrustAnchors};
+use attest::{verify_artefact, verify_artefact_bytes, TrustAnchors};
 
 const USAGE: &str = "\
 usage:
@@ -148,7 +151,7 @@ fn run(argv: &[String]) -> Result<String, Failure> {
     let artefact = opts
         .artefact
         .ok_or_else(|| Failure::Usage("no artefact given".into()))?;
-    verify(&artefact, &opts.anchor_paths, opts.quiet)
+    verify(&artefact, None, &opts.anchor_paths, opts.quiet)
 }
 
 fn parse(argv: &[String]) -> Result<Options, Failure> {
@@ -198,8 +201,15 @@ fn parse(argv: &[String]) -> Result<Options, Failure> {
     })
 }
 
-/// Verify one artefact against the anchor files, giving its verdict line.
-fn verify(artefact: &Path, anchor_paths: &[PathBuf], quiet: bool) -> Result<String, Failure> {
+/// Verify one artefact against the anchor files, giving its verdict line. With
+/// `bytes`, those are the artefact (already read), and the file at `artefact` is not
+/// opened; only its sidecars are read.
+fn verify(
+    artefact: &Path,
+    bytes: Option<&[u8]>,
+    anchor_paths: &[PathBuf],
+    quiet: bool,
+) -> Result<String, Failure> {
     if anchor_paths.is_empty() {
         // Explicit, because "I forgot the anchors" and "this artefact is fine"
         // must never look the same to an operator or a script.
@@ -209,8 +219,11 @@ fn verify(artefact: &Path, anchor_paths: &[PathBuf], quiet: bool) -> Result<Stri
     }
 
     let anchors = load_anchors(anchor_paths)?;
-    let verdict = verify_artefact(artefact, &anchors)
-        .map_err(|e| Failure::Refused(format!("{} — {e}", artefact.display())))?;
+    let verdict = match bytes {
+        Some(bytes) => verify_artefact_bytes(bytes, artefact, &anchors),
+        None => verify_artefact(artefact, &anchors),
+    }
+    .map_err(|e| Failure::Refused(format!("{} — {e}", artefact.display())))?;
 
     if !quiet {
         eprintln!(
@@ -264,7 +277,24 @@ fn run_service(own: &[String], service: &[String]) -> ExitCode {
         plan.bin.display(),
         anchors.join(" ")
     );
-    match verify(&plan.bin, &plan.opts.anchor_paths, plan.opts.quiet) {
+    // Read once: these bytes are what is verified, and what is started.
+    let bytes = match std::fs::read(&plan.bin) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            let code =
+                Failure::Refused(format!("cannot read {}: {e}", plan.bin.display())).report();
+            eprintln!(
+                "::fatal:: {name} failed PQ signature/SBOM/provenance verification — refusing to start"
+            );
+            return code;
+        }
+    };
+    match verify(
+        &plan.bin,
+        Some(&bytes),
+        &plan.opts.anchor_paths,
+        plan.opts.quiet,
+    ) {
         Ok(line) => println!("{line}"),
         Err(failure) => {
             let code = failure.report();
@@ -277,7 +307,7 @@ fn run_service(own: &[String], service: &[String]) -> ExitCode {
     println!("verify-before-run: OK — starting {name}");
     // Nothing printed above may be lost when the process image is replaced.
     let _ = std::io::stdout().flush();
-    exec(&plan.bin, name, plan.args)
+    exec(&bytes, &plan.bin, name, plan.args)
 }
 
 /// Work out what `--run-service` would start, refusing anything it must not.
@@ -325,9 +355,62 @@ fn service_plan<'a>(own: &[String], service: &'a [String]) -> Result<ServicePlan
     })
 }
 
-/// Become the verified service. Returns only if it could not be started.
-#[cfg(unix)]
-fn exec(bin: &Path, name: &str, args: &[String]) -> ExitCode {
+/// Become the verified service: on Linux, the verified `bytes` themselves, never
+/// `bin` again. Returns only if it could not be started.
+#[cfg(target_os = "linux")]
+fn exec(bytes: &[u8], _bin: &Path, name: &str, args: &[String]) -> ExitCode {
+    let err = exec_bytes(bytes, name, args);
+    eprintln!("::fatal:: {name} verified but could not be started: {err}");
+    ExitCode::FAILURE
+}
+
+/// Execute `bytes` as `name` with `args`: copied into an anonymous in-memory file
+/// (`memfd_create`), sealed so nothing can change, grow or shrink it, reopened
+/// read-only (so no descriptor that could write it is open when it is executed), and
+/// executed through `/proc/self/fd`. Both descriptors close on exec, so the service
+/// inherits neither. Returns only the reason it could not. [AC-B-1] [NFR-PQ-3]
+/// [VLD-ANB-MIDGARD-0068]
+#[cfg(target_os = "linux")]
+fn exec_bytes(bytes: &[u8], name: &str, args: &[String]) -> std::io::Error {
+    use std::io::{Error, ErrorKind};
+    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::os::unix::process::CommandExt;
+
+    let Ok(label) = std::ffi::CString::new(name) else {
+        return Error::new(ErrorKind::InvalidInput, "the service name holds a NUL byte");
+    };
+    // SAFETY: `label` is a NUL-terminated string that outlives the call, and the flags
+    // are valid; the call returns a new descriptor or -1.
+    let fd =
+        unsafe { libc::memfd_create(label.as_ptr(), libc::MFD_CLOEXEC | libc::MFD_ALLOW_SEALING) };
+    if fd < 0 {
+        return Error::last_os_error();
+    }
+    // SAFETY: `fd` was just created and nothing else owns it.
+    let mut memfd = unsafe { std::fs::File::from_raw_fd(fd) };
+    if let Err(e) = memfd.write_all(bytes) {
+        return e;
+    }
+    let seals = libc::F_SEAL_SEAL | libc::F_SEAL_SHRINK | libc::F_SEAL_GROW | libc::F_SEAL_WRITE;
+    // SAFETY: `memfd` is an open memfd created with MFD_ALLOW_SEALING.
+    if unsafe { libc::fcntl(memfd.as_raw_fd(), libc::F_ADD_SEALS, seals) } < 0 {
+        return Error::last_os_error();
+    }
+    let sealed = match std::fs::File::open(format!("/proc/self/fd/{}", memfd.as_raw_fd())) {
+        Ok(file) => file,
+        Err(e) => return e,
+    };
+    drop(memfd);
+    std::process::Command::new(format!("/proc/self/fd/{}", sealed.as_raw_fd()))
+        .arg0(name)
+        .args(args)
+        .exec()
+}
+
+/// Become the verified service. Without `memfd_create` the path is executed, as it
+/// always was. Returns only if it could not be started.
+#[cfg(all(unix, not(target_os = "linux")))]
+fn exec(_bytes: &[u8], bin: &Path, name: &str, args: &[String]) -> ExitCode {
     use std::os::unix::process::CommandExt;
     let err = std::process::Command::new(bin).args(args).exec();
     eprintln!("::fatal:: {name} verified but could not be started: {err}");
@@ -335,7 +418,7 @@ fn exec(bin: &Path, name: &str, args: &[String]) -> ExitCode {
 }
 
 #[cfg(not(unix))]
-fn exec(_bin: &Path, name: &str, _args: &[String]) -> ExitCode {
+fn exec(_bytes: &[u8], _bin: &Path, name: &str, _args: &[String]) -> ExitCode {
     eprintln!("::fatal:: {name} verified, but {RUN_SERVICE} starts services on Unix only");
     ExitCode::FAILURE
 }

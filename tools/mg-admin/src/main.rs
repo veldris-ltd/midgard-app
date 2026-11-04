@@ -31,6 +31,7 @@
 //!                             --ledger-id <id> [--audit-pin <file>]
 //!   mg-admin keystore migrate --keystore <file> [--state-dir <dir>]
 //!   mg-admin keystore verify --keystore <file> [--state-dir <dir>]
+//!   mg-admin keystore rotate-root --keystore <file> [--state-dir <dir>]
 //!
 //! Every command opens keystores, and every keystore's custody root is wrapped under a
 //! passphrase read from `--keystore-passphrase-file <file>`, or from the file named by
@@ -38,8 +39,9 @@
 //! issue|renew|upgrade` take `--identity-passphrase-file` for the service's own
 //! keystores, and `admin add` and `enrol` take `--passkey-passphrase-file` for the
 //! administrator's passkey; each defaults to the keystore passphrase. Version 1
-//! keystores, which held the root in the clear, are refused until `keystore migrate`
-//! converts them. [VLD-ANB-MIDGARD-0007]
+//! keystores, which held the root in the clear, and version 2 keystores, whose header
+//! was not authenticated, are refused until `keystore migrate` converts them.
+//! [VLD-ANB-MIDGARD-0007]
 //!
 //! The password for `user add` is read from standard input, and only from a pipe or a
 //! file: std has no portable way to stop a terminal echoing it, so an interactive
@@ -56,8 +58,8 @@ use std::process::exit;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use attest::keystore::{
-    create_private_dir, format_version, migrate_v1, passphrase_file, write_restricted,
-    PASSPHRASE_ENV, PASSPHRASE_FLAG, VERSION as KEYSTORE_VERSION,
+    create_private_dir, format_version, migrate, passphrase_file, write_restricted, PASSPHRASE_ENV,
+    PASSPHRASE_FLAG, VERSION as KEYSTORE_VERSION,
 };
 use attest::{Keystore, RootWrap};
 use audit_writer::{
@@ -121,6 +123,7 @@ USAGE:
                             --ledger-id <id> [--audit-pin <file>]
   mg-admin keystore migrate --keystore <file> [--state-dir <dir>]
   mg-admin keystore verify --keystore <file> [--state-dir <dir>]
+  mg-admin keystore rotate-root --keystore <file> [--state-dir <dir>]
 
   Every command also takes --keystore-passphrase-file <file> (default: the file named
   by MIDGARD_KEYSTORE_PASSPHRASE_FILE; with neither it refuses). mesh issue, renew and
@@ -208,16 +211,27 @@ COMMANDS:
              a checkpoint at the same time. Enables a mirror for an existing ledger,
              or re-seeds a lost one; a mirror ahead of the ledger is never moved back.
   keystore migrate
-             convert a version 1 keystore, which held its custody root in the clear, to
-             version 2, the root wrapped under the keystore passphrase: the new file
-             must unseal the same signing key before it replaces the old one. The root
-             is kept, so destroy every other copy of the version 1 file (backups,
-             volumes, Secrets), and re-initialise instead where one may have leaked. A
-             version 2 file is checked and left alone. With --state-dir the migration
-             is recorded in that enclosure's audit ledger.
+             convert a version 1 keystore, which held its custody root in the clear, or
+             a version 2 keystore, whose header was not authenticated, to version 3,
+             the root wrapped under the keystore passphrase with the whole header bound
+             to it: the new file must unseal the same signing key before it replaces
+             the old one. The root is kept, so destroy every other copy of the old file
+             (backups, volumes, Secrets), and where a version 1 copy may have leaked,
+             rotate the root (keystore rotate-root) or, where that is refused,
+             re-initialise. A version 3 file is checked and left alone. With
+             --state-dir the migration is recorded in that enclosure's audit ledger.
   keystore verify
              unlock a keystore with the passphrase and print its key id, algorithm and
              format version. With --state-dir the check is recorded in the audit ledger.
+  keystore rotate-root
+             give a version 3 keystore a new custody root, keeping its signing key and
+             verifying key: the new file must unseal the same signing key under a
+             different root before it replaces the old one. Only for keystores whose
+             root seals nothing but their own key (release, admission, model-signing,
+             a mesh service's identity keystore, an administrator's passkey); a state
+             directory's keystores and a mesh service's audit keystore are refused,
+             since their root seals the enclosure's data. With --state-dir the rotation
+             is recorded in that enclosure's audit ledger.
 
 init, user, import, admin add and admin totp-reset need the state directory's lock, which a
 running gateway holds: stop it first. The enrol commands talk to the running gateway
@@ -380,6 +394,9 @@ fn run(argv: &[String]) -> Result<String, Failure> {
         ["keystore", "verify", rest @ ..] => {
             keystore_verify(&options(rest, &["keystore", "state-dir"], &[])?)
         }
+        ["keystore", "rotate-root", rest @ ..] => {
+            keystore_rotate_root(&options(rest, &["keystore", "state-dir"], &[])?)
+        }
         [] => Err(Failure::Usage("no command given".into())),
         _ => Err(Failure::Usage(format!(
             "unknown command '{}'",
@@ -533,17 +550,18 @@ fn service_ledger_checkpoint(o: &Options) -> Result<String, Failure> {
 }
 
 /// `keystore migrate --keystore FILE`: convert a version 1 keystore (root in the
-/// clear) to version 2 under the keystore passphrase. The new file is written beside
-/// the old one as `FILE.v2`, owner-only, read back from disk with the passphrase and
-/// checked to unseal the same signing key, then renamed over `FILE`. A version 2 file
-/// is only checked, so the command is safe to repeat. [VLD-ANB-MIDGARD-0007]
+/// clear) or a version 2 keystore (header not authenticated) to version 3 under the
+/// keystore passphrase. The new file is written beside the old one as `FILE.v3`,
+/// owner-only, read back from disk with the passphrase and checked to unseal the same
+/// signing key, then renamed over `FILE`. A version 3 file is only checked, so the
+/// command is safe to repeat. [VLD-ANB-MIDGARD-0007]
 fn keystore_migrate(o: &Options) -> Result<String, Failure> {
     let path = PathBuf::from(o.require("keystore")?);
     let passphrase = passphrase(o)?;
     let wrap = RootWrap::Passphrase(&passphrase);
     let bytes = std::fs::read(&path)
         .map_err(|e| Failure::Run(format!("cannot read {}: {e}", path.display())))?;
-    match format_version(&bytes) {
+    let from = match format_version(&bytes) {
         Some(KEYSTORE_VERSION) => {
             let keystore = Keystore::decode(&bytes, &wrap)
                 .map_err(|e| Failure::Run(format!("{}: {e}", path.display())))?;
@@ -554,35 +572,93 @@ fn keystore_migrate(o: &Options) -> Result<String, Failure> {
                 keystore.key_id
             ));
         }
-        Some(1) => {}
+        Some(v @ (1 | 2)) => v,
         _ => {
             return Err(Failure::Run(format!(
                 "{} is not a keystore this tool can migrate",
                 path.display()
             )))
         }
-    }
-    use kms::SigningRoot as _;
-    // The original signing key, unsealed under the root the version 1 file holds.
-    let migrated = migrate_v1(&bytes, &wrap, &mut OsRng)
+    };
+    // The original signing key, unsealed under the root the old file holds.
+    let migrated = migrate(&bytes, &wrap, &mut OsRng)
         .map_err(|e| Failure::Run(format!("cannot migrate {}: {e}", path.display())))?;
     let expected = Keystore::decode(&migrated, &wrap)
         .and_then(|k| k.signing_root())
         .map_err(|e| Failure::Run(format!("cannot migrate {}: {e}", path.display())))?;
+    let keystore = replace_keystore(
+        &path,
+        &format!("v{KEYSTORE_VERSION}"),
+        &migrated,
+        &wrap,
+        &expected,
+        |_| true,
+        o.get("state-dir").map(|state| AdminEvent {
+            state: StateDir::new(state),
+            command: "mg-admin keystore migrate",
+            action: "MIGRATE keystore",
+            resource: format!(
+                "keystore:{}:v{from}-to-v{KEYSTORE_VERSION}",
+                kms::SigningRoot::key_id(&expected)
+            ),
+        }),
+    )?;
+    let old_copies = if from == 1 {
+        "it holds the root in clear"
+    } else {
+        "its header is not authenticated, and no reader opens it"
+    };
+    Ok(format!(
+        "migrated {} ({}, {}) from keystore version {from} to keystore version \
+         {KEYSTORE_VERSION}; destroy every other copy of the version {from} file (backups, \
+         volumes, Secrets): {old_copies}",
+        path.display(),
+        keystore.key_id,
+        keystore.alg.as_str()
+    ))
+}
 
+/// An event to record in an enclosure's audit ledger once a keystore is staged.
+struct AdminEvent {
+    state: StateDir,
+    command: &'static str,
+    action: &'static str,
+    resource: String,
+}
+
+/// Put `bytes`, a replacement for the keystore at `path`, in its place: written beside
+/// it as `FILE.<suffix>`, owner-only, read back from disk under `wrap` and checked to
+/// unseal `expected`'s signing key under the same verifying key (and to pass `also`),
+/// recorded in the audit ledger when `event` is given, then renamed over `path`. On any
+/// failure the staged file is removed and `path` is unchanged. Returns the keystore as
+/// read back. [VLD-ANB-MIDGARD-0007]
+fn replace_keystore(
+    path: &Path,
+    suffix: &str,
+    bytes: &[u8],
+    wrap: &RootWrap,
+    expected: &kms::SoftwareSigningRoot,
+    also: impl Fn(&Keystore) -> bool,
+    event: Option<AdminEvent>,
+) -> Result<Keystore, Failure> {
+    use kms::SigningRoot as _;
     let mut staged = path.as_os_str().to_os_string();
-    staged.push(".v2");
+    staged.push(format!(".{suffix}"));
     let staged = PathBuf::from(staged);
-    write_restricted(&staged, &migrated).map_err(|e| Failure::Run(e.to_string()))?;
+    write_restricted(&staged, bytes).map_err(|e| Failure::Run(e.to_string()))?;
     // Prove the file on disk, not just the bytes in memory, before it takes the name.
-    let reread = Keystore::read(&staged, &wrap).and_then(|k| {
+    let reread = Keystore::read(&staged, wrap).and_then(|k| {
         let root = k.signing_root()?;
         Ok((k, root))
     });
     let keystore = match reread {
         Ok((keystore, root))
             if keystore.verifying_key == *expected.verifying_key()
-                && root.expose_signing_key().expose() == expected.expose_signing_key().expose() =>
+                && pqc_agility::ct_eq(
+                    root.expose_signing_key().expose(),
+                    expected.expose_signing_key().expose(),
+                )
+                && also(&keystore) =>
         {
             keystore
         }
@@ -595,32 +671,124 @@ fn keystore_migrate(o: &Options) -> Result<String, Failure> {
             )));
         }
     };
-    if let Some(state) = o.get("state-dir") {
-        let state = StateDir::new(state);
-        let recorded = StateLock::acquire(&state, "mg-admin keystore migrate")
+    if let Some(event) = event {
+        let recorded = StateLock::acquire(&event.state, event.command)
             .map_err(Failure::Run)
             .and_then(|_lock| {
-                record_admin_event(
-                    &state,
-                    &wrap,
-                    "MIGRATE keystore",
-                    &format!("keystore:{}:v1-to-v{KEYSTORE_VERSION}", keystore.key_id),
-                )
+                record_admin_event(&event.state, wrap, event.action, &event.resource)
             });
         if let Err(e) = recorded {
             let _ = std::fs::remove_file(&staged);
             return Err(e);
         }
     }
-    std::fs::rename(&staged, &path)
+    std::fs::rename(&staged, path)
         .map_err(|e| Failure::Run(format!("cannot replace {}: {e}", path.display())))?;
+    Ok(keystore)
+}
+
+/// `keystore rotate-root --keystore FILE`: give a version 3 keystore a new custody
+/// root, keeping its signing key and verifying key, as `keystore migrate` replaces a
+/// file: staged as `FILE.rotated`, read back and checked to unseal the same signing
+/// key under a different root, recorded with --state-dir, then renamed over `FILE`.
+///
+/// A keystore's root seals its own signing key, and for some keystores data too,
+/// through `kms::KmsSealer`; that data would never open again under a new root. Which
+/// do: the state directory's issuer keystore seals the identity directory, revocations
+/// and the administrators' journals, its audit keystore the governance ledger and the
+/// object store, and a mesh service's audit keystore its ledger and its own stores
+/// (`ServiceIdentity::data_sealer`). Which do not: release, admission and
+/// model-signing keystores (mg-sign, mg-register, mg-bundle and mg-model only sign
+/// with them), a mesh service's identity keystore (it only signs handshakes; the
+/// service's data is under its audit keystore), and an administrator's passkey. So
+/// the rule ([`rotation_refusal`]) refuses a file in a state directory's `keys/`, a
+/// file named `*.audit.keystore`, and, wherever the file lies, a keystore whose key id
+/// is the state directory's issuer or audit key id or a mesh audit key id
+/// (`<service>-audit`). [VLD-ANB-MIDGARD-0007]
+fn keystore_rotate_root(o: &Options) -> Result<String, Failure> {
+    let path = PathBuf::from(o.require("keystore")?);
+    let passphrase = passphrase(o)?;
+    let wrap = RootWrap::Passphrase(&passphrase);
+    let keystore = Keystore::read(&path, &wrap).map_err(|e| Failure::Run(e.to_string()))?;
+    if let Some(reason) = rotation_refusal(&path, &keystore) {
+        return Err(Failure::Run(format!(
+            "{} {reason}, and a new root would leave that data sealed under the old one; \
+             re-initialise the enclosure instead",
+            path.display()
+        )));
+    }
+    let expected = keystore
+        .signing_root()
+        .map_err(|e| Failure::Run(format!("{}: {e}", path.display())))?;
+    let rotated = keystore
+        .rotate_root(&mut OsRng)
+        .and_then(|k| k.encode(&wrap, &mut OsRng))
+        .map_err(|e| Failure::Run(format!("cannot rotate {}: {e}", path.display())))?;
+    let old_root = keystore.root_key_id().to_string();
+    let after = replace_keystore(
+        &path,
+        "rotated",
+        &rotated,
+        &wrap,
+        &expected,
+        |k| k.root_key_id() != old_root,
+        o.get("state-dir").map(|state| AdminEvent {
+            state: StateDir::new(state),
+            command: "mg-admin keystore rotate-root",
+            action: "ROTATE keystore root",
+            resource: format!("keystore:{}:root:{old_root}", keystore.key_id),
+        }),
+    )?;
     Ok(format!(
-        "migrated {} ({}, {}) to keystore version {KEYSTORE_VERSION}; destroy every other \
-         copy of the version 1 file (backups, volumes, Secrets): it holds the root in clear",
+        "rotated the custody root of {} ({}, {}) from {old_root} to {}; the signing key and \
+         verifying key are unchanged. Destroy every other copy of the old file (backups, \
+         volumes, Secrets): it holds the old root",
         path.display(),
-        keystore.key_id,
-        keystore.alg.as_str()
+        after.key_id,
+        after.alg.as_str(),
+        after.root_key_id()
     ))
+}
+
+/// Why `keystore rotate-root` must not rotate `keystore`, read from `path`: its root
+/// seals an enclosure's data. `None` when it seals nothing but its own signing key.
+/// See [`keystore_rotate_root`] for which are which. [VLD-ANB-MIDGARD-0007]
+fn rotation_refusal(path: &Path, keystore: &Keystore) -> Option<String> {
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
+    if name
+        .as_deref()
+        .is_some_and(|n| n.ends_with(".audit.keystore"))
+    {
+        return Some(
+            "is a mesh service's audit keystore, whose root seals its ledger and stores".into(),
+        );
+    }
+    if [IDP_KEY_ID, AUDIT_KEY_ID].contains(&keystore.key_id.as_str()) {
+        return Some(format!(
+            "holds the state directory's {} key, whose root seals the enclosure's data",
+            keystore.key_id
+        ));
+    }
+    if keystore.key_id.ends_with("-audit") {
+        return Some(format!(
+            "holds a mesh service's audit key ({}), whose root seals its ledger and stores",
+            keystore.key_id
+        ));
+    }
+    // A file in a state directory's keys/: the directory beside it has the state
+    // directory's other contents.
+    let path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let keys = path.parent()?;
+    let root = keys.parent()?;
+    let state = StateDir::new(root);
+    let in_state_dir = keys.file_name().is_some_and(|n| n == "keys")
+        && (state.trust().is_dir() || state.directory().exists() || state.ledger().exists());
+    in_state_dir.then(|| {
+        format!(
+            "is in the state directory {}, whose keystores' roots seal the enclosure's data",
+            root.display()
+        )
+    })
 }
 
 /// `keystore verify --keystore FILE`: unlock it with the passphrase, unseal its
