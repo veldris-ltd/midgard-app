@@ -1,10 +1,11 @@
 //! Connector SDK: typed sync → PQ-sealed raw dataset (AC-F-1), sandbox egress
-//! denial (air-gap default), and KMS-resolved credentials. [FR-F-2] [NFR-PQ-2]
+//! denial (air-gap default) and egress only to routable addresses for a name, and
+//! KMS-resolved credentials. [FR-F-2] [NFR-PQ-2] [NFR-PRV-1]
 #![cfg(all(feature = "backend-fips", feature = "connector-file"))]
 
 use forge_connector_sdk::connectors::file::DelimitedConnector;
 use forge_connector_sdk::{
-    sync_to_store, ApiConnector, Connector, ConnectorError, ConnectorKind, CredentialRef,
+    net, sync_to_store, ApiConnector, Connector, ConnectorError, ConnectorKind, CredentialRef,
     CredentialResolver, Fetcher, KmsCredentialResolver, NoCredentials, SandboxPolicy, SyncContext,
 };
 use forge_dataset_store::{Column, ColumnType, DataValue, DatasetStore, Schema};
@@ -93,6 +94,27 @@ fn air_gapped_sandbox_denies_egress_by_default() {
     let permitted = SandboxPolicy::air_gapped().permit_host("feeds.internal");
     assert!(permitted.check_egress("feeds.internal").is_ok());
     assert!(permitted.check_egress("evil.example.com").is_err());
+}
+
+#[test]
+fn an_allowed_name_that_resolves_to_loopback_is_refused() {
+    // The allow-list names a target; what DNS returns for a name is not trusted to
+    // stay outside the enclosure, so a name reaches only routable addresses. An IP
+    // literal is the operator's explicit choice and is connected to as written.
+    // [NFR-PRV-1] [FR-F-2]
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let named = SandboxPolicy::air_gapped().permit_host(format!("localhost:{port}"));
+    match net::connect(&named, "localhost", port) {
+        Err(ConnectorError::Io { detail, .. }) => {
+            assert_eq!(detail, "resolves to a non-routable address")
+        }
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+
+    let literal = SandboxPolicy::air_gapped().permit_host(format!("127.0.0.1:{port}"));
+    net::connect(&literal, "127.0.0.1", port).expect("an allowed IP literal connects");
 }
 
 #[test]

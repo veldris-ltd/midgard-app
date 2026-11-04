@@ -16,10 +16,11 @@
 //! traced. [VLD-ANB-MIDGARD-0034]
 //!
 //! Every permitted call is also admitted against an [`InferenceLimits`] budget: a
-//! prompt over the byte bound is refused `PROMPT_TOO_LARGE`, a call over the global or
-//! per-identity concurrency bound is refused `BUSY` (each with an audit entry of its
-//! own), and `max_tokens` is clamped to the ceiling before the engine sees it. The
-//! admission slot is held until the engine returns, error or timeout included.
+//! prompt over the byte bound (the system text and the body together) is refused
+//! `PROMPT_TOO_LARGE`, a call over the global or per-identity concurrency bound is
+//! refused `BUSY` (each with an audit entry of its own), and `max_tokens` is clamped
+//! to the ceiling before the engine sees it. The admission slot is held until the
+//! engine returns, error or timeout included.
 //! [VLD-ANB-MIDGARD-0016]
 //!
 //! A [`ServingState`] disengages serving at run time: while it is stopped, a permitted
@@ -77,8 +78,9 @@ pub struct InferenceLimits {
     /// The most completion tokens a call may ask for; a larger `max_tokens` is
     /// clamped to it, not refused.
     pub max_tokens: u32,
-    /// The longest prompt, in bytes (the serving plane has no tokenizer); a longer
-    /// one is refused `PROMPT_TOO_LARGE`.
+    /// The longest prompt, in bytes (the serving plane has no tokenizer), counting
+    /// the system text and the body together; a longer one is refused
+    /// `PROMPT_TOO_LARGE`. [VLD-ANB-MIDGARD-0016]
     pub max_prompt_bytes: usize,
     /// Calls in flight across every identity; one more is refused `BUSY`.
     pub max_concurrent: usize,
@@ -585,7 +587,7 @@ impl<S: LedgerStore + Send> RequestHandler for InferenceHandler<S> {
         if !self.serving.is_serving() {
             return self.refuse_stopped(&ctx.subject, now);
         }
-        if req.prompt.len() > self.limits.max_prompt_bytes {
+        if req.prompt.len().saturating_add(req.system_prompt.len()) > self.limits.max_prompt_bytes {
             return self.refuse(&ctx.subject, "PROMPT_TOO_LARGE", now);
         }
         let Some(slot) = self.admission.try_acquire(&ctx.subject) else {

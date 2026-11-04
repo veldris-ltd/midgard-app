@@ -48,6 +48,52 @@ CONTRIBUTING.md for the version policy.
   [VLD-ANB-MIDGARD-0094] [VLD-ANB-MIDGARD-0023]
 
 ### Security
+- **The Heimdall, Forge, Bifrost and admin bridges no longer default to
+  UNCLASSIFIED.** `MimirOptionProvider`, `MimirSuggester`, `MimirAdvisor` and
+  `MimirCopilot` take the caller's posture in `new(inference, marking)`;
+  `with_marking` is removed, so a bridge cannot be built without declaring what its
+  prompt may hold. [VLD-ANB-MIDGARD-0034]
+- **The agent runtime marks its request for memory and history, not only
+  grounding.** `Layers.memory` and `Layers.history` are now `Vec<MarkedItem>` (text and
+  `marking_level`), and `AssembledPrompt::max_marking_level` is the highest level among
+  the included facts, memory items and history window; an item trimmed by the budget
+  does not count. [VLD-ANB-MIDGARD-0034]
+- **The model server's prompt bound counts the system text.** `max_prompt_bytes` is
+  checked against `system_prompt` and `prompt` together, so a large system turn is
+  refused `PROMPT_TOO_LARGE` like a large body. [VLD-ANB-MIDGARD-0016]
+- **Mistral's tool-calling tokens are neutralised.** `[AVAILABLE_TOOLS]`,
+  `[/AVAILABLE_TOOLS]`, `[TOOL_CALLS]`, `[TOOL_RESULTS]`, `[/TOOL_RESULTS]` and
+  `[TOOL_CONTENT]` in the system or user text are escaped like the family's other
+  control tokens, so data cannot forge a tool list, call or result.
+  [VLD-ANB-MIDGARD-0060]
+- **Deleting `revoked.list` no longer reverses every revocation.** Once the revocation
+  list has existed (at start-up or at a re-check since), mimir-server treats its
+  removal as unreadable: serving stops `MODEL_REVOKED` with "the revocation list …
+  has been removed" until it is restored. A deployment that never had a list is
+  unchanged. [VLD-ANB-MIDGARD-0057]
+- **An oversized feed observation no longer uses up its sequence, and its refusal is
+  audited.** heimdall-feed checks the size and attribute bounds before the replay
+  guard records the sequence, so the feed can resend at the same sequence once the
+  observation fits. The refusal still replies `MALFORMED`, and is now in the ledger as
+  `Ingest refused: oversized observation` with reason `oversized`
+  (`REASON_OVERSIZED`). [VLD-ANB-MIDGARD-0017] [VLD-ANB-MIDGARD-0041]
+- **The guardrail pre-filter looks inside encodings.** `SelfDefending` also matches
+  injection, jailbreak, exfiltration and tool-abuse phrases in decoded readings of
+  each item, decoded once and no longer than the input: percent encoding, `\x`/`\u`
+  escapes, HTML character references, and each base64 run of 16 or more characters
+  that decodes to UTF-8. A hit in any of them blocks. Text with a `\x` or `\u` escape
+  is now blocked rather than sanitised, since stripping cannot remove an escape.
+  [VLD-ANB-MIDGARD-0078]
+- **A Forge connector reaches an allowed name only at a routable address.**
+  `net::connect` resolves the allowed `host:port` once and connects only to an address
+  that is not loopback, private, link-local, unspecified, shared (100.64/10),
+  unique-local, broadcast or multicast (a v4-mapped v6 address is judged as its v4
+  address); otherwise it fails "resolves to a non-routable address". An allowed IP
+  literal is connected to as written. **Upgrading:** a source inside the enclosure
+  named by a host name that resolves to a private address must now be named by its
+  IP address, and a job reaching the egress broker must name `127.0.0.1` (the worker's
+  `--egress-routes` check no longer accepts `localhost`). `live-connectors.sh` passes
+  the containers' addresses. [NFR-PRV-1] [FR-F-2]
 - **Closing a break-glass grant, and its four-hour cap, survive a restart.**
   [VLD-ANB-MIDGARD-0055] [FR-AD-8] [RC-14]
   - `BreakGlassController` is generic over a new `GrantStore`, and by default is

@@ -96,11 +96,11 @@ Services talk to each other over PQ-mTLS: a mutually authenticated handshake wit
   - [`deploy/kind/smoke.sh:115`](../../deploy/kind/smoke.sh)
   - [`deploy/kind/smoke.sh:140`](../../deploy/kind/smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:154`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:200`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:17`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/launch/pipeline/build-deck.js:470`](../../docs/launch/pipeline/build-deck.js)
-  - [`CHANGELOG.md:158`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:245`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:204`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:291`](../../CHANGELOG.md)
 
 ### `mesh-certificate-lifecycle` (reference)
 
@@ -137,10 +137,10 @@ The five running services keep their state in sealed, append-only journals: AES-
   - [`deploy/kind/smoke.sh:80`](../../deploy/kind/smoke.sh)
   - [`deploy/kind/smoke.sh:105`](../../deploy/kind/smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:202`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:248`](../../CHANGELOG.md)
   - [`docs/launch/pipeline/build-deck.js:471`](../../docs/launch/pipeline/build-deck.js)
-  - [`CHANGELOG.md:206`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:293`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:252`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:339`](../../CHANGELOG.md)
 
 ### `hardware-key-custody` (reference)
 
@@ -158,11 +158,11 @@ A hardware trust root (HSM or TPM) in which the root secret never enters process
   - [`services/kms/tests/rc_28.rs::root_attestation_verifies_and_fails_closed_on_tamper`](../../services/kms/tests/rc_28.rs)
   - [`crypto/attest/tests/keystore_v2.rs::external_root_wrap_round_trips`](../../crypto/attest/tests/keystore_v2.rs)
 - Stated at:
-  - [`CHANGELOG.md:189`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:235`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:112`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/launch/pipeline/build-deck.js:483`](../../docs/launch/pipeline/build-deck.js)
-  - [`CHANGELOG.md:193`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:280`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:239`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:326`](../../CHANGELOG.md)
 
 ## Core: fabric, identity and governance
 
@@ -180,7 +180,7 @@ Edge admission and every object-fabric call are written to one append-only ledge
   - [`services/http-gateway/src/lib.rs:566`](../../services/http-gateway/src/lib.rs)
   - [`services/http-gateway/src/lib.rs:1370`](../../services/http-gateway/src/lib.rs)
   - [`crypto/audit-writer/src/file.rs:23`](../../crypto/audit-writer/src/file.rs)
-  - [`mimir/model-server/src/handler.rs:89`](../../mimir/model-server/src/handler.rs)
+  - [`mimir/model-server/src/handler.rs:91`](../../mimir/model-server/src/handler.rs)
 - Tests:
   - [`crypto/audit-writer/tests/tamper.rs::compromised_signer_cannot_rewrite_history`](../../crypto/audit-writer/tests/tamper.rs)
   - [`crypto/audit-writer/tests/truncation.rs::cutting_entries_off_the_end_is_detected`](../../crypto/audit-writer/tests/truncation.rs)
@@ -211,10 +211,10 @@ Edge admission and every object-fabric call are written to one append-only ledge
   - [`deploy/compose/smoke.sh:24`](../../deploy/compose/smoke.sh)
 - Stated at:
   - [`README.md:54`](../../README.md)
-  - [`CHANGELOG.md:145`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:191`](../../CHANGELOG.md)
   - [`docs/launch/pipeline/build-deck.js:334`](../../docs/launch/pipeline/build-deck.js)
-  - [`CHANGELOG.md:149`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:236`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:195`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:282`](../../CHANGELOG.md)
 
 ### `object-fabric` (operable)
 
@@ -405,7 +405,7 @@ Access is denied unless a written rule grants it: role, marking and purpose must
   - [`services/fabric/src/resource.rs:1`](../../services/fabric/src/resource.rs)
   - [`crypto/pq-mtls/src/handshake.rs:594`](../../crypto/pq-mtls/src/handshake.rs)
   - [`services/runtime/src/mesh.rs:18`](../../services/runtime/src/mesh.rs)
-  - [`mimir/model-server/src/handler.rs:157`](../../mimir/model-server/src/handler.rs)
+  - [`mimir/model-server/src/handler.rs:159`](../../mimir/model-server/src/handler.rs)
 - Tests:
   - [`services/http-gateway/tests/policy_file.rs::an_empty_rule_set_is_valid_and_grants_nothing`](../../services/http-gateway/tests/policy_file.rs)
   - [`crypto/pq-mtls/tests/authz.rs::deny_by_default_pdp_blocks_channel`](../../crypto/pq-mtls/tests/authz.rs)
@@ -457,11 +457,11 @@ Enrolling a principal online needs two different administrators, each proving po
   - [`tools/mg-admin/tests/enrol.rs::administration_needs_the_passphrase_and_a_one_time_code`](../../tools/mg-admin/tests/enrol.rs)
   - [`tools/mg-admin/tests/enrol.rs::a_wrong_passkey_passphrase_stops_before_the_gateway`](../../tools/mg-admin/tests/enrol.rs)
 - Stated at:
-  - [`CHANGELOG.md:152`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:137`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:219`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:156`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:243`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:198`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:183`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:265`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:202`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:289`](../../CHANGELOG.md)
 
 ## Admin
 
@@ -539,15 +539,15 @@ Seven console interfaces: Midgard core, Forge, Mimir, Bifrost, Heimdall, Admin a
   - [`services/http-gateway/tests/rc_37.rs::login_issues_a_pq_token_that_authorises_data_requests`](../../services/http-gateway/tests/rc_37.rs)
 - Stated at:
   - [`README.md:816`](../../README.md)
-  - [`CHANGELOG.md:178`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:224`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:118`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/launch/pipeline/build-deck.js:544`](../../docs/launch/pipeline/build-deck.js)
   - [`README.md:812`](../../README.md)
-  - [`CHANGELOG.md:193`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:239`](../../CHANGELOG.md)
   - [`README.md:824`](../../README.md)
   - [`README.md:814`](../../README.md)
-  - [`CHANGELOG.md:197`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:284`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:243`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:330`](../../CHANGELOG.md)
 
 ## Mimir
 
@@ -559,8 +559,8 @@ mimir-server answers inference requests from a real model inside the enclosure: 
 
 - Source:
   - [`mimir/model-server/src/backends/openai_compat.rs:60`](../../mimir/model-server/src/backends/openai_compat.rs)
-  - [`mimir/model-server/src/handler.rs:445`](../../mimir/model-server/src/handler.rs)
-  - [`mimir/mimir-server/src/main.rs:281`](../../mimir/mimir-server/src/main.rs)
+  - [`mimir/model-server/src/handler.rs:447`](../../mimir/model-server/src/handler.rs)
+  - [`mimir/mimir-server/src/main.rs:301`](../../mimir/mimir-server/src/main.rs)
   - [`mimir/model-server/src/backends/openai_compat.rs:203`](../../mimir/model-server/src/backends/openai_compat.rs)
   - [`mimir/model-server/src/marking.rs:1`](../../mimir/model-server/src/marking.rs)
 - Tests:
@@ -582,12 +582,12 @@ mimir-server answers inference requests from a real model inside the enclosure: 
   - [`deploy/kind/smoke.sh:73`](../../deploy/kind/smoke.sh)
   - [`deploy/kind/smoke.sh:98`](../../deploy/kind/smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:153`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:199`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:22`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/launch/pipeline/build-deck.js:381`](../../docs/launch/pipeline/build-deck.js)
-  - [`CHANGELOG.md:168`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:172`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:259`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:214`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:218`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:305`](../../CHANGELOG.md)
 
 ### `mimir-inference-gpu` (reference)
 
@@ -603,11 +603,11 @@ GPU serving through vLLM, with a first token in under 800 ms.
 - Tests:
   - [`mimir/mimir-server/tests/serve.rs::a_signed_model_is_served_through_its_sidecar_and_a_tampered_one_never_starts`](../../mimir/mimir-server/tests/serve.rs)
 - Stated at:
-  - [`CHANGELOG.md:190`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:236`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:114`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/launch/pipeline/build-deck.js:541`](../../docs/launch/pipeline/build-deck.js)
-  - [`CHANGELOG.md:194`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:281`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:240`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:327`](../../CHANGELOG.md)
 
 ### `signed-model-manifest` (operable)
 
@@ -620,7 +620,7 @@ A model loads only from a manifest signed with ML-DSA, and its weights are check
   - [`tools/mg-model/src/main.rs:1`](../../tools/mg-model/src/main.rs)
   - [`mimir/model-server/src/artifact.rs:427`](../../mimir/model-server/src/artifact.rs)
   - [`tools/mg-model/src/main.rs:225`](../../tools/mg-model/src/main.rs)
-  - [`mimir/mimir-server/src/main.rs:158`](../../mimir/mimir-server/src/main.rs)
+  - [`mimir/mimir-server/src/main.rs:162`](../../mimir/mimir-server/src/main.rs)
   - [`deploy/trust/README.md`](../../deploy/trust/README.md)
   - [`deploy/compose/stage-model.sh`](../../deploy/compose/stage-model.sh)
 - Tests:
@@ -638,10 +638,10 @@ A model loads only from a manifest signed with ML-DSA, and its weights are check
   - [`mimir/mimir-server/tests/serve.rs::a_trust_anchor_inside_the_model_dir_is_refused_at_start`](../../mimir/mimir-server/tests/serve.rs)
   - [`deploy/compose/granite-smoke.sh:40`](../../deploy/compose/granite-smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:170`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:216`](../../CHANGELOG.md)
   - [`docs/launch/pipeline/build-deck.js:380`](../../docs/launch/pipeline/build-deck.js)
-  - [`CHANGELOG.md:174`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:261`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:220`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:307`](../../CHANGELOG.md)
 
 ### `model-family-routing` (reference)
 
@@ -691,7 +691,7 @@ A governed agent loop: plan, ground, assemble (untrusted grounding, memory, hist
 - Source:
   - [`mimir/agent-runtime/src/govloop.rs:368`](../../mimir/agent-runtime/src/govloop.rs)
   - [`mimir/agent-runtime/src/govloop.rs:190`](../../mimir/agent-runtime/src/govloop.rs)
-  - [`mimir/agent-runtime/src/assembly.rs:321`](../../mimir/agent-runtime/src/assembly.rs)
+  - [`mimir/agent-runtime/src/assembly.rs:346`](../../mimir/agent-runtime/src/assembly.rs)
 - Tests:
   - [`mimir/agent-runtime/tests/ac_mi_3.rs::mutation_is_denied_when_human_denies`](../../mimir/agent-runtime/tests/ac_mi_3.rs)
   - [`mimir/agent-runtime/tests/ac_mi_3.rs::irreversible_action_forces_human_even_if_preauthorised`](../../mimir/agent-runtime/tests/ac_mi_3.rs)
@@ -711,8 +711,8 @@ Input guardrails against prompt injection, applied to each untrusted item (groun
 **Milestone.** A classifier served by the model plane, a corpus with a stated block rate, and a service that applies them (RF-MI-7).
 
 - Source:
-  - [`mimir/agent-runtime/src/assembly.rs:276`](../../mimir/agent-runtime/src/assembly.rs)
-  - [`mimir/agent-runtime/src/defend.rs:383`](../../mimir/agent-runtime/src/defend.rs)
+  - [`mimir/agent-runtime/src/assembly.rs:300`](../../mimir/agent-runtime/src/assembly.rs)
+  - [`mimir/agent-runtime/src/defend.rs:607`](../../mimir/agent-runtime/src/defend.rs)
   - [`mimir/prompts/src/delimit.rs:245`](../../mimir/prompts/src/delimit.rs)
 - Tests:
   - [`mimir/agent-runtime/tests/guardrail_scope.rs::sanitise_rewrites_only_the_offending_item`](../../mimir/agent-runtime/tests/guardrail_scope.rs)
@@ -771,12 +771,12 @@ forge-worker syncs delimited files, PostgreSQL and S3-compatible stores into sea
   - [`deploy/kind/smoke.sh:105`](../../deploy/kind/smoke.sh)
   - [`deploy/kind/smoke.sh:130`](../../deploy/kind/smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:148`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:194`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:20`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/launch/pipeline/build-deck.js:367`](../../docs/launch/pipeline/build-deck.js)
-  - [`CHANGELOG.md:163`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:167`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:254`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:209`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:213`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:300`](../../CHANGELOG.md)
 
 ### `forge-compute-engine` (reference)
 
@@ -792,10 +792,10 @@ A partitioned compute engine in Rust: filter, derive, join, aggregate, sort and 
   - [`forge/engine/tests/partitioned.rs::partitioned_matches_reference_with_shuffle_and_spill`](../../forge/engine/tests/partitioned.rs)
   - [`forge/engine/tests/relational.rs::inner_join_then_aggregate`](../../forge/engine/tests/relational.rs)
 - Stated at:
-  - [`CHANGELOG.md:209`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:255`](../../CHANGELOG.md)
   - [`docs/launch/pipeline/build-deck.js:371`](../../docs/launch/pipeline/build-deck.js)
-  - [`CHANGELOG.md:213`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:300`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:259`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:346`](../../CHANGELOG.md)
 
 ### `forge-data-expectations` (reference)
 
@@ -896,14 +896,14 @@ heimdall-feed accepts an observation only over PQ-mTLS, only from the feed whose
 **Limit.** Observations carry no marking, and a timestamp inside the accepted window is still the feed's own assertion. A feed that restarts its sequence below its last is refused until it continues above it or is re-registered.
 
 - Source:
-  - [`heimdall/feed-server/src/lib.rs:309`](../../heimdall/feed-server/src/lib.rs)
+  - [`heimdall/feed-server/src/lib.rs:312`](../../heimdall/feed-server/src/lib.rs)
   - [`heimdall/store/src/picture_store.rs:115`](../../heimdall/store/src/picture_store.rs)
-  - [`heimdall/feed-server/src/lib.rs:696`](../../heimdall/feed-server/src/lib.rs)
-  - [`heimdall/feed-server/src/lib.rs:296`](../../heimdall/feed-server/src/lib.rs)
-  - [`heimdall/feed-server/src/lib.rs:356`](../../heimdall/feed-server/src/lib.rs)
+  - [`heimdall/feed-server/src/lib.rs:725`](../../heimdall/feed-server/src/lib.rs)
+  - [`heimdall/feed-server/src/lib.rs:299`](../../heimdall/feed-server/src/lib.rs)
+  - [`heimdall/feed-server/src/lib.rs:359`](../../heimdall/feed-server/src/lib.rs)
   - [`heimdall/feed-gateway/src/authenticator.rs:138`](../../heimdall/feed-gateway/src/authenticator.rs)
   - [`heimdall/feed-gateway/src/replay.rs:105`](../../heimdall/feed-gateway/src/replay.rs)
-  - [`heimdall/feed-server/src/lib.rs:166`](../../heimdall/feed-server/src/lib.rs)
+  - [`heimdall/feed-server/src/lib.rs:169`](../../heimdall/feed-server/src/lib.rs)
 - Tests:
   - [`heimdall/picture-sync/tests/rc_26.rs::rc_26_unsigned_feed_is_rejected_at_the_boundary`](../../heimdall/picture-sync/tests/rc_26.rs)
   - [`heimdall/feed-server/tests/limits.rs::a_flood_of_distinct_keys_ten_times_the_cap_keeps_the_picture_bounded`](../../heimdall/feed-server/tests/limits.rs)
@@ -1114,13 +1114,13 @@ Each service image re-verifies the ML-DSA signature, SBOM and provenance of its 
   - [`README.md:760`](../../README.md)
   - [`docs/releases/v0.1.0-rc.1.md:24`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/compliance/GA_READINESS.md:114`](../../docs/compliance/GA_READINESS.md)
-  - [`CHANGELOG.md:164`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:210`](../../CHANGELOG.md)
   - [`README.md:756`](../../README.md)
-  - [`CHANGELOG.md:179`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:225`](../../CHANGELOG.md)
   - [`README.md:768`](../../README.md)
   - [`README.md:758`](../../README.md)
-  - [`CHANGELOG.md:183`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:270`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:229`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:316`](../../CHANGELOG.md)
 
 ### `acceptance-gate` (operable)
 
@@ -1160,12 +1160,12 @@ Five services (http-gateway, mimir-server, bifrost-fleet, heimdall-feed, forge-w
   - [`deploy/kind/smoke.sh:73`](../../deploy/kind/smoke.sh)
   - [`deploy/kind/smoke.sh:98`](../../deploy/kind/smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:144`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:190`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:18`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/launch/pipeline/build-deck.js:323`](../../docs/launch/pipeline/build-deck.js)
-  - [`CHANGELOG.md:159`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:163`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:250`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:205`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:209`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:296`](../../CHANGELOG.md)
 
 ### `high-availability` (spec)
 
@@ -1202,9 +1202,9 @@ Each service exposes liveness, readiness and Prometheus metrics, and writes stru
 - Service tests:
   - [`deploy/compose/smoke.sh:15`](../../deploy/compose/smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:221`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:225`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:312`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:267`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:271`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:358`](../../CHANGELOG.md)
 
 ### `compliance-mapping` (spec)
 

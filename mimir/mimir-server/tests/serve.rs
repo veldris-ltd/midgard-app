@@ -8,7 +8,8 @@
 //!
 //! While it serves, a revoked model id, an operator's stop file or a withdrawn model
 //! trust key stops inference within the reload interval, after the completions in
-//! flight drain, and serving resumes once they are gone. [VLD-ANB-MIDGARD-0057]
+//! flight drain, and serving resumes once they are gone; so does removing a revocation
+//! list that existed, until it is restored. [VLD-ANB-MIDGARD-0057]
 //! [AC-67.1] [AC-67.2] [AC-67.3] [AC-67.4]
 #![cfg(feature = "backend-fips")]
 
@@ -988,6 +989,39 @@ fn a_revoked_model_stops_serving_within_the_interval() {
     // Infer:COMPLETE entry. [VLD-ANB-MIDGARD-0034]
     let server = fx.start();
     assert_eq!(server.recovered, "6");
+    drop(server);
+    let _ = std::fs::remove_dir_all(&fx.root);
+}
+
+#[test]
+fn removing_the_revocation_list_stops_serving() {
+    // Deleting the list must not undo every revocation in it: a list present at
+    // start-up that is later missing fails closed, and restoring it resumes.
+    // [VLD-ANB-MIDGARD-0057] [AC-67.1]
+    let (sidecar, _) = fake_sidecar("ok");
+    let fx = ModelFixture::new("revocation-removed", &sidecar);
+    let list = fx.state.join("revoked.list");
+    std::fs::write(&list, "some-other-model\n").unwrap();
+    let server = fx.start();
+    within_60s("ready", || ready(&server));
+    let served = fx.probe(&server);
+    assert!(served.status.success(), "{}", text(&served.stderr));
+
+    std::fs::remove_file(&list).unwrap();
+    within_60s("readiness drops", || not_ready(&server));
+    refused_with(&fx.probe(&server), "MODEL_REVOKED");
+    let stopped = server.logged("serving stopped").unwrap();
+    assert_eq!(field(&stopped, "reason").as_deref(), Some("MODEL_REVOKED"));
+    let detail = field(&stopped, "detail").unwrap();
+    assert!(
+        detail.contains("revocation list") && detail.contains("removed"),
+        "{stopped}"
+    );
+
+    std::fs::write(&list, "some-other-model\n").unwrap();
+    within_60s("readiness returns", || ready(&server));
+    let served = fx.probe(&server);
+    assert!(served.status.success(), "{}", text(&served.stderr));
     drop(server);
     let _ = std::fs::remove_dir_all(&fx.root);
 }

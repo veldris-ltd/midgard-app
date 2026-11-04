@@ -2,10 +2,12 @@
 //! per-layer token budgets, OAG truncation by relevance rank, the
 //! reject-don't-trim rule for the non-trimmable core, and the layer-8 guardrail.
 //! Token counts include the DATA-block marker lines and the data-handling rule
-//! (VLD-ANB-MIDGARD-0080). [FR-MI-7] [NFR-AI-1] [AC-60.5]
+//! (VLD-ANB-MIDGARD-0080). The request's marking covers every included layer
+//! that carries data, memory and history as well as grounding
+//! (VLD-ANB-MIDGARD-0034). [FR-MI-7] [NFR-AI-1] [AC-60.5]
 
 use agent_runtime::{
-    AssemblyConfig, AssemblyError, GuardVerdict, InputGuardrail, Layers, Pipeline,
+    AssemblyConfig, AssemblyError, GuardVerdict, InputGuardrail, Layers, MarkedItem, Pipeline,
 };
 use oag_retriever::{Grounding, GroundingFact};
 
@@ -53,9 +55,9 @@ fn layers_are_emitted_in_authority_order() {
         output_contract: "OC",
         policy: "POL".to_string(),
         grounding: &g,
-        memory: vec!["M1".to_string()],
+        memory: vec![MarkedItem::new("M1", 0)],
         tools: vec!["T1".to_string()],
-        history: vec!["H1".to_string()],
+        history: vec![MarkedItem::new("H1", 0)],
         user_message: "the question",
     };
     let out = Pipeline::new()
@@ -161,4 +163,57 @@ fn layer_8_guardrail_can_block_the_assembled_prompt() {
         )
         .unwrap_err();
     assert!(matches!(err, AssemblyError::Blocked { .. }));
+}
+
+/// Assemble `layers` under `budget_tokens`.
+fn assemble_within(layers: &Layers, budget_tokens: usize) -> agent_runtime::AssembledPrompt {
+    Pipeline::new()
+        .assemble(layers, &AssemblyConfig { budget_tokens })
+        .expect("assembles")
+}
+
+// [VLD-ANB-MIDGARD-0034]
+#[test]
+fn the_marking_level_covers_included_memory() {
+    let g = grounding(1); // one level-0 fact
+    let mut layers = tiny_layers(&g, "U");
+    layers.memory = vec![MarkedItem::new("a SECRET memory item", 3)];
+
+    let out = assemble_within(&layers, 1000);
+    assert_eq!(out.dropped_memory, 0);
+    assert_eq!(out.max_marking_level, 3, "the memory item's level counts");
+
+    // A budget that holds the fact but not the memory section: the item is
+    // trimmed, so it no longer marks the prompt.
+    let without = assemble_within(&tiny_layers(&g, "U"), 1000).token_count;
+    let out = assemble_within(&layers, without);
+    assert_eq!(out.dropped_facts, 0);
+    assert_eq!(out.dropped_memory, 1);
+    assert_eq!(out.max_marking_level, 0, "a trimmed item does not count");
+}
+
+// [VLD-ANB-MIDGARD-0034]
+#[test]
+fn the_marking_level_covers_only_the_included_history_window() {
+    let g = grounding(0);
+    let mut layers = tiny_layers(&g, "U");
+    // Oldest first: the old turn is the one dropped when the budget is short.
+    layers.history = vec![
+        MarkedItem::new("turn-old", 5),
+        MarkedItem::new("turn-new", 2),
+    ];
+
+    let out = assemble_within(&layers, 1000);
+    assert_eq!(out.max_marking_level, 5, "both turns are included");
+
+    // Room for the history section and one turn: only the newest is kept.
+    let mut one = tiny_layers(&g, "U");
+    one.history = vec![MarkedItem::new("turn-new", 2)];
+    let out = assemble_within(&layers, assemble_within(&one, 1000).token_count);
+    assert_eq!(out.dropped_history, 1);
+    assert!(out.text.contains("turn-new") && !out.text.contains("turn-old"));
+    assert_eq!(
+        out.max_marking_level, 2,
+        "the dropped old turn does not count"
+    );
 }
