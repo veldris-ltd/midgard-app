@@ -11,7 +11,9 @@
 # (.ci-trusted), so the job's workspace, not this script's checkout, is what key
 # material must stay out of.
 #
-# Environment (the workflow maps runner secrets onto these; none has a default):
+# Environment (the workflow maps runner secrets onto these; none has a default). The
+# keystore and registry variables come from secrets named with a _PATH suffix; the two
+# passphrase variables from secrets of their own name (docs/ops/PKI.md):
 #   MIDGARD_SIGNING_KEYSTORE   the release signing keystore (ML-DSA-87)
 #   MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE, MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE
 #                              the passphrases those keystores' roots are wrapped under
@@ -123,8 +125,12 @@ fi
 for var in MIDGARD_SIGNING_KEYSTORE MIDGARD_BIFROST_KEYSTORE \
     MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE; do
     path="${!var:-}"
+    case "$var" in
+        *_PASSPHRASE_FILE) secret="$var" ;;
+        *) secret="${var}_PATH" ;;
+    esac
     if [ -z "$path" ]; then
-        bad "$var is not configured (runner secret ${var}_PATH)"
+        bad "$var is not configured (runner secret $secret)"
     elif [ ! -r "$path" ] || [ -d "$path" ]; then
         bad "$var names $path, which is not a readable file"
     elif in_workspace "$path"; then

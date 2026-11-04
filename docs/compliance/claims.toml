@@ -46,7 +46,7 @@ criteria = ["RC-40.2"]
 evidence = ["crypto/pq-mtls/src/lib.rs:18", "services/runtime/src/serve.rs:345", "crypto/pq-mtls/src/wire.rs:95"]
 tests = ["crypto/pq-mtls/tests/real_fips_handshake.rs::real_handshake_negotiates_hybrid_and_agrees", "crypto/pq-mtls/tests/tcp_transport.rs::tcp_handshake_denies_unauthorized", "services/gateway/tests/session.rs::a_second_connection_resumes_and_the_ticket_is_single_use", "services/runtime/tests/security_listener.rs::apply_mesh_limits_enforces_the_rate_limit", "services/runtime/tests/security_listener.rs::the_mesh_cap_refuses_the_extra_connection_and_counts_it", "services/runtime/tests/security_listener.rs::an_unauthenticated_idle_mesh_connection_is_closed_at_the_timeout", "crypto/pq-mtls/tests/security_decode.rs::a_client_hello_with_a_hostile_suite_count_is_refused", "crypto/pq-mtls/tests/security_decode.rs::a_client_hello_with_seventeen_suites_is_refused", "crypto/pq-mtls/tests/security_decode.rs::every_truncation_of_every_message_is_refused", "crypto/pq-mtls/tests/security_decode.rs::a_replayed_client_key_exchange_is_refused", "crypto/pq-mtls/tests/security_resumption.rs::resumed_traffic_differs_when_the_kem_share_changes", "services/gateway/tests/session.rs::a_revoked_or_expired_client_cert_cannot_resume", "crypto/pq-mtls/tests/security_attributes.rs::certificate_attributes_are_signed", "crypto/pq-mtls/tests/security_attributes.rs::a_v1_certificate_still_verifies_and_is_unconstrained", "tools/mg-admin/tests/mesh.rs::mesh_issue_binds_clearance_and_purposes_into_the_certificate"]
 service_tests = ["deploy/compose/smoke.sh:19", "deploy/kind/smoke.sh:115", "deploy/kind/smoke.sh:140"]
-stated_in = ["CHANGELOG.md:200", "docs/releases/v0.1.0-rc.1.md:17", "docs/launch/pipeline/build-deck.js:470", "CHANGELOG.md:204", "CHANGELOG.md:291"]
+stated_in = ["CHANGELOG.md:211", "docs/releases/v0.1.0-rc.1.md:17", "docs/launch/pipeline/build-deck.js:470", "CHANGELOG.md:215", "CHANGELOG.md:302"]
 
 [[claim]]
 id = "mesh-certificate-lifecycle"
@@ -67,7 +67,7 @@ criteria = ["RC-40.1"]
 evidence = ["services/kms/src/lib.rs:85"]
 tests = ["services/kms/tests/envelope.rs::seal_is_ml_kem_1024_and_carries_no_plaintext", "services/kms/tests/file_ledger_restart.rs::tampered_on_disk_entry_is_detected_on_load", "services/http-gateway/tests/state_dir_boot.rs::a_tampered_ledger_refuses_to_boot"]
 service_tests = ["deploy/compose/smoke.sh:24", "deploy/kind/smoke.sh:80", "deploy/kind/smoke.sh:105"]
-stated_in = ["CHANGELOG.md:248", "docs/launch/pipeline/build-deck.js:471", "CHANGELOG.md:252", "CHANGELOG.md:339"]
+stated_in = ["CHANGELOG.md:259", "docs/launch/pipeline/build-deck.js:471", "CHANGELOG.md:263", "CHANGELOG.md:350"]
 
 [[claim]]
 id = "hardware-key-custody"
@@ -79,7 +79,7 @@ evidence = ["services/kms/src/hardware.rs:167"]
 tests = ["services/kms/tests/rc_28.rs::decapsulation_happens_on_the_device_not_in_the_process", "services/kms/tests/rc_28.rs::root_attestation_verifies_and_fails_closed_on_tamper", "crypto/attest/tests/keystore_v2.rs::external_root_wrap_round_trips"]
 fallback = "Key custody is software: keystores are files whose custody root is wrapped under an operator passphrase (keystore format version 3: PBKDF2-HMAC-SHA256 at 600000 iterations, AES-256-GCM), held apart from the keystore. A hardware trust root with attestation is implemented and tested against a software stand-in (services/kms/tests/rc_28.rs), and a keystore can seal its root to it (crypto/attest/tests/keystore_v2.rs); no HSM or TPM has been used."
 milestone = "RC-40.3 passes with a release artefact signed by a key held in a real HSM (RF-SEC-8, RF-SC-8)."
-stated_in = ["CHANGELOG.md:235", "docs/releases/v0.1.0-rc.1.md:112", "docs/launch/pipeline/build-deck.js:483", "CHANGELOG.md:239", "CHANGELOG.md:326"]
+stated_in = ["CHANGELOG.md:246", "docs/releases/v0.1.0-rc.1.md:112", "docs/launch/pipeline/build-deck.js:483", "CHANGELOG.md:250", "CHANGELOG.md:337"]
 
 # ---- Core: fabric, identity and governance ---------------------------------------------
 
@@ -92,7 +92,7 @@ evidence = ["crypto/audit-writer/src/ledger.rs:5", "crypto/audit-writer/src/chec
 tests = ["crypto/audit-writer/tests/tamper.rs::compromised_signer_cannot_rewrite_history", "crypto/audit-writer/tests/truncation.rs::cutting_entries_off_the_end_is_detected", "crypto/audit-writer/tests/truncation.rs::a_ledger_checked_with_the_wrong_key_is_refused", "services/http-gateway/tests/state_dir_boot.rs::a_shortened_or_deleted_ledger_refuses_to_boot", "services/http-gateway/tests/state_dir_boot.rs::an_audit_keystore_that_is_not_the_pinned_key_refuses_to_boot", "services/http-gateway/tests/fabric_edge.rs::a_query_returns_real_objects_and_its_audit_id_is_a_real_ledger_row", "services/http-gateway/tests/durable_enclosure.rs::an_action_and_its_lineage_survive_a_restart", "services/http-gateway/tests/fabric_edge.rs::the_audit_view_hides_rows_about_objects_the_caller_cannot_read", "services/http-gateway/tests/fabric_edge.rs::the_audit_view_hides_approval_rows_whose_target_the_caller_cannot_read", "services/http-gateway/tests/fabric_edge.rs::reading_the_audit_needs_the_read_audit_permission", "services/http-gateway/tests/fabric_edge.rs::other_principals_login_rows_need_the_sessions_grant", "crypto/audit-writer/tests/append_verify.rs::a_ledger_written_before_the_context_existed_still_verifies", "services/governance/tests/authorize.rs::record_ids_are_unique_and_sequential", "services/governance/tests/authorize.rs::authorize_sets_the_outcome_field", "services/http-gateway/tests/security_record.rs::a_rejected_token_is_uniform_counted_logged_and_audited_once_per_minute", "services/http-gateway/tests/fabric_edge.rs::a_refused_human_gate_and_a_self_approval_are_in_the_ledger", "services/http-gateway/tests/security_record.rs::ledger_resource_fields_are_sanitised", "services/http-gateway/tests/security_record.rs::an_unenrolled_username_is_recorded_as_a_keyed_hash", "services/http-gateway/tests/security_record.rs::the_actor_hash_key_is_created_once_and_kept", "crypto/audit-writer/tests/torn_tail.rs::a_torn_final_frame_is_truncated_and_reported", "crypto/audit-writer/tests/torn_tail.rs::a_torn_frame_before_the_head_count_fails_closed", "crypto/audit-writer/tests/torn_tail.rs::a_torn_frame_after_an_entry_the_checkpoint_does_not_cover_fails_closed", "mimir/model-server/tests/security_marking.rs::completion_digests_are_recorded", "mimir/model-server/tests/security_marking.rs::audit_failure_after_completion_is_a_refusal"]
 service_tests = ["services/http-gateway/tests/http.rs::real_socket_round_trip", "deploy/compose/smoke.sh:24"]
 limit = "The ledger covers what the running services do. Agent steps are not in it, because no service runs the agent runtime (see agent-runtime)."
-stated_in = ["README.md:54", "CHANGELOG.md:191", "docs/launch/pipeline/build-deck.js:334", "CHANGELOG.md:195", "CHANGELOG.md:282"]
+stated_in = ["README.md:54", "CHANGELOG.md:202", "docs/launch/pipeline/build-deck.js:334", "CHANGELOG.md:206", "CHANGELOG.md:293"]
 
 [[claim]]
 id = "object-fabric"
@@ -187,7 +187,7 @@ criteria = ["AC-AD-3", "AC-AD-4"]
 evidence = ["services/http-gateway/src/admin_api.rs:311", "services/http-gateway/src/admin_api.rs:402", "services/http-gateway/src/admin_totp.rs:1", "admin/identity/src/session.rs:1", "services/http-gateway/src/activation.rs:43", "services/iam/src/auth.rs:123"]
 tests = ["services/http-gateway/tests/admin_enrolment.rs::an_enrolment_needs_a_second_administrator_and_survives_a_restart", "services/http-gateway/tests/admin_enrolment.rs::a_requester_cannot_supply_credential_material", "services/http-gateway/tests/admin_enrolment.rs::an_unproven_caller_learns_nothing_about_roles_or_enrolments", "services/http-gateway/tests/admin_enrolment.rs::a_challenge_for_one_operation_cannot_be_used_for_another", "services/http-gateway/tests/admin_enrolment.rs::approval_returns_an_activation_code_and_no_second_factor_secret", "services/http-gateway/tests/admin_enrolment.rs::activation_is_single_use_and_first_login_needs_both_factors", "services/http-gateway/tests/admin_enrolment.rs::roles_and_purposes_outside_the_policy_are_refused_and_the_approver_sees_the_full_record", "services/http-gateway/tests/admin_enrolment.rs::a_failed_approval_can_be_retried_and_a_parked_enrolment_can_be_rejected", "services/http-gateway/tests/admin_enrolment.rs::a_passkey_without_a_second_factor_is_refused", "services/http-gateway/tests/admin_enrolment.rs::an_administrator_totp_code_is_single_use", "admin/identity/tests/ac_ad_1_2.rs::ac_ad_1_a_passkey_alone_does_not_satisfy_mfa", "admin/identity/tests/ac_ad_1_2.rs::ac_ad_1_a_second_factor_not_the_uv_flag_grants_mfa", "admin/privilege/tests/ac_ad_3_4_13.rs::ac_ad_1_a_passkey_alone_cannot_request_or_approve", "services/iam/tests/rc_29.rs::an_unactivated_record_refuses_login_with_the_same_401", "services/iam/tests/rc_29.rs::the_directory_reads_v1_records_and_writes_v2"]
 service_tests = ["tools/mg-admin/tests/enrol.rs::two_administrators_enrol_a_principal_through_a_running_gateway", "tools/mg-admin/tests/enrol.rs::enrol_reject_removes_a_parked_enrolment", "tools/mg-admin/tests/enrol.rs::administration_needs_the_passphrase_and_a_one_time_code", "tools/mg-admin/tests/enrol.rs::a_wrong_passkey_passphrase_stops_before_the_gateway"]
-stated_in = ["CHANGELOG.md:198", "CHANGELOG.md:183", "CHANGELOG.md:265", "CHANGELOG.md:202", "CHANGELOG.md:289"]
+stated_in = ["CHANGELOG.md:209", "CHANGELOG.md:194", "CHANGELOG.md:276", "CHANGELOG.md:213", "CHANGELOG.md:300"]
 
 # ---- Admin -----------------------------------------------------------------------------
 
@@ -233,7 +233,7 @@ evidence = ["products/admin/ui/src/main.tsx:33:new AdminMock", "products/admin/u
 tests = ["services/http-gateway/tests/rc_37.rs::login_issues_a_pq_token_that_authorises_data_requests"]
 fallback = "The Midgard core console can be pointed at the HTTP edge and then shows live enclosure data; no automated test drives it. The other six consoles run on built-in sample data under a demonstration banner, because their services expose no console routes."
 milestone = "Each console has a backend route and a test that drives it (RF-UID-1, RF-TST-2)."
-stated_in = ["README.md:816", "CHANGELOG.md:224", "docs/releases/v0.1.0-rc.1.md:118", "docs/launch/pipeline/build-deck.js:544", "README.md:812", "CHANGELOG.md:239", "README.md:824", "README.md:814", "CHANGELOG.md:243", "CHANGELOG.md:330"]
+stated_in = ["README.md:816", "CHANGELOG.md:235", "docs/releases/v0.1.0-rc.1.md:118", "docs/launch/pipeline/build-deck.js:544", "README.md:812", "CHANGELOG.md:250", "README.md:824", "README.md:814", "CHANGELOG.md:254", "CHANGELOG.md:341"]
 
 # ---- Mimir -----------------------------------------------------------------------------
 
@@ -246,7 +246,7 @@ evidence = ["mimir/model-server/src/backends/openai_compat.rs:60", "mimir/model-
 tests = ["mimir/mimir-server/tests/serve.rs::inference_is_served_over_pqmtls_audited_and_survives_a_restart", "mimir/model-server/tests/security_admission.rs::max_tokens_is_clamped_to_the_ceiling", "mimir/model-server/tests/security_admission.rs::oversized_prompt_is_refused_and_audited", "mimir/model-server/tests/security_admission.rs::third_concurrent_call_for_one_identity_is_busy", "mimir/model-server/tests/security_admission.rs::global_limit_applies_across_identities", "mimir/mimir-server/tests/serve.rs::a_burst_over_the_rate_limit_is_throttled", "mimir/model-server/tests/security_admission.rs::a_stop_lets_calls_in_flight_finish_and_counts_them", "mimir/mimir-server/tests/serve.rs::the_stop_file_disengages_and_removing_it_resumes", "mimir/mimir-server/tests/serve.rs::in_flight_completion_drains_before_stop_is_logged", "mimir/mimir-server/tests/serve.rs::a_signed_model_is_served_through_its_sidecar_and_a_tampered_one_never_starts", "mimir/model-server/src/backends/openai_compat.rs::streams_a_completion_through_the_family_template", "mimir/mimir-server/tests/serve.rs::a_prompt_marked_above_the_model_accreditation_is_refused_and_audited"]
 service_tests = ["deploy/compose/smoke.sh:19", "deploy/compose/granite-smoke.sh:40", "deploy/kind/smoke.sh:73", "deploy/kind/smoke.sh:98"]
 limit = "One model has been served: IBM Granite 3.3 2B Instruct on CPU. The caller receives one whole completion, not a token stream. A completion the sidecar is generating cannot be cancelled: it fails after the inference timeout passes with nothing read, and its slot is then free. The prompt and completion cross the loopback to the engine in clear, inside a network namespace only mimir-server and the engine share (a recorded trust assumption). The ledger keeps digests of the prompt and completion, not copies."
-stated_in = ["CHANGELOG.md:199", "docs/releases/v0.1.0-rc.1.md:22", "docs/launch/pipeline/build-deck.js:381", "CHANGELOG.md:214", "CHANGELOG.md:218", "CHANGELOG.md:305"]
+stated_in = ["CHANGELOG.md:210", "docs/releases/v0.1.0-rc.1.md:22", "docs/launch/pipeline/build-deck.js:381", "CHANGELOG.md:225", "CHANGELOG.md:229", "CHANGELOG.md:316"]
 
 [[claim]]
 id = "mimir-inference-gpu"
@@ -258,7 +258,7 @@ evidence = ["mimir/model-server/src/backends/gpu_docker.rs:90"]
 tests = ["mimir/mimir-server/tests/serve.rs::a_signed_model_is_served_through_its_sidecar_and_a_tampered_one_never_starts"]
 fallback = "vLLM on GPU is wired and has not been run. The 800 ms first-token objective is unvalidated; the measured figure is 325 ms for a 2B model on a 12-core CPU."
 milestone = "RC-40.4 passes on a GPU node (RF-MI-1)."
-stated_in = ["CHANGELOG.md:236", "docs/releases/v0.1.0-rc.1.md:114", "docs/launch/pipeline/build-deck.js:541", "CHANGELOG.md:240", "CHANGELOG.md:327"]
+stated_in = ["CHANGELOG.md:247", "docs/releases/v0.1.0-rc.1.md:114", "docs/launch/pipeline/build-deck.js:541", "CHANGELOG.md:251", "CHANGELOG.md:338"]
 
 [[claim]]
 id = "signed-model-manifest"
@@ -270,7 +270,7 @@ evidence = ["tools/mg-model/src/main.rs:1", "mimir/model-server/src/artifact.rs:
 tests = ["mimir/model-server/tests/model_dir.rs::changed_truncated_or_swapped_weights_are_refused", "mimir/model-server/tests/model_dir.rs::a_verified_manifest_is_rechecked_against_the_current_key_and_revocations", "mimir/model-server/tests/model_dir.rs::a_revocation_list_parses_strictly", "tools/mg-model/tests/cli.rs::sign_without_sha256_is_a_usage_error", "tools/mg-model/tests/cli.rs::verify_refuses_a_trust_file_inside_the_model_dir", "tools/mg-model/tests/cli.rs::keygen_writes_keystore_v2_under_a_passphrase"]
 service_tests = ["mimir/mimir-server/tests/serve.rs::a_signed_model_is_served_through_its_sidecar_and_a_tampered_one_never_starts", "deploy/compose/granite-smoke.sh:31", "mimir/mimir-server/tests/serve.rs::a_revoked_model_stops_serving_within_the_interval", "mimir/mimir-server/tests/serve.rs::a_replaced_trust_anchor_stops_serving", "mimir/mimir-server/tests/serve.rs::a_trust_anchor_inside_the_model_dir_is_refused_at_start", "deploy/compose/granite-smoke.sh:40"]
 limit = "No vendor signature is checked cryptographically; an upstream signature is recorded as unverifiable. The trust anchor is the pinned deploy/trust/model-signing.pub, never the models volume, but the key ceremony has not yet committed it, so a real model is served today only under an explicit, warned development key (stage-model.sh --development, in a trust volume of its own). The one real model served so far did not pass through the staging intake."
-stated_in = ["CHANGELOG.md:216", "docs/launch/pipeline/build-deck.js:380", "CHANGELOG.md:220", "CHANGELOG.md:307"]
+stated_in = ["CHANGELOG.md:227", "docs/launch/pipeline/build-deck.js:380", "CHANGELOG.md:231", "CHANGELOG.md:318"]
 
 [[claim]]
 id = "model-family-routing"
@@ -337,7 +337,7 @@ evidence = ["forge/worker/src/lib.rs:10", "forge/connector-sdk/src/connector.rs:
 tests = ["forge/engine/tests/rc_27.rs::rc_27_egress_violating_connector_is_blocked", "forge/connector-sdk/tests/security_wire.rs::connector_errors_redact_hosts_secret_names_and_server_text", "forge/connector-sdk/tests/http_bounds.rs::a_chunk_size_that_wraps_usize_is_refused_as_data", "forge/connector-sdk/tests/http_bounds.rs::a_chunk_size_beyond_u64_is_malformed", "forge/connector-sdk/tests/http_bounds.rs::a_chunk_larger_than_the_remaining_budget_is_refused", "forge/connector-sdk/tests/http_bounds.rs::two_legitimate_chunks_reassemble_exactly", "forge/connector-sdk/src/wire.rs::scram_refuses_an_iteration_count_above_the_ceiling", "forge/connector-sdk/src/wire.rs::scram_boundary_counts"]
 service_tests = ["forge/worker/tests/sync.rs::the_worker_syncs_versioned_datasets_into_the_enclosure_over_the_mesh", "deploy/compose/smoke.sh:50", "deploy/kind/smoke.sh:105", "deploy/kind/smoke.sh:130"]
 limit = "The Kafka connector has been tested only against a fake broker. The PostgreSQL connector has no TLS and cannot use the egress broker before PostgreSQL 17. Connector errors carry an error class and hashed references, not hosts or secret names."
-stated_in = ["CHANGELOG.md:194", "docs/releases/v0.1.0-rc.1.md:20", "docs/launch/pipeline/build-deck.js:367", "CHANGELOG.md:209", "CHANGELOG.md:213", "CHANGELOG.md:300"]
+stated_in = ["CHANGELOG.md:205", "docs/releases/v0.1.0-rc.1.md:20", "docs/launch/pipeline/build-deck.js:367", "CHANGELOG.md:220", "CHANGELOG.md:224", "CHANGELOG.md:311"]
 
 [[claim]]
 id = "forge-compute-engine"
@@ -348,7 +348,7 @@ evidence = ["forge/engine/src/partitioned.rs:56"]
 tests = ["forge/engine/tests/partitioned.rs::partitioned_matches_reference_with_shuffle_and_spill", "forge/engine/tests/relational.rs::inner_join_then_aggregate"]
 fallback = "A partitioned compute engine with join, aggregate, sort, window and spill to disk is implemented and tested as a library. The running Forge worker syncs and projects rows; it does not run pipelines on the engine."
 milestone = "forge-worker executes a pipeline on the engine (RF-F-1, RF-F-3)."
-stated_in = ["CHANGELOG.md:255", "docs/launch/pipeline/build-deck.js:371", "CHANGELOG.md:259", "CHANGELOG.md:346"]
+stated_in = ["CHANGELOG.md:266", "docs/launch/pipeline/build-deck.js:371", "CHANGELOG.md:270", "CHANGELOG.md:357"]
 
 [[claim]]
 id = "forge-data-expectations"
@@ -473,7 +473,7 @@ area = "Supply chain and release"
 claim = "Each release artefact passes one gate, in order, and each stage fails closed: built twice and proven bit-identical, described by a CycloneDX SBOM with component hashes, scanned offline for advisories and licences, signed with ML-DSA with a provenance attestation, then verified. The tooling the release jobs run is pinned too: the shell-audit server comes from a lockfile with registry integrity hashes, not fetched by name, and no checkout keeps the workflow token. A release tag is verified independently of the commit it tags: against the signing runner's own copy of allowed_signers, which the committed copy must equal, on a commit that must be on main, by scripts from a separate checkout of main; tag creation is restricted to a release-managers team by a ruleset applied as code. History is signed and reviewed: the commits job, in both pipelines, refuses a change set holding a commit that is neither signed by a key the base commit lists in allowed_signers nor verified by GitHub, nor a forge merge adding nothing of its own; the signed history ruleset on main and dev (required signatures, no force push or deletion, a pull request with code-owner review, no bypass) is applied as code and its live state exported for review; both maintainers own the trust set and the pipelines."
 status = "operable"
 criteria = ["AC-M-6", "AC-B-1"]
-evidence = ["justfile:373", "tools/ci/release.sh:170", "tools/ci/pipelines.sh:52", "tools/ci/release.sh:182", "justfile:389", "tools/ci/tests/js-toolchain.test.sh", "vendor/advisory-db/snapshot.toml:27", "vendor/advisory-db-npm/snapshot.toml:15", "renovate.json", ".github/workflows/advisory-refresh.yml", "tools/ci/tests/advisory-refresh.test.sh", "tools/ci/shell-audit/package-lock.json", "tools/ci/run.sh:373", "tools/ci/tests/npx-pin.test.sh", "tools/ci/tests/workflows.test.sh", "tools/ci/verify-tag.sh", "tools/ci/tests/verify-tag.test.sh", "tools/ci/github-rules.sh", "tools/ci/tests/github-rules.test.sh", "tools/ci/verify-commits.sh", "tools/ci/tests/verify-commits.test.sh", ".github/CODEOWNERS"]
+evidence = ["justfile:373", "tools/ci/release.sh:178", "tools/ci/pipelines.sh:52", "tools/ci/release.sh:190", "justfile:389", "tools/ci/tests/js-toolchain.test.sh", "vendor/advisory-db/snapshot.toml:27", "vendor/advisory-db-npm/snapshot.toml:15", "renovate.json", ".github/workflows/advisory-refresh.yml", "tools/ci/tests/advisory-refresh.test.sh", "tools/ci/shell-audit/package-lock.json", "tools/ci/run.sh:373", "tools/ci/tests/npx-pin.test.sh", "tools/ci/tests/workflows.test.sh", "tools/ci/verify-tag.sh", "tools/ci/tests/verify-tag.test.sh", "tools/ci/github-rules.sh", "tools/ci/tests/github-rules.test.sh", "tools/ci/verify-commits.sh", "tools/ci/tests/verify-commits.test.sh", ".github/CODEOWNERS"]
 tests = ["tools/mg-verify/tests/ac_rf_sc_2.rs::an_artefact_that_was_never_signed_is_refused", "tools/mg-scan/tests/cli.rs::ac_rf_sc_4a_a_critical_or_high_advisory_blocks_and_names_the_component", "tools/mg-scan/tests/cli.rs::snapshot_older_than_fail_after_days_fails"]
 service_tests = ["tools/ci/run.sh:320", "tools/ci/tests/pipelines.test.sh:73", "tools/ci/run.sh:225", "tools/ci/run.sh:232", "tools/ci/run.sh:344", "tools/ci/run.sh:369", "tools/ci/run.sh:230"]
 limit = "The gate has run with throwaway keys only (a rehearsal on 2026-09-15). No key ceremony has been held, release keys have no revocation, and the release workflow has not run on a signing runner. Every CI job image is pinned by digest on both forges (GitLab images by digest, GitHub actions by commit), but the GitLab images are still pulled from Docker Hub until the owner mirrors them. The advisory scan refuses a snapshot more than 45 days old; the weekly advisory-refresh job and Renovate are configured on both forges but have not yet run on either. The tag-creation ruleset, the runner's copy of allowed_signers and an ephemeral runner are owner actions not yet confirmed by exported evidence. No maintainer commit key is in allowed_signers yet, so the commits job passes only where GitHub verifies a commit and fails on CodeLab; that the signed history ruleset is live will be shown by docs/compliance/evidence/rulesets-<date>.json, which no maintainer has exported and committed yet."
@@ -485,7 +485,7 @@ area = "Supply chain and release"
 claim = "The workspace builds and its tests run with no network: every dependency is vendored, Cargo is pinned to the vendored directory, and the CI jobs run in a container started with no network, except GitLab merge-request jobs, which run unprivileged inside the digest-pinned toolchain image with Cargo forced offline."
 status = "operable"
 criteria = ["AC-M-5"]
-evidence = [".cargo/config.toml:18", "tools/ci/in-toolchain.sh:12", "tools/ci/in-toolchain.sh:60", "tools/ci/vendor-check.sh", ".gitlab-ci.yml:114"]
+evidence = [".cargo/config.toml:18", "tools/ci/in-toolchain.sh:12", "tools/ci/in-toolchain.sh:60", "tools/ci/vendor-check.sh", ".gitlab-ci.yml:116"]
 service_tests = ["tools/ci/run.sh:306", "tools/ci/tests/in-toolchain.test.sh:43", "tools/ci/run.sh:215", "tools/ci/run.sh:221", "tools/ci/run.sh:209", "tools/ci/run.sh:213"]
 limit = "The recorded gate run covers the one commit named in docs/compliance/gate-runs/CURRENT. Later commits are not covered until the gate is recorded again. On GitLab merge requests the offline property rests on Cargo (vendored sources, CARGO_NET_OFFLINE) rather than a network sandbox, and those runs cannot be recorded as the gate; the unprivileged and protected runner configuration is the owner's and is not yet evidenced."
 stated_in = ["README.md:130", "docs/launch/pipeline/build-deck.js:508"]
@@ -496,18 +496,18 @@ area = "Supply chain and release"
 claim = "Each service image re-verifies the ML-DSA signature, SBOM and provenance of its binary against the pinned release trust key before starting it, and refuses to start when verification fails."
 status = "operable"
 criteria = ["AC-B-1"]
-evidence = ["tools/mg-verify/src/main.rs:292", "deploy/images/service.Dockerfile", "deploy/images/service.Dockerfile:50", "tools/ci/release-preflight.sh:119"]
+evidence = ["tools/mg-verify/src/main.rs:292", "deploy/images/service.Dockerfile", "deploy/images/service.Dockerfile:50", "tools/ci/release-preflight.sh:121"]
 tests = ["tools/mg-verify/tests/ac_rf_sc_2.rs::run_service_refuses_an_unverified_binary_and_does_not_exec", "tools/mg-verify/tests/ac_rf_sc_2.rs::run_service_execs_a_verified_binary_with_the_given_arguments", "tools/mg-verify/tests/ac_rf_sc_2.rs::run_service_execs_the_bytes_it_verified_not_the_path", "tools/mg-verify/tests/ac_rf_sc_2.rs::run_service_without_a_service_name_is_a_usage_error", "tools/mg-verify/tests/ac_rf_sc_2.rs::run_service_with_an_artefact_path_is_a_usage_error", "tools/mg-verify/tests/ac_rf_sc_2.rs::run_service_with_no_service_options_refuses_to_start", "tools/mg-verify/tests/ac_rf_sc_2.rs::run_service_trust_anchor_comes_only_from_its_own_command_line"]
 service_tests = ["deploy/images/build.sh:103"]
 limit = "Exercised in the release rehearsal of 2026-09-15 with throwaway drill keys only. No release image has been built, and the compose and kind images are built from source and start their binaries directly. The release chart binds each pod to the signed image by digest (deploy/helm/set-digests.sh), so a tag moved in the registry cannot substitute an image that skips the check. The images carry the pinned trust set read-only at /etc/midgard/trust, where mimir-server reads the model-signing anchor, and the release preflight refuses a release without that anchor; the key ceremony has not yet committed it."
-stated_in = ["README.md:760", "docs/releases/v0.1.0-rc.1.md:24", "docs/compliance/GA_READINESS.md:114", "CHANGELOG.md:210", "README.md:756", "CHANGELOG.md:225", "README.md:768", "README.md:758", "CHANGELOG.md:229", "CHANGELOG.md:316"]
+stated_in = ["README.md:760", "docs/releases/v0.1.0-rc.1.md:24", "docs/compliance/GA_READINESS.md:114", "CHANGELOG.md:221", "README.md:756", "CHANGELOG.md:236", "README.md:768", "README.md:758", "CHANGELOG.md:240", "CHANGELOG.md:327"]
 
 [[claim]]
 id = "acceptance-gate"
 area = "Supply chain and release"
 claim = "Each of the 72 acceptance criteria maps to a test, and one script runs them all in a container with no network. A release is gated only on a tag whose commit is on main, checked by the release pipeline itself, not only on the operator's side."
 status = "operable"
-evidence = ["deploy/acceptance/run-airgapped.sh:10", ".gitlab-ci.yml:236", "tools/ci/verify-tag.sh", "tools/ci/tests/verify-tag.test.sh"]
+evidence = ["deploy/acceptance/run-airgapped.sh:10", ".gitlab-ci.yml:243", "tools/ci/verify-tag.sh", "tools/ci/tests/verify-tag.test.sh"]
 service_tests = ["tools/ci/run.sh:313", "tools/ci/run.sh:215", "tools/ci/run.sh:221", "tools/ci/run.sh:209", "tools/ci/run.sh:213"]
 limit = "Recorded at the commit named in docs/compliance/gate-runs/CURRENT: every criterion passed, in a CI run under --network none, not on release infrastructure. Later commits are not covered until the gate is recorded again. On GitLab the suite runs only on protected branches, on the privileged runner tagged protected; merge-request jobs run unprivileged and never start it."
 stated_in = ["GETTING_STARTED.md:5"]
@@ -523,7 +523,7 @@ criteria = ["RC-40.1"]
 evidence = ["deploy/compose/compose.yaml", "deploy/kind/values.yaml:4", "deploy/helm/midgard/templates/workload.yaml:18"]
 service_tests = ["deploy/compose/smoke.sh:13", "deploy/kind/smoke.sh:73", "deploy/kind/smoke.sh:98"]
 limit = "The chart has run on a three-node kind cluster, not on a production cluster. The committed development rendering uses tags; release renderings are digest pinned and signed."
-stated_in = ["CHANGELOG.md:190", "docs/releases/v0.1.0-rc.1.md:18", "docs/launch/pipeline/build-deck.js:323", "CHANGELOG.md:205", "CHANGELOG.md:209", "CHANGELOG.md:296"]
+stated_in = ["CHANGELOG.md:201", "docs/releases/v0.1.0-rc.1.md:18", "docs/launch/pipeline/build-deck.js:323", "CHANGELOG.md:216", "CHANGELOG.md:220", "CHANGELOG.md:307"]
 
 [[claim]]
 id = "high-availability"
@@ -544,7 +544,7 @@ evidence = ["services/telemetry/src/lib.rs:1", "services/telemetry/src/escape.rs
 tests = ["services/telemetry/tests/telemetry.rs::metrics_render_prometheus_text", "services/http-gateway/tests/rc_33.rs::service_exposes_liveness_readiness_metrics_and_an_observable_slo_breach", "services/http-gateway/tests/security_record.rs::every_request_writes_one_json_log_line_with_source_and_request_id", "services/telemetry/tests/telemetry.rs::log_lines_escape_every_control_character", "services/telemetry/tests/telemetry.rs::metric_labels_never_contain_raw_controls", "services/telemetry/tests/telemetry.rs::a_poisoned_metrics_lock_recovers_and_reports", "services/http-gateway/tests/rc_33.rs::a_poisoned_slo_lock_does_not_drop_responses", "services/http-gateway/tests/rc_33.rs::a_poisoned_enclosure_lock_is_recovered_logged_and_audited"]
 service_tests = ["deploy/compose/smoke.sh:15"]
 limit = "The tracing module is unused, the observability console shows fixed figures, and no service-level objective has been measured in a deployment."
-stated_in = ["CHANGELOG.md:267", "CHANGELOG.md:271", "CHANGELOG.md:358"]
+stated_in = ["CHANGELOG.md:278", "CHANGELOG.md:282", "CHANGELOG.md:369"]
 
 [[claim]]
 id = "compliance-mapping"

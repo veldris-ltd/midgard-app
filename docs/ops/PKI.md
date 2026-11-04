@@ -275,7 +275,14 @@ here if any is missing:
    - `MIDGARD_BIFROST_REGISTRY_PATH`: the registry directory.
 
    Each keystore file and its passphrase file is mounted read-only into the container
-   that uses it.
+   that uses it. A passphrase file is a separate secret from its keystore: on GitHub a
+   repository secret, on GitLab a protected CI/CD variable, each of exactly the name
+   above, holding only the file's path on the runner. The workflows map the path and
+   nothing else; no workflow, script or log prints a passphrase, and the preflight
+   checks only that each file is readable and outside the job's workspace. A Dvalin
+   ceremony hands the two passphrases over as `release.passphrase` and
+   `bifrost.passphrase`; put them on the runner owner-only, outside every checkout
+   (for example `/srv/midgard-passphrases/`), and point the two secrets at them.
 4. **Pinned trust anchors.** The public halves from the ceremony, committed as
    `deploy/trust/release-trust.pub` and `deploy/trust/bifrost-trust.pub` (see
    `deploy/trust/README.md`).
