@@ -20,6 +20,10 @@ image:
     bifrost-fleet: ""
     heimdall-feed: ""
     forge-worker: ""
+    # The acceptance probes' image (supply-chain/release-artefacts.txt). No Deployment
+    # runs it, but the release builds and signs it, so the release's chart values pin
+    # it with the rest: set-digests.sh refuses a lock image the values do not name.
+    mimir-probe: ""
   # true renders "<registry>/<service>:<tag>" for a service with no digest, with
   # imagePullPolicy Always: for development clusters only, never a release.
   allowTag: false
