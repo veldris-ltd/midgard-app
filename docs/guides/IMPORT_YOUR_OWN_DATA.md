@@ -40,11 +40,15 @@ The binaries land in `./target/release/`. The [Run a real enclosure](RUNNING.md#
 
 ## 2 — Create a state directory
 
+Every `mg-admin` command that opens a keystore, and the gateway, reads the keystore passphrase from the file `MIDGARD_KEYSTORE_PASSPHRASE_FILE` names (or `--keystore-passphrase-file FILE`), and refuses to run without one. The file must be at least 16 bytes, readable by its owner only, and kept apart from the state directory. Make one first, and keep the variable set in the shell you run the later steps from:
+
 ```bash
+(umask 077; head -c 32 /dev/urandom | base64 > "$HOME/.midgard-passphrase")
+export MIDGARD_KEYSTORE_PASSPHRASE_FILE="$HOME/.midgard-passphrase"
 ./target/release/mg-admin init --state-dir ./grid
 ```
 
-This creates `./grid` with an empty `ontology.json`, a starter `policy.json` and the enclosure's keys. **Treat `./grid/keys/` as a secret.** `init` refuses a directory that already has anything in it.
+A lost passphrase is a lost enclosure, so back it up separately from `./grid`. This creates `./grid` with an empty `ontology.json`, a starter `policy.json` and the enclosure's keys. **Treat `./grid/keys/` as a secret.** `init` refuses a directory that already has anything in it.
 
 ## 3 — Describe your data: `ontology.json`
 
