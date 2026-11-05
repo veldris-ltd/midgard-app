@@ -557,26 +557,96 @@ job_release_images() {
                         just sbom \$f && just sign \$f && just verify \$f || exit 1; done"
 }
 
-# Every gated binary with its signature and provenance, packed and signed for import
-# on the far side of an air gap.
+# Everything an install from the bundle alone needs, packed and signed for import on
+# the far side of an air gap (deploy/air-gap-bundle/README.md): every gated binary with
+# its signature and provenance; the service images release-images built, with the
+# signed images.lock; the signed chart values and rendering; the chart itself, packaged
+# by helm; the deploy kit (install.sh and what it runs); and every image in
+# deploy/images/externals.lock, as an OCI archive that keeps its pinned digest, from the
+# directory `deploy/images/externals.sh fetch` filled while the release machine was
+# connected (MIDGARD_EXTERNAL_IMAGES, outside the checkout). Nothing is fetched here. It
+# refuses, packing nothing, when any part is missing or an external archive is not as
+# pinned. MIDGARD_RELEASE_OUT names the release directory, as for release-publish, and
+# EXTERNALS_LOCK another lock (its tests use both); the kit carries the lock packed.
+# [FR-B-5] [VLD-ANB-MIDGARD-0035]
 job_release_bundle() {
-    local version out=target/release-out mounts specs=() component
+    local version out="${MIDGARD_RELEASE_OUT:-target/release-out}" mounts specs=() component
+    local externals="${MIDGARD_EXTERNAL_IMAGES:-}" missing=() id file f part ref digest name member use
     version="$(release_name)"
     [ -s "$out/release-manifest.txt" ] || {
         ci_error "release-bundle: $out holds no completed release; run the release job first"
         exit 1
     }
-    local id file
+    [ -n "$externals" ] || {
+        ci_error "release-bundle: MIDGARD_EXTERNAL_IMAGES is not set; it names the directory deploy/images/externals.sh fetch filled (docs/ops/PKI.md, \"Releasing without a forge\")"
+        exit 1
+    }
+    bash deploy/images/externals.sh check "$externals" || {
+        ci_error "release-bundle: the external images in $externals are not all there as pinned"
+        exit 1
+    }
+    for f in images/images.lock chart/values.yaml chart/enclosure.yaml; do
+        for part in "$f" "$f.sig" "$f.att"; do
+            [ -s "$out/$part" ] || missing+=("$out/$part")
+        done
+    done
+    while read -r ref digest; do
+        [ -n "$ref" ] || continue
+        name="${ref##*/}"
+        name="${name%:*}"
+        [ -s "$out/images/$name.oci.tar" ] || missing+=("$out/images/$name.oci.tar")
+    done < <(tr -d '\r' < "$out/images/images.lock" 2>/dev/null)
+    [ "${#missing[@]}" -eq 0 ] || {
+        ci_error "release-bundle: an install needs what is missing here; run release-images first: ${missing[*]}"
+        exit 1
+    }
+
+    # The release's own chart, which install.sh deploys instead of a checkout's.
+    need "${HELM:-helm}" "release-bundle: helm is not on PATH; it packages the release chart"
+    mkdir -p "$out/bundle"
+    rm -f "$out/bundle/"midgard-*.tgz
+    "${HELM:-helm}" package deploy/helm/midgard --destination "$out/bundle" >/dev/null
+    local chart
+    chart="$(ls "$out/bundle/"midgard-*.tgz 2>/dev/null | head -1)"
+    [ -n "$chart" ] && [ "$(tar -xzOf "$chart" midgard/Chart.yaml | tr -d '\r' \
+        | sed -n 's/^appVersion: *"\{0,1\}\([^"]*\)"\{0,1\}$/\1/p')" = "$version" ] || {
+        ci_error "release-bundle: the chart's appVersion is not $version"
+        exit 1
+    }
+    bash deploy/air-gap-bundle/kit.sh "$out/bundle/deploy-kit.tar"
+
+    # Inside the toolchain container the release directory is /release-out and the
+    # external images /externals, read-only.
+    local o=/release-out
     # id version component file — what the release gated, binaries and JS alike.
     while read -r id _ component file; do
         [ -n "$id" ] || continue
-        specs+=("$component=$id:$version:$out/$file"
-                "attestation=$id.sig:$version:$out/$file.sig"
-                "attestation=$id.att:$version:$out/$file.att")
+        specs+=("$component=$id:$version:$o/$file"
+                "attestation=$id.sig:$version:$o/$file.sig"
+                "attestation=$id.att:$version:$o/$file.att")
     done < "$out/artefacts.txt"
+    while read -r ref digest; do
+        [ -n "$ref" ] || continue
+        name="${ref##*/}"
+        name="${name%:*}"
+        specs+=("image=$name.oci.tar:$version:$o/images/$name.oci.tar")
+    done < <(tr -d '\r' < "$out/images/images.lock")
+    for f in images.lock:images/images.lock chart-values.yaml:chart/values.yaml \
+        enclosure.yaml:chart/enclosure.yaml; do
+        specs+=("deploy=${f%%:*}:$version:$o/${f#*:}"
+                "attestation=${f%%:*}.sig:$version:$o/${f#*:}.sig"
+                "attestation=${f%%:*}.att:$version:$o/${f#*:}.att")
+    done
+    specs+=("deploy=helm-chart.tgz:$version:$o/bundle/$(basename "$chart")"
+            "deploy=deploy-kit.tar:$version:$o/bundle/deploy-kit.tar")
+    while read -r ref digest member use; do
+        specs+=("image=$member:$version:/externals/$member")
+    done < <(tr -d '\r' < "${EXTERNALS_LOCK:-deploy/images/externals.lock}" | sed 's/#.*//' | awk 'NF')
+
     signing_mounts mounts
+    mounts+=(--mount "$(cd "$out" && pwd):$o" --mount "$(cd "$externals" && pwd):/externals:ro")
     in_toolchain "${mounts[@]}" -- bash deploy/air-gap-bundle/produce.sh \
-        "$out/midgard-$version.mgbundle" "midgard-$version" "v$version" \
+        "$o/midgard-$version.mgbundle" "midgard-$version" "v$version" \
         /keys/admission.keystore "${specs[@]}"
 }
 

@@ -23,6 +23,8 @@
 #   MIDGARD_ALLOWED_SIGNERS_PATH
 #                              the runner's own copy of allowed_signers, which release
 #                              tags are verified against (tools/ci/verify-tag.sh)
+#   MIDGARD_EXTERNAL_IMAGES    the external images, as `deploy/images/externals.sh fetch`
+#                              left them, for the air-gap bundle
 #   TOOLCHAIN_IMAGE            the toolchain image (default midgard-acceptance:1.82.0)
 set -uo pipefail
 
@@ -68,18 +70,19 @@ else
             bad "the service image $arg $base is not present; pull it while connected"
         fi
     done
-    # The chart's seed image (seedImage), which unpacks a service's first state: pinned
-    # by digest, and present, so it can be carried into the enclosure's registry.
-    seed_value() { sed -n "/^seedImage:/,/^[^ ]/s/^  $1: *//p" deploy/helm/midgard/values.yaml | tr -d '\r' | head -1; }
-    seed_repo="$(seed_value repository)"
-    seed_digest="$(seed_value digest)"
-    if ! grep -qE '^sha256:[0-9a-f]{64}$' <<<"$seed_digest" || [ -z "$seed_repo" ]; then
-        bad "deploy/helm/midgard/values.yaml seedImage must name a repository and a sha256 digest"
-    elif docker image inspect "$seed_repo@$seed_digest" >/dev/null 2>&1; then
-        ok "seed image $seed_repo@$seed_digest"
-    else
-        bad "the seed image $seed_repo@$seed_digest is not present; pull it while connected"
-    fi
+fi
+# The images Midgard runs but does not build (deploy/images/externals.lock: the seed,
+# model and egress images, and the kind node), fetched while connected as OCI archives
+# that keep their pinned digests, for release-bundle to pack. [VLD-ANB-MIDGARD-0035]
+externals="${MIDGARD_EXTERNAL_IMAGES:-}"
+if [ -z "$externals" ]; then
+    bad "MIDGARD_EXTERNAL_IMAGES is not configured (runner secret MIDGARD_EXTERNAL_IMAGES_PATH): it names the directory \`deploy/images/externals.sh fetch\` fills while connected"
+elif in_workspace "$externals/."; then
+    bad "MIDGARD_EXTERNAL_IMAGES names a directory inside the job's workspace ($workspace); keep it outside every checkout"
+elif found="$(bash deploy/images/externals.sh check "$externals" 2>&1)"; then
+    ok "the external images in $externals, each as pinned"
+else
+    bad "the external images in $externals are not all there as pinned: $(grep -v '^externals: ok' <<<"$found" | tr '\n' ' ')"
 fi
 
 # 2. What the scan stage reads, all of it local: the vendored advisory database, and

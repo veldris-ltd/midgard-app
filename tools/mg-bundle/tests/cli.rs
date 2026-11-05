@@ -202,3 +202,76 @@ fn pack_refuses_an_sbom_that_import_would_refuse() {
     assert!(stderr(&out).contains("SBOM"), "{}", stderr(&out));
     assert!(!bundle.exists(), "a refused pack wrote a bundle");
 }
+
+/// What an offline install needs travels in the bundle too: the release's image archives
+/// (`image`) and its deploy files, the chart, values and kit (`deploy`). An image archive
+/// is larger than a chunk, so it is written and read back across several, byte for byte.
+/// [FR-B-5] [AC-B-3] [VLD-ANB-MIDGARD-0035]
+#[test]
+fn image_archives_and_deploy_files_pack_and_import_byte_for_byte() {
+    let dir = scratch("install");
+    let (admission, anchor) = keystore(&dir, "bifrost-admission", SigId::MlDsa65);
+
+    // 40 MiB and a few bytes: three 16 MiB chunks, the last one partial. The bytes vary,
+    // so a chunk written twice or out of order would not compare equal.
+    let size = 40 * 1024 * 1024 + 7;
+    let mut state = 0x9e37_79b9_u32;
+    let archive: Vec<u8> = (0..size)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            state as u8
+        })
+        .collect();
+    let image = dir.join("http-gateway.oci.tar");
+    std::fs::write(&image, &archive).unwrap();
+    let lock = dir.join("images.lock");
+    std::fs::write(
+        &lock,
+        format!(
+            "registry.enclosure.local/midgard/http-gateway:0.1.0-rc.1 sha256:{}\n",
+            "a".repeat(64)
+        ),
+    )
+    .unwrap();
+
+    let bundle = dir.join("midgard.mgbundle");
+    let out = mg_bundle(&[
+        "pack",
+        "--out",
+        s(&bundle),
+        "--id",
+        "midgard-0.1.0-rc.1",
+        "--label",
+        "v0.1.0-rc.1",
+        "--keystore",
+        s(&admission),
+        &format!("image=http-gateway.oci.tar:0.1.0-rc.1:{}", s(&image)),
+        &format!("deploy=images.lock:0.1.0-rc.1:{}", s(&lock)),
+    ]);
+    assert!(out.status.success(), "{}", stderr(&out));
+
+    let verified = dir.join("verified");
+    let out = mg_bundle(&[
+        "import",
+        "--trust-anchor",
+        s(&anchor),
+        "--out-dir",
+        s(&verified),
+        s(&bundle),
+    ]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let refs = String::from_utf8_lossy(&out.stdout);
+    assert!(refs.contains("http-gateway.oci.tar@0.1.0-rc.1"), "{refs}");
+    assert!(refs.contains("images.lock@0.1.0-rc.1"), "{refs}");
+    let imported = std::fs::read(verified.join("http-gateway.oci.tar")).unwrap();
+    assert_eq!(imported.len(), archive.len());
+    assert!(imported == archive, "the image archive changed in transit");
+    assert_eq!(
+        std::fs::read(verified.join("images.lock")).unwrap(),
+        std::fs::read(&lock).unwrap()
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
