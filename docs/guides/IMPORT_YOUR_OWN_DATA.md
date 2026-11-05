@@ -2,7 +2,7 @@
 
 This guide shows how to put your own data into a Midgard enclosure using only what is in this repository: two JSON files you write by hand (or generate with any tool), and the `mg-admin` and `http-gateway` binaries built from source.
 
-You do not need Likan or any other proprietary tool. Likan is a separate product for designing ontologies; Midgard does not depend on it, and everything below works without it. See [Related proprietary tools](../../README.md#related-proprietary-tools).
+You do not need Likan or any other proprietary tool. Likan is a separate product for designing ontologies; Midgard does not depend on it, and everything below works without it. See [Related proprietary tools](OVERVIEW.md#related-proprietary-tools).
 
 For a larger, real example, the [sample datasets](../../samples/README.md) load the same way: `samples/convert.py` writes their `ontology.json` and import file, and their README gives the commands, which import 418 objects and 28 links from live-recorded GB grid, flood, TfL, weather, earthquake and space weather data.
 
@@ -36,7 +36,7 @@ Steps 1–4 are offline: the gateway must be stopped while they run.
 cargo build --release -p http-gateway -p mg-admin
 ```
 
-The binaries land in `./target/release/`. The README's [Run a real enclosure](../../README.md#run-a-real-enclosure-no-demo-data) section covers the same build, including building through the pinned container.
+The binaries land in `./target/release/`. The [Run a real enclosure](RUNNING.md#run-a-real-enclosure-no-demo-data) section covers the same build, including building through the pinned container.
 
 ## 2 — Create a state directory
 
@@ -259,7 +259,7 @@ A user sees an object only when **all** of these hold:
 - they hold every one of the object's `compartments` (`--compartments GRID-OPS,...`);
 - the object's `purposes` include `operations` (see [the note above](#object-records)).
 
-With the command above, `sam` sees everything in the example except substation `SS-QUAY`, which is `restricted` and in compartment `GRID-OPS`. Objects a user may not see are not just hidden from results. They are reported exactly as if they did not exist. More enrolment options, including TOTP, are in the README's [Enrol a user](../../README.md#3--enrol-a-user).
+With the command above, `sam` sees everything in the example except substation `SS-QUAY`, which is `restricted` and in compartment `GRID-OPS`. Objects a user may not see are not just hidden from results. They are reported exactly as if they did not exist. More enrolment options, including TOTP, are in the README's [Enrol a user](RUNNING.md#3-enrol-a-user).
 
 ## 8 — Serve and use it
 
@@ -271,7 +271,7 @@ With the command above, `sam` sees everything in the example except substation `
 http-gateway: serving the enclosure in ./grid — 1 principal(s) enrolled, 0 administrator(s), 3 object type(s) and 2 action(s) registered, ...
 ```
 
-Log in as `sam`, with the password you enrolled, from the Midgard console (see the README's [Start the Midgard console](../../README.md#4--start-the-midgard-console)) to browse the types, objects and links. Or use the HTTP API directly:
+Log in as `sam`, with the password you enrolled, from the Midgard console (see [Start the Midgard console](RUNNING.md#4-start-the-midgard-console)) to browse the types, objects and links. Or use the HTTP API directly:
 
 ```bash
 read -rs PASSWORD
@@ -331,7 +331,7 @@ A human-gated action without a `humanGateToken` is refused with `Human gate requ
 
 ## Keeping data in sync
 
-`mg-admin import` is for loading data you hold as files, and it only ever adds. If your data changes over time, the Forge worker can re-read a source on a schedule and create, update or link objects through the running gateway. Its sources are a CSV file, a PostgreSQL query, an S3 prefix or a Kafka topic. Its `jobs.json` maps source columns onto the same ontology you wrote in step 3. See [`deploy/compose/forge/jobs.json`](../../deploy/compose/forge/jobs.json) for an example, the format notes at the top of [`forge/worker/src/lib.rs`](../../forge/worker/src/lib.rs), and the README's [Run the services with docker compose](../../README.md#run-the-services-with-docker-compose). Unlike the ontology and import formats, `jobs.json` has no published JSON Schema yet.
+`mg-admin import` is for loading data you hold as files, and it only ever adds. If your data changes over time, the Forge worker can re-read a source on a schedule and create, update or link objects through the running gateway. Its sources are a CSV file, a PostgreSQL query, an S3 prefix or a Kafka topic. Its `jobs.json` maps source columns onto the same ontology you wrote in step 3. See [`deploy/compose/forge/jobs.json`](../../deploy/compose/forge/jobs.json) for an example, the format notes at the top of [`forge/worker/src/lib.rs`](../../forge/worker/src/lib.rs), and the README's [Run the services with docker compose](RUNNING.md#run-the-services-with-docker-compose). Unlike the ontology and import formats, `jobs.json` has no published JSON Schema yet.
 
 ## Troubleshooting
 
@@ -346,7 +346,7 @@ A human-gated action without a `humanGateToken` is refused with `Human gate requ
 
 ## Limits
 
-These are the limits of the file-based path as it stands. The README's [Limits of a real enclosure today](../../README.md#limits-of-a-real-enclosure-today) and the [claims ledger](../compliance/CLAIMS.md) have the full, current picture.
+These are the limits of the file-based path as it stands. [Limits of a real enclosure today](RUNNING.md#limits-of-a-real-enclosure-today) in the running guide and the [claims ledger](../compliance/CLAIMS.md) have the full, current picture.
 
 - Imports add only; they never update or delete.
 - Ontology and policy changes take effect when the gateway restarts.

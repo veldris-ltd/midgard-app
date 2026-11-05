@@ -2,7 +2,7 @@
 
 This guide describes the **specification-driven workflow** by which the Midgard suite is built with an AI coding agent: feed a complete architecture (`docs/dev/`) and a complete design system (`docs/design/`) to an agent, and turn them into software one requirement at a time.
 
-> **The suite is already implemented.** A 70-crate Rust workspace (plus console UIs and gateway edge) was produced from this exact workflow. In the full working history, one commit maps to each [BUILD_PLAYBOOK.md](BUILD_PLAYBOOK.md) prompt; this public repository begins from a squashed initial import of that state. Each of the 72 acceptance criteria maps to a test that runs air-gapped; no run of that gate is recorded yet against a public commit (see [GA_READINESS.md](docs/compliance/GA_READINESS.md)). To **build, test, or verify** what exists, see [README.md → Running locally](README.md#running-locally). This guide remains the reference for *how* it was built and for extending it — same loop, same gates.
+> **The suite is already implemented.** A 70-crate Rust workspace (plus console UIs and gateway edge) was produced from this exact workflow. In the full working history, one commit maps to each [BUILD_PLAYBOOK.md](BUILD_PLAYBOOK.md) prompt; this public repository begins from a squashed initial import of that state. Each of the 72 acceptance criteria maps to a test that runs air-gapped; no run of that gate is recorded yet against a public commit (see [GA_READINESS.md](docs/compliance/GA_READINESS.md)). To **build, test, or verify** what exists, see [docs/guides/RUNNING.md](docs/guides/RUNNING.md). This guide remains the reference for *how* it was built and for extending it — same loop, same gates.
 
 > **Looking for the exhaustive, in-sequence build reference?** [BUILD_PLAYBOOK.md](BUILD_PLAYBOOK.md) lists every build prompt, all 15 runtime AI prompts (verbatim), and all 72 acceptance criteria, phase-by-phase across the whole suite. This guide is the orientation; the playbook is the execution detail.
 
@@ -23,7 +23,7 @@ Read it top to bottom the first time. After that, use it as a map:
 
 ## 1. How the build works
 
-The product code exists (`just build` / `just test` compile and verify it — see [README.md → Running locally](README.md#running-locally)). But the *way it came to exist* is a **workflow**, not a single script — and it's the workflow you use to extend it:
+The product code exists (`just build` / `just test` compile and verify it — see [docs/guides/RUNNING.md](docs/guides/RUNNING.md)). But the *way it came to exist* is a **workflow**, not a single script — and it's the workflow you use to extend it:
 
 ```
   docs/dev/  (the spec: what & why)          docs/design/  (the look & behaviour)
@@ -324,7 +324,7 @@ bash deploy/acceptance/verify-core.sh     # AC-M-1..9 ; also demonstrates AC-M-5
 bash deploy/acceptance/verify-mimir.sh    # AC-MI-1..8 + AC-MS-1..9 (+ EV-A1..A5, A9 per family)
 ```
 
-Running the whole suite under `--network none` is the sovereignty proof: the platform builds and every criterion verifies with the network physically cut (`NFR-PRV-1` / `AC-M-5`). See [README.md → Air-gapped acceptance verification](README.md#air-gapped-acceptance-verification) for the toolchain details and why the image must bake `rustfmt`/`clippy`.
+Running the whole suite under `--network none` is the sovereignty proof: the platform builds and every criterion verifies with the network physically cut (`NFR-PRV-1` / `AC-M-5`). See [docs/guides/VERIFYING.md](docs/guides/VERIFYING.md#the-air-gapped-acceptance-gate) for the toolchain details and why the image must bake `rustfmt`/`clippy`.
 
 ---
 

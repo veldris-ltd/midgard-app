@@ -35,7 +35,7 @@ limit = "The module has no FIPS 140-3 certificate; that is an external laborator
 evidence = ["crypto/pqc-agility/src/backend/mod.rs:14", "crypto/pqc-agility/src/hybrid.rs:1", "docs/security/CRYPTO_REVIEW_HANDOFF.md", "crypto/pqc-agility/src/backend/mod.rs:16", "crypto/pqc-agility/src/backend/mod.rs:28", "crypto/pqc-agility/build.rs:19", "justfile:150"]
 tests = ["crypto/pqc-agility/tests/fips_backend.rs::kem_roundtrip_every_suite", "crypto/pqc-agility/tests/hash_kat.rs::kat_hmac_sha256_rfc4231", "crypto/pqc-agility/tests/hash_kat.rs::kat_hkdf_sha256_rfc5869", "crypto/pqc-agility/tests/hybrid_kat.rs::combiner_pinned_vector", "crypto/pqc-agility/tests/fips_backend.rs::hybrid_refuses_an_all_zero_x25519_result", "crypto/pqc-agility/tests/backend_guard.rs::release_guard_is_keyed_on_the_build_script_cfg", "crypto/pqc-agility/tests/backend_guard.rs::build_script_registers_and_emits_the_release_cfg"]
 service_tests = ["deploy/compose/smoke.sh:19"]
-stated_in = ["README.md:63", "docs/compliance/GA_READINESS.md:64", "docs/launch/pipeline/build-deck.js:474"]
+stated_in = ["README.md:18", "docs/compliance/GA_READINESS.md:64", "docs/launch/pipeline/build-deck.js:474"]
 
 [[claim]]
 id = "pq-mtls"
@@ -92,7 +92,7 @@ evidence = ["crypto/audit-writer/src/ledger.rs:5", "crypto/audit-writer/src/chec
 tests = ["crypto/audit-writer/tests/tamper.rs::compromised_signer_cannot_rewrite_history", "crypto/audit-writer/tests/truncation.rs::cutting_entries_off_the_end_is_detected", "crypto/audit-writer/tests/truncation.rs::a_ledger_checked_with_the_wrong_key_is_refused", "services/http-gateway/tests/state_dir_boot.rs::a_shortened_or_deleted_ledger_refuses_to_boot", "services/http-gateway/tests/state_dir_boot.rs::an_audit_keystore_that_is_not_the_pinned_key_refuses_to_boot", "services/http-gateway/tests/fabric_edge.rs::a_query_returns_real_objects_and_its_audit_id_is_a_real_ledger_row", "services/http-gateway/tests/durable_enclosure.rs::an_action_and_its_lineage_survive_a_restart", "services/http-gateway/tests/fabric_edge.rs::the_audit_view_hides_rows_about_objects_the_caller_cannot_read", "services/http-gateway/tests/fabric_edge.rs::the_audit_view_hides_approval_rows_whose_target_the_caller_cannot_read", "services/http-gateway/tests/fabric_edge.rs::reading_the_audit_needs_the_read_audit_permission", "services/http-gateway/tests/fabric_edge.rs::other_principals_login_rows_need_the_sessions_grant", "crypto/audit-writer/tests/append_verify.rs::a_ledger_written_before_the_context_existed_still_verifies", "services/governance/tests/authorize.rs::record_ids_are_unique_and_sequential", "services/governance/tests/authorize.rs::authorize_sets_the_outcome_field", "services/http-gateway/tests/security_record.rs::a_rejected_token_is_uniform_counted_logged_and_audited_once_per_minute", "services/http-gateway/tests/fabric_edge.rs::a_refused_human_gate_and_a_self_approval_are_in_the_ledger", "services/http-gateway/tests/security_record.rs::ledger_resource_fields_are_sanitised", "services/http-gateway/tests/security_record.rs::an_unenrolled_username_is_recorded_as_a_keyed_hash", "services/http-gateway/tests/security_record.rs::the_actor_hash_key_is_created_once_and_kept", "crypto/audit-writer/tests/torn_tail.rs::a_torn_final_frame_is_truncated_and_reported", "crypto/audit-writer/tests/torn_tail.rs::a_torn_frame_before_the_head_count_fails_closed", "crypto/audit-writer/tests/torn_tail.rs::a_torn_frame_after_an_entry_the_checkpoint_does_not_cover_fails_closed", "mimir/model-server/tests/security_marking.rs::completion_digests_are_recorded", "mimir/model-server/tests/security_marking.rs::audit_failure_after_completion_is_a_refusal"]
 service_tests = ["services/http-gateway/tests/http.rs::real_socket_round_trip", "deploy/compose/smoke.sh:24"]
 limit = "The ledger covers what the running services do. Agent steps are not in it, because no service runs the agent runtime (see agent-runtime)."
-stated_in = ["README.md:54", "CHANGELOG.md:244", "docs/launch/pipeline/build-deck.js:334", "CHANGELOG.md:248", "CHANGELOG.md:335"]
+stated_in = ["README.md:24", "CHANGELOG.md:244", "docs/launch/pipeline/build-deck.js:334", "CHANGELOG.md:248", "CHANGELOG.md:335"]
 
 [[claim]]
 id = "object-fabric"
@@ -102,7 +102,7 @@ status = "operable"
 evidence = ["services/http-gateway/src/enclosure.rs:368"]
 tests = ["services/http-gateway/tests/fabric_edge.rs::mandatory_access_control_hides_objects_outside_the_callers_compartments", "services/http-gateway/tests/secured_edge.rs::above_clearance_query_is_denied_403_and_audited"]
 service_tests = ["services/http-gateway/tests/http.rs::real_socket_round_trip", "deploy/compose/smoke.sh:50"]
-stated_in = ["README.md:54", "docs/launch/pipeline/build-deck.js:332"]
+stated_in = ["README.md:24", "docs/launch/pipeline/build-deck.js:332"]
 
 [[claim]]
 id = "ontology-file"
@@ -112,7 +112,7 @@ status = "operable"
 evidence = ["services/http-gateway/src/ontology_file.rs:144", "contracts/schema/ontology.v1.schema.json"]
 tests = ["services/http-gateway/tests/ontology_boot.rs::an_invalid_ontology_refuses_to_boot", "services/http-gateway/tests/contract_schemas.rs::ontology_fixtures_get_the_same_verdict_from_the_schema_and_the_parser", "services/http-gateway/tests/contract_schemas.rs::the_ontology_schema_allows_exactly_the_keys_the_parser_allows"]
 service_tests = ["deploy/compose/smoke.sh:50"]
-stated_in = ["README.md:313", "docs/launch/pipeline/build-deck.js:335"]
+stated_in = ["README.md:150", "docs/launch/pipeline/build-deck.js:335"]
 
 [[claim]]
 id = "checked-import"
@@ -122,7 +122,7 @@ status = "operable"
 evidence = ["tools/mg-admin/src/main.rs:392", "services/http-gateway/src/import_file.rs:91", "contracts/schema/import-record.v1.schema.json", "services/http-gateway/src/mesh_sync.rs:258", "tools/mg-admin/src/main.rs:440"]
 tests = ["services/http-gateway/tests/import_file.rs::a_bad_line_refuses_the_whole_file_and_names_it", "services/http-gateway/tests/contract_schemas.rs::import_fixtures_get_the_same_verdict_from_the_schema_and_the_importer", "services/http-gateway/tests/mesh_sync.rs::a_sync_that_lowers_a_marking_is_refused_and_changes_nothing", "services/http-gateway/tests/mesh_sync.rs::a_sync_may_raise_a_marking_and_narrow_purposes", "services/http-gateway/tests/mesh_sync.rs::a_sync_above_the_sync_clearance_is_refused", "services/http-gateway/tests/mesh_sync.rs::a_sync_never_touches_a_human_gated_target", "services/http-gateway/tests/mesh_sync.rs::an_unpermitted_peer_learns_nothing_from_a_malformed_sync", "services/http-gateway/tests/mesh_sync.rs::a_malformed_sync_from_a_permitted_peer_is_still_audited", "services/http-gateway/src/enclosure.rs::gated_targets_cover_live_and_redeemed_approvals"]
 service_tests = ["tools/mg-admin/tests/import.rs::an_import_fills_a_real_enclosure_that_a_gateway_then_serves"]
-stated_in = ["README.md:329", "docs/launch/pipeline/build-deck.js:335"]
+stated_in = ["README.md:150", "docs/launch/pipeline/build-deck.js:335"]
 
 [[claim]]
 id = "human-gated-actions"
@@ -144,7 +144,7 @@ evidence = ["services/iam/src/auth.rs:1", "services/http-gateway/src/revocations
 tests = ["services/http-gateway/tests/rc_37.rs::login_issues_a_pq_token_that_authorises_data_requests", "services/http-gateway/tests/login_directory.rs::a_durable_principal_needs_both_factors_and_survives_a_restart", "services/http-gateway/tests/security_edge.rs::a_one_mib_username_is_refused_before_any_state_is_touched", "services/http-gateway/tests/security_edge.rs::a_flooding_source_is_refused_before_verification", "services/http-gateway/tests/security_edge.rs::a_source_throttle_is_recorded_once_per_minute", "services/http-gateway/tests/edge_limits.rs::the_first_throttled_attempt_is_on_the_ledger_and_later_ones_are_coalesced", "services/http-gateway/tests/security_edge.rs::parallel_wrong_passwords_cannot_exceed_the_free_failures", "services/http-gateway/tests/security_edge.rs::a_busy_name_is_429_quickly", "services/http-gateway/tests/session_revocation.rs::a_token_is_refused_after_sign_out", "services/http-gateway/tests/session_revocation.rs::revocation_survives_a_restart_and_expired_entries_are_purged", "services/http-gateway/tests/session_revocation.rs::a_token_for_a_removed_subject_is_refused", "services/http-gateway/tests/secured_edge.rs::an_expired_token_is_rejected_401", "services/http-gateway/tests/secured_edge.rs::a_not_yet_valid_token_is_rejected_401", "services/http-gateway/tests/secured_edge.rs::a_token_from_another_issuer_is_rejected_401", "services/http-gateway/tests/secured_edge.rs::a_non_hex_bearer_is_rejected_401", "services/http-gateway/tests/secured_edge.rs::a_missing_scheme_is_rejected_401", "services/http-gateway/tests/secured_edge.rs::a_token_with_trailing_bytes_is_rejected_401", "services/iam/tests/primitives.rs::argon2id_hashes_verify_and_fail_closed", "services/iam/tests/primitives.rs::pbkdf2_iteration_floor_and_ceiling_are_enforced", "services/iam/tests/password_storage.rs::a_legacy_entry_is_upgraded_to_argon2id_on_sign_in_and_survives_a_restart", "services/http-gateway/tests/login_directory.rs::a_legacy_password_hash_is_upgraded_at_the_next_sign_in", "services/http-gateway/tests/login_directory.rs::a_totp_code_cannot_be_reused_within_the_window", "services/http-gateway/tests/login_directory.rs::the_last_accepted_totp_step_survives_a_restart", "services/iam/tests/primitives.rs::totp_verify_step_returns_the_step_and_refuses_used_or_older_steps", "services/iam/tests/rc_29.rs::a_wrong_password_does_not_consume_the_totp_step", "services/iam/tests/rc_29.rs::a_reused_code_is_refused_by_the_authenticator", "services/iam/tests/rc_29.rs::the_directory_reads_v2_records_and_replays_totp_steps"]
 service_tests = ["tools/mg-admin/tests/cli.rs::a_principal_enrolled_by_mg_admin_logs_in_through_the_gateway"]
 limit = "The console's login form has no field for the one-time code. Login fields are bounded and attempts are limited per name and per source; under compose every client shares the proxy's address, so the per-source limit is one for the whole site. Anyone who can reach the edge can lock any name for up to 15 minutes."
-stated_in = ["README.md:54", "docs/launch/pipeline/build-deck.js:447"]
+stated_in = ["README.md:24", "docs/launch/pipeline/build-deck.js:447"]
 
 [[claim]]
 id = "plaintext-edge-guard"
@@ -155,7 +155,7 @@ limit = "TLS termination in front of the edge is a deployment responsibility. Th
 evidence = ["services/http-gateway/src/cli.rs:1", "sdk/ts/src/http/baseUrl.ts:1", "deploy/installer/console.security-headers.conf:1"]
 tests = ["services/http-gateway/tests/cli_modes.rs::a_bare_address_or_no_arguments_is_a_usage_error", "services/http-gateway/tests/cli_modes.rs::non_loopback_binds_are_refused_unless_allowed", "services/http-gateway/src/lib.rs::check_bind_refuses_non_loopback_hosts_unless_allowed"]
 service_tests = ["services/http-gateway/tests/cli_modes.rs::dev_mode_serves_the_seeded_login_on_loopback"]
-stated_in = ["README.md:162", "deploy/README.md:95"]
+stated_in = ["README.md:98", "docs/guides/RUNNING.md:41", "deploy/README.md:95"]
 
 [[claim]]
 id = "webauthn-oidc-federation"
@@ -233,7 +233,7 @@ evidence = ["products/admin/ui/src/main.tsx:33:new AdminMock", "products/admin/u
 tests = ["services/http-gateway/tests/rc_37.rs::login_issues_a_pq_token_that_authorises_data_requests"]
 fallback = "The Midgard core console can be pointed at the HTTP edge and then shows live enclosure data; no automated test drives it. The other six consoles run on built-in sample data under a demonstration banner, because their services expose no console routes."
 milestone = "Each console has a backend route and a test that drives it (RF-UID-1, RF-TST-2)."
-stated_in = ["README.md:816", "CHANGELOG.md:277", "docs/releases/v0.1.0-rc.1.md:118", "docs/launch/pipeline/build-deck.js:544", "README.md:812", "CHANGELOG.md:292", "README.md:824", "README.md:814", "CHANGELOG.md:296", "CHANGELOG.md:383"]
+stated_in = ["README.md:144", "CHANGELOG.md:277", "docs/releases/v0.1.0-rc.1.md:118", "docs/launch/pipeline/build-deck.js:544", "docs/guides/RUNNING.md:141", "CHANGELOG.md:292", "docs/guides/RUNNING.md:118", "CHANGELOG.md:296", "CHANGELOG.md:383"]
 
 # ---- Mimir -----------------------------------------------------------------------------
 
@@ -477,7 +477,7 @@ evidence = ["justfile:373", "tools/ci/release.sh:178", "tools/ci/pipelines.sh:56
 tests = ["tools/mg-verify/tests/ac_rf_sc_2.rs::an_artefact_that_was_never_signed_is_refused", "tools/mg-scan/tests/cli.rs::ac_rf_sc_4a_a_critical_or_high_advisory_blocks_and_names_the_component", "tools/mg-scan/tests/cli.rs::snapshot_older_than_fail_after_days_fails"]
 service_tests = ["tools/ci/run.sh:321", "tools/ci/tests/pipelines.test.sh:73", "tools/ci/run.sh:226", "tools/ci/run.sh:233", "tools/ci/run.sh:345", "tools/ci/run.sh:370", "tools/ci/run.sh:231"]
 limit = "The gate has run with throwaway keys only (a rehearsal on 2026-09-15). No key ceremony has been held, release keys have no revocation, and the release workflow has not run on a signing runner. Every CI job image is pinned by digest on both forges (GitLab images by digest, GitHub actions by commit), but the GitLab images are still pulled from Docker Hub until the owner mirrors them. The advisory scan refuses a snapshot more than 45 days old; the weekly advisory-refresh job and Renovate are configured on both forges but have not yet run on either. The tag-creation ruleset, the runner's copy of allowed_signers and an ephemeral runner are owner actions not yet confirmed by exported evidence. No maintainer commit key is in allowed_signers yet, so the commits job passes only where GitHub verifies a commit and fails on CodeLab; that the signed history ruleset is live will be shown by docs/compliance/evidence/rulesets-<date>.json, which no maintainer has exported and committed yet."
-stated_in = ["README.md:742", "docs/compliance/GA_READINESS.md:66", "docs/launch/pipeline/build-deck.js:402", "README.md:746", "README.md:754", "README.md:744"]
+stated_in = ["README.md:208", "docs/compliance/GA_READINESS.md:66", "docs/launch/pipeline/build-deck.js:402", "docs/guides/VERIFYING.md:56", "docs/guides/VERIFYING.md:66", "docs/guides/VERIFYING.md:70"]
 
 [[claim]]
 id = "offline-build"
@@ -488,7 +488,7 @@ criteria = ["AC-M-5"]
 evidence = [".cargo/config.toml:18", "tools/ci/in-toolchain.sh:12", "tools/ci/in-toolchain.sh:60", "tools/ci/vendor-check.sh", ".gitlab-ci.yml:117"]
 service_tests = ["tools/ci/run.sh:307", "tools/ci/tests/in-toolchain.test.sh:43", "tools/ci/run.sh:216", "tools/ci/run.sh:222", "tools/ci/run.sh:210", "tools/ci/run.sh:214"]
 limit = "The recorded gate run covers the one commit named in docs/compliance/gate-runs/CURRENT. Later commits are not covered until the gate is recorded again. On GitLab merge requests the offline property rests on Cargo (vendored sources, CARGO_NET_OFFLINE) rather than a network sandbox, and those runs cannot be recorded as the gate; the unprivileged and protected runner configuration is the owner's and is not yet evidenced."
-stated_in = ["README.md:130", "docs/launch/pipeline/build-deck.js:508"]
+stated_in = ["README.md:83", "docs/launch/pipeline/build-deck.js:508"]
 
 [[claim]]
 id = "verify-before-run"
@@ -500,7 +500,7 @@ evidence = ["tools/mg-verify/src/main.rs:292", "deploy/images/service.Dockerfile
 tests = ["tools/mg-verify/tests/ac_rf_sc_2.rs::run_service_refuses_an_unverified_binary_and_does_not_exec", "tools/mg-verify/tests/ac_rf_sc_2.rs::run_service_execs_a_verified_binary_with_the_given_arguments", "tools/mg-verify/tests/ac_rf_sc_2.rs::run_service_execs_the_bytes_it_verified_not_the_path", "tools/mg-verify/tests/ac_rf_sc_2.rs::run_service_without_a_service_name_is_a_usage_error", "tools/mg-verify/tests/ac_rf_sc_2.rs::run_service_with_an_artefact_path_is_a_usage_error", "tools/mg-verify/tests/ac_rf_sc_2.rs::run_service_with_no_service_options_refuses_to_start", "tools/mg-verify/tests/ac_rf_sc_2.rs::run_service_trust_anchor_comes_only_from_its_own_command_line"]
 service_tests = ["deploy/images/build.sh:103"]
 limit = "Exercised in the release rehearsal of 2026-09-15 with throwaway drill keys only. No release image has been built, and the compose and kind images are built from source and start their binaries directly. The release chart binds each pod to the signed image by digest (deploy/helm/set-digests.sh), so a tag moved in the registry cannot substitute an image that skips the check. The images carry the pinned trust set read-only at /etc/midgard/trust, where mimir-server reads the model-signing anchor, and the release preflight refuses a release without that anchor; the key ceremony has not yet committed it."
-stated_in = ["README.md:760", "docs/releases/v0.1.0-rc.1.md:24", "docs/compliance/GA_READINESS.md:114", "CHANGELOG.md:263", "README.md:756", "CHANGELOG.md:278", "README.md:768", "README.md:758", "CHANGELOG.md:282", "CHANGELOG.md:369"]
+stated_in = ["docs/guides/VERIFYING.md:80", "docs/releases/v0.1.0-rc.1.md:24", "docs/compliance/GA_READINESS.md:114", "CHANGELOG.md:263", "docs/guides/VERIFYING.md:72", "CHANGELOG.md:278", "README.md:208", "CHANGELOG.md:282", "CHANGELOG.md:369"]
 
 [[claim]]
 id = "acceptance-gate"
@@ -572,4 +572,4 @@ id = "likan"
 area = "Outside this repository"
 claim = "Likan is a separate, proprietary tool for data-structure ontologies. It is not part of the open-source Midgard repository and is not covered by its licence, its acceptance gate, its SBOMs or its published figures. Midgard loads ontologies from a documented file format (see ontology-file) and needs no other tool to do so. Likan is in active development and is intended to export that format. No file produced by Likan has been validated against it in this repository yet, and no pipeline between the two has been run here."
 status = "external"
-stated_in = ["README.md:837", "README.md:845", "README.md:835"]
+stated_in = ["docs/guides/OVERVIEW.md:91", "docs/guides/OVERVIEW.md:93"]

@@ -62,7 +62,7 @@ ML-KEM, ML-DSA and SLH-DSA (FIPS 203, 204, 205) with X25519, behind one algorith
 - Service tests:
   - [`deploy/compose/smoke.sh:19`](../../deploy/compose/smoke.sh)
 - Stated at:
-  - [`README.md:63`](../../README.md)
+  - [`README.md:18`](../../README.md)
   - [`docs/compliance/GA_READINESS.md:64`](../../docs/compliance/GA_READINESS.md)
   - [`docs/launch/pipeline/build-deck.js:474`](../../docs/launch/pipeline/build-deck.js)
 
@@ -210,7 +210,7 @@ Edge admission and every object-fabric call are written to one append-only ledge
   - [`services/http-gateway/tests/http.rs::real_socket_round_trip`](../../services/http-gateway/tests/http.rs)
   - [`deploy/compose/smoke.sh:24`](../../deploy/compose/smoke.sh)
 - Stated at:
-  - [`README.md:54`](../../README.md)
+  - [`README.md:24`](../../README.md)
   - [`CHANGELOG.md:244`](../../CHANGELOG.md)
   - [`docs/launch/pipeline/build-deck.js:334`](../../docs/launch/pipeline/build-deck.js)
   - [`CHANGELOG.md:248`](../../CHANGELOG.md)
@@ -229,7 +229,7 @@ The object fabric serves typed objects, links and actions through the HTTP edge.
   - [`services/http-gateway/tests/http.rs::real_socket_round_trip`](../../services/http-gateway/tests/http.rs)
   - [`deploy/compose/smoke.sh:50`](../../deploy/compose/smoke.sh)
 - Stated at:
-  - [`README.md:54`](../../README.md)
+  - [`README.md:24`](../../README.md)
   - [`docs/launch/pipeline/build-deck.js:332`](../../docs/launch/pipeline/build-deck.js)
 
 ### `ontology-file` (operable)
@@ -246,7 +246,7 @@ An enclosure's object types, link types and actions come from an ontology file w
 - Service tests:
   - [`deploy/compose/smoke.sh:50`](../../deploy/compose/smoke.sh)
 - Stated at:
-  - [`README.md:313`](../../README.md)
+  - [`README.md:150`](../../README.md)
   - [`docs/launch/pipeline/build-deck.js:335`](../../docs/launch/pipeline/build-deck.js)
 
 ### `checked-import` (operable)
@@ -272,7 +272,7 @@ mg-admin import adds objects and links from a JSON Lines file with a published r
 - Service tests:
   - [`tools/mg-admin/tests/import.rs::an_import_fills_a_real_enclosure_that_a_gateway_then_serves`](../../tools/mg-admin/tests/import.rs)
 - Stated at:
-  - [`README.md:329`](../../README.md)
+  - [`README.md:150`](../../README.md)
   - [`docs/launch/pipeline/build-deck.js:335`](../../docs/launch/pipeline/build-deck.js)
 
 ### `human-gated-actions` (operable)
@@ -340,7 +340,7 @@ A principal logs in at the edge with a password, and a time-based one-time code 
 - Service tests:
   - [`tools/mg-admin/tests/cli.rs::a_principal_enrolled_by_mg_admin_logs_in_through_the_gateway`](../../tools/mg-admin/tests/cli.rs)
 - Stated at:
-  - [`README.md:54`](../../README.md)
+  - [`README.md:24`](../../README.md)
   - [`docs/launch/pipeline/build-deck.js:447`](../../docs/launch/pipeline/build-deck.js)
 
 ### `plaintext-edge-guard` (operable)
@@ -360,7 +360,8 @@ The gateway edge speaks plaintext HTTP and is kept off the network by default. I
 - Service tests:
   - [`services/http-gateway/tests/cli_modes.rs::dev_mode_serves_the_seeded_login_on_loopback`](../../services/http-gateway/tests/cli_modes.rs)
 - Stated at:
-  - [`README.md:162`](../../README.md)
+  - [`README.md:98`](../../README.md)
+  - [`docs/guides/RUNNING.md:41`](../../docs/guides/RUNNING.md)
   - [`deploy/README.md:95`](../../deploy/README.md)
 
 ### `webauthn-oidc-federation` (reference)
@@ -538,14 +539,13 @@ Seven console interfaces: Midgard core, Forge, Mimir, Bifrost, Heimdall, Admin a
 - Tests:
   - [`services/http-gateway/tests/rc_37.rs::login_issues_a_pq_token_that_authorises_data_requests`](../../services/http-gateway/tests/rc_37.rs)
 - Stated at:
-  - [`README.md:816`](../../README.md)
+  - [`README.md:144`](../../README.md)
   - [`CHANGELOG.md:277`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:118`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/launch/pipeline/build-deck.js:544`](../../docs/launch/pipeline/build-deck.js)
-  - [`README.md:812`](../../README.md)
+  - [`docs/guides/RUNNING.md:141`](../../docs/guides/RUNNING.md)
   - [`CHANGELOG.md:292`](../../CHANGELOG.md)
-  - [`README.md:824`](../../README.md)
-  - [`README.md:814`](../../README.md)
+  - [`docs/guides/RUNNING.md:118`](../../docs/guides/RUNNING.md)
   - [`CHANGELOG.md:296`](../../CHANGELOG.md)
   - [`CHANGELOG.md:383`](../../CHANGELOG.md)
 
@@ -1061,12 +1061,12 @@ Each release artefact passes one gate, in order, and each stage fails closed: bu
   - [`tools/ci/run.sh:370`](../../tools/ci/run.sh)
   - [`tools/ci/run.sh:231`](../../tools/ci/run.sh)
 - Stated at:
-  - [`README.md:742`](../../README.md)
+  - [`README.md:208`](../../README.md)
   - [`docs/compliance/GA_READINESS.md:66`](../../docs/compliance/GA_READINESS.md)
   - [`docs/launch/pipeline/build-deck.js:402`](../../docs/launch/pipeline/build-deck.js)
-  - [`README.md:746`](../../README.md)
-  - [`README.md:754`](../../README.md)
-  - [`README.md:744`](../../README.md)
+  - [`docs/guides/VERIFYING.md:56`](../../docs/guides/VERIFYING.md)
+  - [`docs/guides/VERIFYING.md:66`](../../docs/guides/VERIFYING.md)
+  - [`docs/guides/VERIFYING.md:70`](../../docs/guides/VERIFYING.md)
 
 ### `offline-build` (operable)
 
@@ -1089,7 +1089,7 @@ The workspace builds and its tests run with no network: every dependency is vend
   - [`tools/ci/run.sh:210`](../../tools/ci/run.sh)
   - [`tools/ci/run.sh:214`](../../tools/ci/run.sh)
 - Stated at:
-  - [`README.md:130`](../../README.md)
+  - [`README.md:83`](../../README.md)
   - [`docs/launch/pipeline/build-deck.js:508`](../../docs/launch/pipeline/build-deck.js)
 
 ### `verify-before-run` (operable)
@@ -1115,14 +1115,13 @@ Each service image re-verifies the ML-DSA signature, SBOM and provenance of its 
 - Service tests:
   - [`deploy/images/build.sh:103`](../../deploy/images/build.sh)
 - Stated at:
-  - [`README.md:760`](../../README.md)
+  - [`docs/guides/VERIFYING.md:80`](../../docs/guides/VERIFYING.md)
   - [`docs/releases/v0.1.0-rc.1.md:24`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/compliance/GA_READINESS.md:114`](../../docs/compliance/GA_READINESS.md)
   - [`CHANGELOG.md:263`](../../CHANGELOG.md)
-  - [`README.md:756`](../../README.md)
+  - [`docs/guides/VERIFYING.md:72`](../../docs/guides/VERIFYING.md)
   - [`CHANGELOG.md:278`](../../CHANGELOG.md)
-  - [`README.md:768`](../../README.md)
-  - [`README.md:758`](../../README.md)
+  - [`README.md:208`](../../README.md)
   - [`CHANGELOG.md:282`](../../CHANGELOG.md)
   - [`CHANGELOG.md:369`](../../CHANGELOG.md)
 
@@ -1243,7 +1242,6 @@ Personal data can be erased and exported per subject, and each durable store enf
 Likan is a separate, proprietary tool for data-structure ontologies. It is not part of the open-source Midgard repository and is not covered by its licence, its acceptance gate, its SBOMs or its published figures. Midgard loads ontologies from a documented file format (see ontology-file) and needs no other tool to do so. Likan is in active development and is intended to export that format. No file produced by Likan has been validated against it in this repository yet, and no pipeline between the two has been run here.
 
 - Stated at:
-  - [`README.md:837`](../../README.md)
-  - [`README.md:845`](../../README.md)
-  - [`README.md:835`](../../README.md)
+  - [`docs/guides/OVERVIEW.md:91`](../../docs/guides/OVERVIEW.md)
+  - [`docs/guides/OVERVIEW.md:93`](../../docs/guides/OVERVIEW.md)
 
