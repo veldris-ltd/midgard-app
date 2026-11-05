@@ -28,7 +28,7 @@ The short version, for each way of running Midgard:
 | Break-glass needs two people holding the right roles. | MG-SEC-07 | The requester needs `breakglass.request` and the approver `breakglass.approve` (the Security-Officer role), each signed in with their own passkey. Check your role bindings before you need it. |
 | Model manifests are format 2, signed over their own bytes; a model sidecar loads a staged copy of the verified weights. | MG-SEC-14 | A format-1 manifest is refused, and `mimir-server` with `--engine llama-cpp` or `vllm` needs `--serve-dir`. → [Step 6](#6--re-sign-models-and-give-the-sidecar-a-serve-directory). |
 | The image no longer reads `MIDGARD_RELEASE_TRUST_KEY`. | MG-SEC-14 | Verification always uses `/trust/release-trust.pub`. Remove the variable from your environment; it has no effect. |
-| Keystores are format version 2: the custody root is wrapped under a passphrase, and every program that opens one needs `--keystore-passphrase-file` or `MIDGARD_KEYSTORE_PASSPHRASE_FILE`. | VLD-ANB-MIDGARD-0007 | A version 1 keystore (root in the clear) is refused everywhere. → [Keystores](#keystores-wrap-the-custody-root). |
+| Keystores are format version 3: the custody root is wrapped under a passphrase, bound to the whole header, and every program that opens one needs `--keystore-passphrase-file` or `MIDGARD_KEYSTORE_PASSPHRASE_FILE`. | VLD-ANB-MIDGARD-0007 | A version 1 keystore (root in the clear) and a version 2 keystore (header not authenticated) are refused everywhere. → [Keystores](#keystores-wrap-the-custody-root). |
 | Audit ledger entries are schema 2; identity directory records are version 3, then 4. | VLD-ANB-MIDGARD-0054, VLD-ANB-MIDGARD-0026, VLD-ANB-MIDGARD-0084 | One-way: once the new build has written to them, an earlier build cannot open the ledger or the directory. Rolling back means restoring the backup. → [Step 1](#1--back-up) and [Rolling back](#rolling-back). |
 | Administrators prove each request with a passkey **and** a one-time code the gateway checks. | VLD-ANB-MIDGARD-0008 | An administrator with no TOTP secret gets 401 on every administration route, `enrol` included, until one is set. → [Step 5a](#5a--give-every-administrator-a-totp-secret). |
 | Session tokens are `midgard-token-v2`. | VLD-ANB-MIDGARD-0021 | A token minted before the upgrade no longer verifies: **everyone signs in again**. Nothing to run; tell your users. |
@@ -38,13 +38,13 @@ The short version, for each way of running Midgard:
 
 Take the backup in [BACKUP_RESTORE.md](BACKUP_RESTORE.md) of the gateway's state
 directory, every service's state directory, and every identity directory. The steps below
-write new certificates and checkpoints and rewrite each keystore once, wrapped (the keys
-inside are kept), but a backup is how you go back. The new build also rewrites the
+write new certificates and checkpoints and rewrite each keystore once, as version 3 (the
+keys inside are kept), but a backup is how you go back. The new build also rewrites the
 audit ledgers (entry schema 2) and the identity directory (record versions 3 and 4) the
 first time it writes to them, and no earlier build opens either afterwards: the backup is
 the **only** way back ([Rolling back](#rolling-back)). Keep the pre-migration keystores in
-the secret store, not on the host, until the release has soaked, then destroy them: they
-hold the custody root in the clear.
+the secret store, not on the host, until the release has soaked, then destroy them:
+version 1 files hold the custody root in the clear.
 
 ## 2 — Stop everything, then install the new build
 
@@ -57,8 +57,9 @@ ledger while it is adopted. Then install the new binaries or images.
 
 Before anything opens a keystore, give each keystore holder a passphrase and migrate its
 keystores. Compose `init` and `mg-install`'s repair do this themselves: each holder gets a
-random passphrase in a volume of its own (`<holder>-passphrase`), and every version 1
-keystore is migrated under it. By hand, migrate the state directory's audit keystore
+random passphrase in a volume of its own (`<holder>-passphrase`), and every version 1 or
+version 2 keystore is migrated to version 3 under it (a version 2 keystore under the
+passphrase it already has). By hand, migrate the state directory's audit keystore
 **first, and without `--state-dir`**:
 
 ```bash
@@ -67,7 +68,7 @@ mg-admin keystore migrate --keystore STATE/keys/audit.keystore --keystore-passph
 
 Given `--state-dir`, `keystore migrate` records the migration in the gateway's ledger,
 which it opens with `STATE/keys/audit.keystore`; that only works once the audit keystore
-is version 2 and the ledger has been adopted in [step 3](#3--adopt-the-audit-ledgers). So
+is version 3 and the ledger has been adopted in [step 3](#3--adopt-the-audit-ledgers). So
 migrate every keystore here without `--state-dir`, and after step 3 record each one with
 `mg-admin keystore verify --state-dir STATE --keystore FILE --keystore-passphrase-file FILE`.
 Then, for each holder (the state directory's `keys/` and the gateway's mesh identity
@@ -83,11 +84,26 @@ mg-admin keystore verify --keystore DIR/mimir-server.keystore --keystore-passphr
 Then pass each service `--keystore-passphrase-file FILE` (or set
 `MIDGARD_KEYSTORE_PASSPHRASE_FILE`). Keep the passphrase off the keystore's volume and out
 of its backups: it is the recovery secret, and a lost passphrase is a lost enclosure.
-Migration keeps the same root, so destroy every other copy of each version 1 file
-(backups, volumes, Secrets); where one may have been exposed, re-initialise that
-enclosure instead of migrating it. Release and admission keystores on the signing runner,
-and Dvalin's ceremony output, are migrated the same way ([PKI.md](PKI.md),
-[KEY_CEREMONY.md](KEY_CEREMONY.md)). [VLD-ANB-MIDGARD-0007]
+Migration keeps the same root, so destroy every other copy of each version 1 or 2 file
+(backups, volumes, Secrets). An administrator's passkey (`*.passkey`) is a keystore too:
+its holder migrates it the same way, under the passkey passphrase. Release and admission
+keystores on the signing runner, the model-signing keystore, and Dvalin's ceremony
+output, are migrated the same way ([PKI.md](PKI.md), [KEY_CEREMONY.md](KEY_CEREMONY.md)).
+
+Where a version 1 file may have been exposed, its root is known, so after migrating it
+rotate the root where that is allowed:
+
+```bash
+mg-admin keystore rotate-root --keystore FILE --keystore-passphrase-file /secrets/FILE.passphrase [--state-dir STATE]
+```
+
+This gives the keystore a new custody root and keeps its signing key and verifying key, so
+trust anchors and certificates stay valid. It is allowed for keystores whose root seals
+nothing else: release, admission and model-signing keystores, a mesh service's identity
+keystore (`<service>.keystore`) and a passkey. It is refused for a state directory's
+`keys/*.keystore` and a mesh service's `<service>.audit.keystore`, whose roots seal the
+enclosure's identity directory, ledgers and stores: where one of those may have been
+exposed, re-initialise that enclosure instead. [VLD-ANB-MIDGARD-0007]
 
 ## 3 — Adopt the audit ledgers
 
@@ -151,11 +167,14 @@ mg-admin mesh upgrade --state-dir STATE --service mimir-server --roles inference
 rewrites `mesh.anchor`, and writes the current signed `mesh.crl`. It keeps both
 keystores. That matters: a service's audit keystore signs its ledger and is the root its
 sealed state is encrypted under, so a new one — which is what `mg-admin mesh issue`
-makes — would leave the service unable to open either. `--days` (default 30),
-`--clearance` (default `open`) and `--purposes` apply as at issue. On a service whose
-certificate is already current, and grants exactly the roles, clearance and purposes
-asked for, it changes nothing; a certificate whose grant differs is reissued, so
-`--purposes` binds purposes into a certificate that had none. [VLD-ANB-MIDGARD-0063]
+makes — would leave the service unable to open either. `--days` defaults to 30. Without
+`--clearance` or `--purposes`, the service keeps the clearance and purposes its
+certificate already grants (a certificate in an earlier format grants none, so the
+defaults of `mesh issue` apply: clearance `open`, no purposes); `--no-purposes` drops a
+purpose binding. On a service whose certificate is already current, and grants exactly
+the roles, clearance and purposes asked for, it changes nothing; a certificate whose
+grant differs is reissued, so `--purposes` binds purposes into a certificate that had
+none. [VLD-ANB-MIDGARD-0063]
 
 The services, roles and directories the compose deployment uses (`deploy/compose/init.sh`):
 
@@ -269,13 +288,14 @@ its log says which file and why. Then:
 ## Rolling back
 
 There is no in-place rollback. The audit ledgers (entry schema 2), the identity directory
-(record versions 3 and 4) and the keystores (version 2) written by this release do not
+(record versions 3 and 4) and the keystores (version 3) written by this release do not
 open on an earlier build. To go back:
 
 1. Stop the gateway and every mesh service.
 2. Restore the backup from [step 1](#1--back-up): the state directory, every service's
    state directory and every identity directory, all from the same backup.
-3. Restore the version 1 keystores from the secret store, and start the earlier build.
+3. Restore the pre-migration keystores from the secret store, and start the earlier
+   build.
 
 Anything recorded after the upgrade (ledger entries, enrolments, sealed state) is lost
 with the restore; export what you need first.

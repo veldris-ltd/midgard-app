@@ -17,14 +17,16 @@
 //!
 //! `--login-burst` and `--login-per-sec` are how many login and administration attempts
 //! one source address may make at once, and how fast that allowance refills (a burst
-//! of 0 turns it off). [VLD-ANB-MIDGARD-0005]
+//! of 0 turns it off). Behind a reverse proxy every client reaches the edge from the
+//! proxy's address; each `--trusted-proxy` names one whose `X-Forwarded-For` is
+//! believed, so each client is charged on its own. [VLD-ANB-MIDGARD-0005]
 //!
 //! The edge speaks plaintext HTTP, so a state-directory gateway also listens on
 //! loopback only unless `--allow-non-loopback` says it sits behind PQ-mTLS or TLS 1.3
 //! termination, as a container does. Development mode has no such override.
 //! [RC-24] [VLD-ANB-MIDGARD-0032]
 
-use std::net::{SocketAddr, ToSocketAddrs};
+use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 
 use policy::{Clearance, Compartment};
 use service_runtime::marking::{level_of, BANDS};
@@ -46,7 +48,7 @@ usage:
                 [--mesh-sync-clearance BAND[:COMPARTMENT,...]]]
                [--max-connections N] [--idle-timeout SECONDS] [--edge-rate-per-sec N]
                [--rate-burst N] [--rate-per-sec N] [--requests-per-conn N]
-               [--login-burst N] [--login-per-sec N]
+               [--login-burst N] [--login-per-sec N] [--trusted-proxy IP]...
       --mesh-sync-clearance: the highest marking a mesh sync may write (default: the
       highest band, no compartments)
       --max-connections (edge default 256, mesh door 128) and --idle-timeout (default 30)
@@ -55,7 +57,8 @@ usage:
       --rate-per-sec (default 20) and --requests-per-conn (default 10000) limit each
       certified peer of the mesh door; --login-burst (default 20, 0 is off) and
       --login-per-sec (default 0.5) limit login and administration attempts from one
-      address
+      address; --trusted-proxy IP (repeatable) is a reverse proxy whose
+      X-Forwarded-For names that address, ignored from any other peer
   http-gateway --dev [ADDR]
       development mode: seeded in-memory data and the published demo logins,
       on a loopback ADDR only (default 127.0.0.1:7710)
@@ -117,6 +120,9 @@ pub struct ServeArgs {
     pub login_burst: f64,
     /// Attempts a second that allowance refills at. [VLD-ANB-MIDGARD-0005]
     pub login_per_sec: f64,
+    /// The reverse proxies whose `X-Forwarded-For` names the source address for that
+    /// allowance. [VLD-ANB-MIDGARD-0005]
+    pub trusted_proxies: Vec<IpAddr>,
     /// The highest marking a mesh sync may write. `None` keeps the gateway's default:
     /// the highest band, no compartments. [VLD-ANB-MIDGARD-0001]
     pub mesh_sync_clearance: Option<Clearance>,
@@ -188,6 +194,7 @@ pub fn parse(argv: &[String]) -> Result<Command, String> {
         mesh: MeshLimits::default(),
         login_burst: LOGIN_SOURCE_BURST,
         login_per_sec: LOGIN_SOURCE_PER_SEC,
+        trusted_proxies: Vec::new(),
         mesh_sync_clearance: None,
     };
     let mut limit_flags = Vec::new();
@@ -223,6 +230,11 @@ pub fn parse(argv: &[String]) -> Result<Command, String> {
             "--mesh-purpose" => serve.mesh_purpose = value.clone(),
             "--login-burst" => serve.login_burst = non_negative(flag, value)?,
             "--login-per-sec" => serve.login_per_sec = non_negative(flag, value)?,
+            "--trusted-proxy" => serve.trusted_proxies.push(
+                value
+                    .parse()
+                    .map_err(|_| format!("--trusted-proxy takes an IP address, not \"{value}\""))?,
+            ),
             other if LIMIT_OPTIONS.contains(&other.trim_start_matches("--")) => {
                 limit_flags.extend([flag.clone(), value.clone()]);
             }

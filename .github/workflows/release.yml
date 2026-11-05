@@ -101,9 +101,10 @@ jobs:
       MIDGARD_SIGNING_KEYSTORE: ${{ secrets.MIDGARD_SIGNING_KEYSTORE_PATH }}
       MIDGARD_BIFROST_KEYSTORE: ${{ secrets.MIDGARD_BIFROST_KEYSTORE_PATH }}
       MIDGARD_BIFROST_REGISTRY: ${{ secrets.MIDGARD_BIFROST_REGISTRY_PATH }}
-      # Each keystore's passphrase: a file on the runner, like the keystore.
-      MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE: ${{ secrets.MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE_PATH }}
-      MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE: ${{ secrets.MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE_PATH }}
+      # Each keystore's passphrase is a separate secret naming a file on the runner;
+      # only the path is mapped, and run.sh mounts the file read-only. [VLD-ANB-MIDGARD-0007]
+      MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE: ${{ secrets.MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE }}
+      MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE: ${{ secrets.MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE }}
       # The runner's own copy of allowed_signers, outside the workspace: the tag is
       # verified against it, not against the tagged commit's (docs/ops/PKI.md).
       MIDGARD_ALLOWED_SIGNERS_PATH: ${{ secrets.MIDGARD_ALLOWED_SIGNERS_PATH }}
@@ -145,9 +146,8 @@ jobs:
       MIDGARD_SIGNING_KEYSTORE: ${{ secrets.MIDGARD_SIGNING_KEYSTORE_PATH }}
       MIDGARD_BIFROST_KEYSTORE: ${{ secrets.MIDGARD_BIFROST_KEYSTORE_PATH }}
       MIDGARD_BIFROST_REGISTRY: ${{ secrets.MIDGARD_BIFROST_REGISTRY_PATH }}
-      # Each keystore's passphrase: a file on the runner, like the keystore.
-      MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE: ${{ secrets.MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE_PATH }}
-      MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE: ${{ secrets.MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE_PATH }}
+      MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE: ${{ secrets.MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE }}
+      MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE: ${{ secrets.MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:

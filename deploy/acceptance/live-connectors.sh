@@ -146,15 +146,22 @@ docker run -d --name "$BROKER" --network "$NET" \
     "$HAPROXY" haproxy -f /cfg/haproxy.cfg >/dev/null
 sleep 1
 
+# Each server by its address on the network: a connector connects to a name only at a
+# routable address, and these are private, so the targets are IP literals, as an
+# operator names a source inside the enclosure.
+ip_of() {
+    docker inspect -f "{{(index .NetworkSettings.Networks \"$NET\").IPAddress}}" "$1"
+}
+
 echo "--- running the live connector checks"
 output="$(docker run --rm --network "$NET" \
     -v midgard-src-verify:/work -v midgard-target:/work/target -w /work \
     -e MIDGARD_LIVE_CONNECTORS=1 \
-    -e MIDGARD_LIVE_PG="$PG:5432" \
-    -e MIDGARD_LIVE_S3="$MINIO:9000" \
-    -e MIDGARD_LIVE_S3_TLS="$MINIO_TLS:9000" \
-    -e MIDGARD_LIVE_BROKER="$BROKER:19000" \
-    -e MIDGARD_LIVE_BROKER_IMPOSTOR="$BROKER:19001" \
+    -e MIDGARD_LIVE_PG="$(ip_of "$PG"):5432" \
+    -e MIDGARD_LIVE_S3="$(ip_of "$MINIO"):9000" \
+    -e MIDGARD_LIVE_S3_TLS="$(ip_of "$MINIO_TLS"):9000" \
+    -e MIDGARD_LIVE_BROKER="$(ip_of "$BROKER"):19000" \
+    -e MIDGARD_LIVE_BROKER_IMPOSTOR="$(ip_of "$BROKER"):19001" \
     "$IMAGE" cargo test --offline -p forge-connector-sdk --test live -- --nocapture 2>&1)" || {
     echo "$output"
     docker logs "$BROKER" 2>&1 | tail -20

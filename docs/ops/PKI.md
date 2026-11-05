@@ -139,9 +139,10 @@ the handoff. Neither has a default; a runner missing either fails the release.
 
 ## HSM key ceremony (CA + release signing key)
 
-**To hold the ceremony, use Dvalin** (veldris-ltd/dvalin-app), and
-follow its `docs/KEY_CEREMONY.md`, step by step; [KEY_CEREMONY.md](KEY_CEREMONY.md)
-here says what it leaves in this repository. It is a guided Windows (and Linux) app
+**To hold the ceremony**, follow [KEY_CEREMONY.md](KEY_CEREMONY.md): with this
+repository's own tools ("Your own ceremony"), or with Dvalin where you have it (Veldris's
+ceremony application, available internally and to enterprise customers, with its own
+procedure). Neither needs a forge or a network. Dvalin is a guided Windows (and Linux) app
 that generates the release signing key (ML-DSA-87) and the Bifrost admission key
 (ML-DSA-65) into sealed keystores outside the checkout, proves each signs and verifies
 through this repository's `attest`, writes `deploy/trust/release-trust.pub`,
@@ -272,15 +273,20 @@ here if any is missing:
    - `MIDGARD_SIGNING_KEYSTORE_PATH`: the release keystore (ML-DSA-87);
    - `MIDGARD_BIFROST_KEYSTORE_PATH`: the Bifrost admission keystore (ML-DSA-65), for
      registry admission and the air-gap bundle;
-   - `MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE_PATH` and
-     `MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE_PATH`: the passphrase each keystore's
-     custody root is wrapped under, a separate secret from the keystore (the jobs see
-     them as `MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE` and
-     `MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE`);
+   - `MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE` and
+     `MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE`: the passphrase each keystore's custody
+     root is wrapped under, a separate secret from the keystore;
    - `MIDGARD_BIFROST_REGISTRY_PATH`: the registry directory.
 
    Each keystore file and its passphrase file is mounted read-only into the container
-   that uses it.
+   that uses it. A passphrase file is a separate secret from its keystore: on GitHub a
+   repository secret, on GitLab a protected CI/CD variable, each of exactly the name
+   above, holding only the file's path on the runner. The workflows map the path and
+   nothing else; no workflow, script or log prints a passphrase, and the preflight
+   checks only that each file is readable and outside the job's workspace. A Dvalin
+   ceremony hands the two passphrases over as `release.passphrase` and
+   `bifrost.passphrase`; put them on the runner owner-only, outside every checkout
+   (for example `/srv/midgard-passphrases/`), and point the two secrets at them.
 4. **Pinned trust anchors.** The public halves from the ceremony, committed as
    `deploy/trust/release-trust.pub` and `deploy/trust/bifrost-trust.pub` (see
    `deploy/trust/README.md`).
@@ -322,7 +328,9 @@ here if any is missing:
    `release-managers` team as its only bypass actor; on GitLab, `v*` protected so that
    only maintainers create one (`tools/ci/gitlab-rules.sh`). Nothing on the runner can
    check this; the exported ruleset evidence in `docs/compliance/evidence/` is the
-   record.
+   record. Without a forge there is no ruleset, and the control is `allowed_signers`
+   itself: list only release managers' keys in it, and `verify-tag.sh` refuses a tag
+   anyone else signed ([Releasing without a forge](#releasing-without-a-forge)).
 
 If any is absent, the preflight **fails closed**, so a release never ships unsigned,
 unscanned, or from a half-provisioned runner.
@@ -330,17 +338,77 @@ unscanned, or from a half-provisioned runner.
 **Custody today is software.** The keystores are files: the signing key sealed under
 an ML-KEM-1024 root, and the root wrapped under an operator passphrase with
 PBKDF2-HMAC-SHA256 (600,000 iterations, a fresh 32-byte salt) and AES-256-GCM, bound to
-the key id (keystore format version 2, `crypto/attest/src/keystore.rs`). The file
+the whole header: the key id, the verifying key and the root public key (keystore format
+version 3, `crypto/attest/src/keystore.rs`). Whoever can write the file but lacks the
+passphrase cannot swap the verifying key or the root public key: the root no longer
+unwraps, and the unsealed signing key must sign under the stored verifying key. The file
 alone, or a backup of it, does not yield the root; the file and its passphrase
 together are the key, so keep them in separate secrets. The format also takes a root
 sealed to an external `kms::TrustRoot` (`RootWrap::External`), the seam an HSM or TPM
 slots into, tested against the SoftHSM stand-in. The HSM path above (keys generated
 on-device, never exportable) is the GA target and is not wired in: signing from a
 PKCS#11 token needs a signer behind the same custody seam. Keystores written before
-format version 2 hold the root in the clear; every reader refuses them, `mg-admin
-keystore migrate` converts each once, and every other copy of the old file (backups,
-volumes, Secrets) must then be destroyed. Where a version 1 copy may have been exposed,
-re-initialise rather than migrate: migration keeps the same root. [VLD-ANB-MIDGARD-0007]
+format version 2 hold the root in the clear, and version 2 keystores do not authenticate
+their header; every reader refuses both, `mg-admin keystore migrate` converts each once
+to version 3, and every other copy of the old file (backups, volumes, Secrets) must then
+be destroyed. Migration keeps the same root, so where a version 1 copy may have been
+exposed, give the keystore a new root with `mg-admin keystore rotate-root --keystore
+FILE [--state-dir DIR]`: the signing key and verifying key are kept, so trust anchors
+stay valid, and the new file must unseal the same key under a different root before it
+replaces the old one. That is for keystores whose root seals nothing but their own key:
+release, admission and model-signing keystores, a mesh service's identity keystore
+(`<service>.keystore`) and an administrator's passkey. A state directory's
+`keys/*.keystore` and a mesh service's `<service>.audit.keystore` seal the enclosure's
+data (identity directory, ledgers, object store) under their root, so `rotate-root`
+refuses them; re-initialise the enclosure instead. [VLD-ANB-MIDGARD-0007]
+
+## Releasing without a forge
+
+No step of signing or releasing Midgard needs a forge: not a connection to one, not
+its API, not a signature or a "verified" mark it makes, and not its pipeline. GitHub
+and GitLab are conveniences that run the same scripts; with neither, or with both
+offline, a release is made on one machine. [VLD-ANB-MIDGARD-0035]
+
+**The machine** is provisioned as the signing runner above, without the forge's runner:
+the toolchain image built locally (`bash tools/ci/run.sh toolchain`), the vendored
+advisory database, pnpm with its store filled (or the `js-build` output carried in),
+each keystore and passphrase file outside every checkout, and its own copy of
+`allowed_signers` outside the checkout. Set the same variables a pipeline maps from its
+secrets, and name `main` locally, since there is no remote to fetch it from:
+
+```bash
+export MIDGARD_SIGNING_KEYSTORE=/srv/midgard-keys/release.keystore
+export MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE=/srv/midgard-passphrases/release.passphrase
+export MIDGARD_BIFROST_KEYSTORE=/srv/midgard-keys/bifrost.keystore
+export MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE=/srv/midgard-passphrases/bifrost.passphrase
+export MIDGARD_BIFROST_REGISTRY=/srv/midgard-registry
+export MIDGARD_ALLOWED_SIGNERS_PATH=/srv/midgard-trust/allowed_signers
+export MIDGARD_MAINLINE_REF=refs/heads/main
+```
+
+**Then**, on the commit to release, checked out:
+
+```bash
+bash tools/ci/tag-release.sh                    # the signed tag, verified
+bash tools/ci/run.sh release-offline v1.2.3     # every release step, in order
+```
+
+`release-offline` runs what the release workflow's `preflight`, `release` and `publish`
+jobs run, in their order: the tag gate, the preflight, the gate record, the numbers, the
+JavaScript build, the gate and Bifrost admission, the images, the air-gap bundle, and a
+local publish. It stops at the first step that fails. The publish writes every file a
+forge would attach, with a `SHA256SUMS`, to `target/release-publish/<tag>/` (or
+`MIDGARD_RELEASE_DIR`), and never writes over a release already there. Carry that
+directory to the enclosure; `mg-verify` checks each binary against
+`deploy/trust/release-trust.pub` there, again with no forge.
+
+**What changes without one.** `MIDGARD_MAINLINE_REF` names `main` locally, so "on
+`main`" means the `main` of that machine: keep it the reviewed history. Who may release
+is decided by `allowed_signers` alone (item 8 above). There is no runner to clean up
+after a job, so the preflight's job-completed hook check does not apply: use a machine
+for nothing else, and remove the checkout's `target/` when the release has been copied
+off. Publishing the same release on a forge later is optional: push the tag and let its
+pipeline run, or attach the published directory's files by hand.
 
 ## Tested
 

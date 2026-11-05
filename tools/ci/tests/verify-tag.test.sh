@@ -152,6 +152,52 @@ done
 verify GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted v1.2.0 >/dev/null 2>&1 &&
     pass "a hosted runner may use the committed file" || fail "a hosted runner may use the committed file"
 
+# --- no forge [VLD-ANB-MIDGARD-0035] -------------------------------------------------
+# A release needs no forge: in a repository whose origin cannot be reached (or that has
+# no origin at all), MIDGARD_MAINLINE_REF names main locally, nothing is fetched, and
+# the tag must still be on it. A pipeline may not use it.
+offline="$work/offline"
+git clone -q "$repo" "$offline"
+git -C "$offline" remote remove origin
+git -C "$offline" branch -q -f main "$(git -C "$repo" rev-parse 'v1.0.0^{commit}')"
+ov() { # ov [VAR=VALUE...] TAG: verify in the repository with no forge
+    local vars=()
+    while [ "$#" -gt 0 ] && [[ "$1" == *=* ]]; do vars+=("$1"); shift; done
+    (cd "$offline" && git checkout -q --detach "refs/tags/$1" && env -u GITHUB_REF_TYPE -u GITHUB_REF_NAME \
+        -u CI_COMMIT_TAG -u GITHUB_ACTIONS -u GITLAB_CI -u RUNNER_ENVIRONMENT -u MIDGARD_ALLOWED_SIGNERS_PATH \
+        -u MIDGARD_MAINLINE_REF VERIFY_TAG_ROOT="$offline" "${vars[@]}" bash "$script" "$1")
+}
+if out="$(ov MIDGARD_MAINLINE_REF=refs/heads/main v1.0.0 2>&1)"; then
+    grep -q 'on main' <<<"$out" && ! grep -qi 'fetch' <<<"$out" &&
+        pass "with no forge, a signed tag on the local main verifies, and nothing is fetched" ||
+        fail "with no forge, a signed tag on the local main verifies, and nothing is fetched: $out"
+else
+    fail "with no forge, a signed tag on the local main verifies: $out"
+fi
+git -C "$offline" -c user.name=test -c user.email=test@example.invalid -c commit.gpgsign=false \
+    commit -q --allow-empty -m "off main"
+git -C "$offline" -c gpg.format=ssh -c user.signingkey="$work/release" -c user.name=test \
+    -c user.email=test@example.invalid tag -s -a v9.0.0 -m v9.0.0
+if out="$(ov MIDGARD_MAINLINE_REF=refs/heads/main v9.0.0 2>&1)"; then
+    fail "with no forge, a tag that is not on the local main is refused"
+else
+    grep -q 'is not on main' <<<"$out" && pass "with no forge, a tag that is not on the local main is refused" ||
+        fail "with no forge, a tag that is not on the local main is refused, saying why: $out"
+fi
+if out="$(ov v1.0.0 2>&1)"; then
+    fail "with no forge and no MIDGARD_MAINLINE_REF, the tag is refused"
+else
+    grep -q 'MIDGARD_MAINLINE_REF=refs/heads/main' <<<"$out" &&
+        pass "with no forge and no MIDGARD_MAINLINE_REF, the tag is refused, naming the variable" ||
+        fail "with no forge and no MIDGARD_MAINLINE_REF, the tag is refused, naming the variable: $out"
+fi
+if out="$(ov GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted MIDGARD_MAINLINE_REF=refs/heads/main v1.0.0 2>&1)"; then
+    fail "a pipeline may not name main locally"
+else
+    grep -q 'MIDGARD_MAINLINE_REF is for releases made without a forge' <<<"$out" &&
+        pass "a pipeline may not name main locally" || fail "a pipeline may not name main locally: $out"
+fi
+
 if [ "$failures" -gt 0 ]; then
     echo "verify-tag tests: $failures failure(s)"
     exit 1

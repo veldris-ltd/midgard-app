@@ -12,6 +12,8 @@
 #
 #   . tools/ci/lib.sh
 #   ci_platform        github | gitlab | local     (which CI system is running this)
+#   mainline_ref       the ref a release must be on (origin/main, or MIDGARD_MAINLINE_REF)
+#   refresh_mainline   bring origin/main up to date, if a forge can be reached
 #   ci_forge           github | gitlab | unknown   (which forge the checkout comes from)
 
 # Which CI system is executing this shell. Decided from the variables each system
@@ -176,4 +178,21 @@ ci_summary() {
         echo "$1" >> "$GITHUB_STEP_SUMMARY"
     fi
     echo "$1"
+}
+
+# The ref a release must be on. Where a forge can be reached that is origin/main as the
+# remote has it; with no forge, or none online, MIDGARD_MAINLINE_REF names the local ref
+# that is main (refs/heads/main) and nothing is fetched. No step of a release needs a
+# forge (docs/ops/PKI.md, "Releasing without a forge").
+mainline_ref() {
+    echo "${MIDGARD_MAINLINE_REF:-refs/remotes/origin/main}"
+}
+
+# Bring origin/main up to date from the remote, when there is one to reach. A failed
+# fetch is a warning, never a refusal: the main this checkout already has stands in.
+# With MIDGARD_MAINLINE_REF set there is nothing to fetch.
+refresh_mainline() {
+    [ -n "${MIDGARD_MAINLINE_REF:-}" ] && return 0
+    GIT_TERMINAL_PROMPT=0 git fetch --quiet --no-tags origin '+refs/heads/main:refs/remotes/origin/main' 2>/dev/null ||
+        ci_warning "${1:-ci}: could not fetch main from origin; using the origin/main already here"
 }

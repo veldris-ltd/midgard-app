@@ -6,7 +6,9 @@
 //! data says, and the token accounting stays exact.
 //! [FR-MI-7] [NFR-SEC-2] [AC-60.1] [AC-60.2] [AC-60.3] [AC-60.5]
 
-use agent_runtime::{AssembledPrompt, AssemblyConfig, Boundary, Layers, Pipeline, TokenCounter};
+use agent_runtime::{
+    AssembledPrompt, AssemblyConfig, Boundary, Layers, MarkedItem, Pipeline, TokenCounter,
+};
 use agent_runtime::{GuardVerdict, InputGuardrail, WordCounter};
 use mimir_prompts::delimit::MAX_FIELD_BYTES;
 use mimir_prompts::DATA_HANDLING_RULE;
@@ -40,11 +42,16 @@ fn layers<'a>(
         output_contract: "OC",
         policy: "POL".to_string(),
         grounding: g,
-        memory,
+        memory: marked(memory),
         tools: vec!["T1".to_string()],
-        history,
+        history: marked(history),
         user_message: user,
     }
+}
+
+/// Items at level 0: these tests are about delimiting, not marking.
+fn marked(items: Vec<String>) -> Vec<MarkedItem> {
+    items.into_iter().map(|t| MarkedItem::new(t, 0)).collect()
 }
 
 fn assemble(l: &Layers) -> AssembledPrompt {

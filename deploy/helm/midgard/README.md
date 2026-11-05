@@ -10,7 +10,7 @@ come from is an explicit choice, `secrets.provider`. [VLD-ANB-MIDGARD-0018]
 | Name | Holds | Where the service sees it |
 |------|-------|---------------------------|
 | `<name>-identity` | `<name>.keystore`, `<name>.audit.keystore`, `<name>.cert`, `mesh.anchor`, `mesh.crl` | `/identity`, read-only |
-| `<name>-keystore-passphrase` | `passphrase`: the passphrase the keystores are wrapped under (keystore format version 2) | `/keystore-passphrase/passphrase`, through `MIDGARD_KEYSTORE_PASSPHRASE_FILE` |
+| `<name>-keystore-passphrase` | `passphrase`: the passphrase the keystores are wrapped under (keystore format version 3) | `/keystore-passphrase/passphrase`, through `MIDGARD_KEYSTORE_PASSPHRASE_FILE` |
 | `<name>-seed` (http-gateway, mimir-server, bifrost-fleet, heimdall-feed) | `seed.tar`: keys, trust anchors and configuration, unpacked into `/state` on first start only | `/state` |
 
 For http-gateway the passphrase is the enclosure's: it unwraps `keys/idp.keystore` and

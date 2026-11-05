@@ -14,6 +14,11 @@
 //! keeps or hashes it, each source address draws on the same allowance as its logins,
 //! and an attempt is reserved under the throttle's lock before its code is checked.
 //! [VLD-ANB-MIDGARD-0005] [VLD-ANB-MIDGARD-0019]
+//!
+//! The code is checked and the password hashed on a snapshot of the pending
+//! activation, without the directory lock, so that work never holds up logins or
+//! enrolments; the lock is taken again to commit, and only while the same activation
+//! is still pending and unexpired. [NFR-SEC-1]
 
 use std::net::SocketAddr;
 
@@ -74,7 +79,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
         }
         // A source past its allowance is refused before any code is checked; it draws
         // on the same allowance as the address's logins. [VLD-ANB-MIDGARD-0005]
-        if self.over_source_allowance(peer).is_some() {
+        if self.over_source_allowance(req, peer).is_some() {
             return source_refused();
         }
         // A password too short to keep is refused before any work is spent on it.
@@ -129,22 +134,51 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
             finished: false,
         };
 
-        let outcome = {
-            let mut directory = self
-                .directory
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            let pending = directory
-                .enrollment(&username)
-                .and_then(|entry| Some((entry, entry.credentials.activation.as_ref()?)));
-            match pending {
-                Some((entry, activation))
-                    if now < activation.expires_at
-                        && self.hasher.verify(code.as_bytes(), &activation.code_hash) =>
-                {
-                    let mut credentials = entry.credentials.clone();
-                    credentials.password_hash = self.hasher.hash(password.as_bytes());
-                    credentials.activation = None; // single use
+        // The pending activation as it stands, taken under the directory lock; the code
+        // is checked and the password hashed after it is released.
+        let pending = self
+            .directory
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .enrollment(&username)
+            .and_then(|entry| {
+                let activation = entry.credentials.activation.clone()?;
+                Some((entry.credentials.clone(), activation))
+            });
+        let checked = match pending {
+            Some((credentials, activation))
+                if now < activation.expires_at
+                    && self.hasher.verify(code.as_bytes(), &activation.code_hash) =>
+            {
+                let mut credentials = credentials;
+                credentials.password_hash = self.hasher.hash(password.as_bytes());
+                credentials.activation = None; // single use
+                Some((credentials, activation.code_hash))
+            }
+            _ => {
+                // An unknown name, no pending activation, an expired or wrong code:
+                // the same work and the same answer for each.
+                self.hasher.spend_verification(code.as_bytes());
+                None
+            }
+        };
+        self.between_check_and_commit();
+        let outcome = match checked {
+            None => Err(None),
+            Some((credentials, code_hash)) => {
+                let mut directory = self
+                    .directory
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                // Committed only while the activation checked is still the one pending
+                // and unexpired; one spent or replaced meanwhile is the uniform 401.
+                let still_pending = directory
+                    .enrollment(&username)
+                    .and_then(|entry| entry.credentials.activation.as_ref())
+                    .is_some_and(|activation| {
+                        activation.code_hash == code_hash && now < activation.expires_at
+                    });
+                if still_pending {
                     let uri = credentials
                         .totp
                         .as_ref()
@@ -154,11 +188,7 @@ impl<S: ObjectStore, L: LedgerStore> SecuredGateway<S, L> {
                         Ok(false) => Err(None),
                         Err(e) => Err(Some(e)),
                     }
-                }
-                _ => {
-                    // An unknown name, no pending activation, an expired or wrong code:
-                    // the same work and the same answer for each.
-                    self.hasher.spend_verification(code.as_bytes());
+                } else {
                     Err(None)
                 }
             }

@@ -152,6 +152,18 @@ console image (`deploy/installer/console.Dockerfile`) refuses to build against a
 security headers on every location from `console.security-headers.conf`.
 [VLD-ANB-MIDGARD-0014] [VLD-ANB-MIDGARD-0032] [VLD-ANB-MIDGARD-0085]
 
+The gateway limits login, activation and administration attempts per source address
+(`--login-burst`, default 20, 0 is off; `--login-per-sec`, default 0.5). Behind the
+terminating proxy every client arrives from the proxy's address and so shares one
+allowance for the whole site. Pass `--trusted-proxy IP`, once for each proxy address
+the gateway sees connections from, and a request from that address is charged to the
+client its `X-Forwarded-For` names: the right-most entry that is not itself a trusted
+proxy. The proxy must append the address it was reached from (nginx:
+`proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`). The header is
+ignored from every other peer, and an entry that is not an address makes the gateway
+fall back to the proxy's own allowance. Under compose, connections arrive through
+docker-proxy, which adds no header, so do not name it. [VLD-ANB-MIDGARD-0005]
+
 A real multi-node `kubectl apply` + cross-host PQ-mTLS smoke belongs to the
 **deployment-tier acceptance suite (RT-40)**, run on a staging cluster — it cannot
 run inside the offline unit harness.

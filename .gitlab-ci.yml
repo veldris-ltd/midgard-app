@@ -25,10 +25,10 @@
 #     a protected variable never reaches a merge request's pipeline;
 #   - for a release: a runner tagged `kms`, provisioned as docs/ops/PKI.md describes,
 #     with a shell executor, docker, node and pnpm, and the CI/CD variables
-#     MIDGARD_SIGNING_KEYSTORE_PATH, MIDGARD_BIFROST_KEYSTORE_PATH, their passphrases'
-#     MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE_PATH and
-#     MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE_PATH, MIDGARD_BIFROST_REGISTRY_PATH and
-#     MIDGARD_ALLOWED_SIGNERS_PATH naming files on it;
+#     MIDGARD_SIGNING_KEYSTORE_PATH, MIDGARD_BIFROST_KEYSTORE_PATH,
+#     MIDGARD_BIFROST_REGISTRY_PATH, MIDGARD_ALLOWED_SIGNERS_PATH,
+#     MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE and MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE
+#     naming files on it (each passphrase file is a secret of its own);
 #   - for the apple shell audit: a runner tagged `macos`.
 #
 # Run a release dry run, a release, or the shell audits by hand from "Run pipeline",
@@ -132,8 +132,11 @@ default:
     MIDGARD_SIGNING_KEYSTORE: $MIDGARD_SIGNING_KEYSTORE_PATH
     MIDGARD_BIFROST_KEYSTORE: $MIDGARD_BIFROST_KEYSTORE_PATH
     MIDGARD_BIFROST_REGISTRY: $MIDGARD_BIFROST_REGISTRY_PATH
-    MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE: $MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE_PATH
-    MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE: $MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE_PATH
+  # MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE and MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE
+  # are CI/CD variables of the names run.sh reads, so they reach these jobs as they are:
+  # a variable set in the project's settings overrides one set here, so nothing here
+  # may set them. Only their paths travel; run.sh mounts each file read-only.
+  # [VLD-ANB-MIDGARD-0007]
 
 .on-release:
   rules:

@@ -267,6 +267,45 @@ fn oversized_prompt_is_refused_and_audited() {
 }
 
 #[test]
+fn oversized_system_prompt_is_refused_and_audited() {
+    // The bound is on everything the engine is given: the system text and the body
+    // together, so a large system_prompt cannot carry the prompt past it.
+    // [VLD-ANB-MIDGARD-0016] [AC-62.2]
+    let backend = Arc::new(Recording {
+        descriptor: descriptor(),
+        seen: Mutex::new(Vec::new()),
+    });
+    let limits = InferenceLimits {
+        max_prompt_bytes: 64,
+        ..InferenceLimits::default()
+    };
+    let h = handler(backend.clone(), limits);
+    let peer = consumer("forge-worker");
+
+    let with_system = |system: usize, body: usize| {
+        let mut req = request(&"a".repeat(body), 16);
+        req.system_prompt = "s".repeat(system);
+        req.encode()
+    };
+    let at_bound = with_system(32, 32);
+    let response = InferenceResponse::decode(&h.handle(&peer, &channel(), &at_bound)).unwrap();
+    assert!(matches!(response, InferenceResponse::Ok(_)), "{response:?}");
+
+    for (system, body) in [(33, 32), (65, 1)] {
+        let before = h.audit_len();
+        let over = with_system(system, body);
+        let response = InferenceResponse::decode(&h.handle(&peer, &channel(), &over)).unwrap();
+        assert_eq!(
+            denied(&response),
+            Some("PROMPT_TOO_LARGE"),
+            "{system}+{body}"
+        );
+        assert_eq!(h.audit_len(), before + 2, "the decision and the refusal");
+    }
+    assert_eq!(backend.seen.lock().unwrap().len(), 1, "never served");
+}
+
+#[test]
 fn third_concurrent_call_for_one_identity_is_busy() {
     // [VLD-ANB-MIDGARD-0016] [AC-62.3]
     let backend = Blocking::new(2);

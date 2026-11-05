@@ -17,6 +17,7 @@ fn post(gw: &SecuredGateway, path: &str, body: &str, bearer: Option<&str>) -> Re
         body: body.into(),
         authorization: bearer.map(|t| format!("Bearer {t}")),
         origin: None,
+        forwarded_for: None,
     };
     gw.handle(&req, NOW)
 }

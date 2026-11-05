@@ -48,6 +48,170 @@ CONTRIBUTING.md for the version policy.
   [VLD-ANB-MIDGARD-0094] [VLD-ANB-MIDGARD-0023]
 
 ### Security
+- **A tagged release is handed its keystore passphrase files.** [VLD-ANB-MIDGARD-0007]
+  `run.sh`, `release.sh` and the preflight need `MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE`
+  and `MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE`, but no workflow set them, so a release
+  stopped at its preflight however the key ceremony went. The `preflight` and `release`
+  jobs in `release.yml` now map both from runner secrets of the same names, the names
+  `docs/ops/PKI.md` gives; on GitLab they are CI/CD variables of those names, which the
+  release jobs (extending `.signing`) receive as they are. Only the paths are mapped,
+  and `run.sh` still mounts each file read-only. The preflight's message for a missing
+  passphrase now names that secret, not `..._PASSPHRASE_FILE_PATH`. `workflows.test.sh`
+  fails if a job that opens a keystore loses either mapping, and
+  `release-preflight.test.sh` covers a missing, absent or in-workspace passphrase file.
+- **A release needs no forge.** [VLD-ANB-MIDGARD-0035] Signing, releasing and
+  publishing Midgard no longer depend on GitHub or GitLab being reachable, or existing.
+  - `verify-tag.sh` and `tag-release.sh` check that a tag is on `main` without having to
+    fetch it: a failed fetch is a warning, and with no forge `MIDGARD_MAINLINE_REF`
+    (`refs/heads/main`) names `main` locally. A pipeline may not set it.
+  - `run.sh release`, run outside a pipeline, verifies the signed release tag itself
+    before anything is signed; in a pipeline the preflight job has already done so.
+  - `run.sh release-publish` outside a pipeline copies the release, and the gate run it
+    rests on, to `target/release-publish/<tag>/` (or `MIDGARD_RELEASE_DIR`) with a
+    `SHA256SUMS`, and never writes over a published release. It used to fail there.
+  - `run.sh release-offline <tag>` runs every release step in the release workflow's
+    order on one machine. `workflows.test.sh` fails if the two orders drift apart.
+  - `docs/ops/PKI.md` gains "Releasing without a forge". `docs/ops/KEY_CEREMONY.md`
+    describes a ceremony with this repository's own tools, with Dvalin as the
+    enterprise option; without a forge, `allowed_signers` alone decides who may release.
+- **The Heimdall, Forge, Bifrost and admin bridges no longer default to
+  UNCLASSIFIED.** `MimirOptionProvider`, `MimirSuggester`, `MimirAdvisor` and
+  `MimirCopilot` take the caller's posture in `new(inference, marking)`;
+  `with_marking` is removed, so a bridge cannot be built without declaring what its
+  prompt may hold. [VLD-ANB-MIDGARD-0034]
+- **The agent runtime marks its request for memory and history, not only
+  grounding.** `Layers.memory` and `Layers.history` are now `Vec<MarkedItem>` (text and
+  `marking_level`), and `AssembledPrompt::max_marking_level` is the highest level among
+  the included facts, memory items and history window; an item trimmed by the budget
+  does not count. [VLD-ANB-MIDGARD-0034]
+- **The model server's prompt bound counts the system text.** `max_prompt_bytes` is
+  checked against `system_prompt` and `prompt` together, so a large system turn is
+  refused `PROMPT_TOO_LARGE` like a large body. [VLD-ANB-MIDGARD-0016]
+- **Mistral's tool-calling tokens are neutralised.** `[AVAILABLE_TOOLS]`,
+  `[/AVAILABLE_TOOLS]`, `[TOOL_CALLS]`, `[TOOL_RESULTS]`, `[/TOOL_RESULTS]` and
+  `[TOOL_CONTENT]` in the system or user text are escaped like the family's other
+  control tokens, so data cannot forge a tool list, call or result.
+  [VLD-ANB-MIDGARD-0060]
+- **Deleting `revoked.list` no longer reverses every revocation.** Once the revocation
+  list has existed (at start-up or at a re-check since), mimir-server treats its
+  removal as unreadable: serving stops `MODEL_REVOKED` with "the revocation list …
+  has been removed" until it is restored. A deployment that never had a list is
+  unchanged. [VLD-ANB-MIDGARD-0057]
+- **An oversized feed observation no longer uses up its sequence, and its refusal is
+  audited.** heimdall-feed checks the size and attribute bounds before the replay
+  guard records the sequence, so the feed can resend at the same sequence once the
+  observation fits. The refusal still replies `MALFORMED`, and is now in the ledger as
+  `Ingest refused: oversized observation` with reason `oversized`
+  (`REASON_OVERSIZED`). [VLD-ANB-MIDGARD-0017] [VLD-ANB-MIDGARD-0041]
+- **The guardrail pre-filter looks inside encodings.** `SelfDefending` also matches
+  injection, jailbreak, exfiltration and tool-abuse phrases in decoded readings of
+  each item, decoded once and no longer than the input: percent encoding, `\x`/`\u`
+  escapes, HTML character references, and each base64 run of 16 or more characters
+  that decodes to UTF-8. A hit in any of them blocks. Text with a `\x` or `\u` escape
+  is now blocked rather than sanitised, since stripping cannot remove an escape.
+  [VLD-ANB-MIDGARD-0078]
+- **A Forge connector reaches an allowed name only at a routable address.**
+  `net::connect` resolves the allowed `host:port` once and connects only to an address
+  that is not loopback, private, link-local, unspecified, shared (100.64/10),
+  unique-local, broadcast or multicast (a v4-mapped v6 address is judged as its v4
+  address); otherwise it fails "resolves to a non-routable address". An allowed IP
+  literal is connected to as written. **Upgrading:** a source inside the enclosure
+  named by a host name that resolves to a private address must now be named by its
+  IP address, and a job reaching the egress broker must name `127.0.0.1` (the worker's
+  `--egress-routes` check no longer accepts `localhost`). `live-connectors.sh` passes
+  the containers' addresses. [NFR-PRV-1] [FR-F-2]
+- **Closing a break-glass grant, and its four-hour cap, survive a restart.**
+  [VLD-ANB-MIDGARD-0055] [FR-AD-8] [RC-14]
+  - `BreakGlassController` is generic over a new `GrantStore`, and by default is
+    built over the `DurableBreakGlass` journal rather than the in-memory
+    `BreakGlassService`, which is kept for tests. `DurableBreakGlass` gains `close`
+    and `sweep`, so an early close and the one-time expiry alert are journalled as
+    grants and reviews already were. The record format is unchanged: a close is the
+    grant again with its earlier `expires_at`.
+  - A journal record whose time-box is longer than `MAX_TTL_SECS` is refused on
+    boot: `DurableBreakGlass::open` fails with `BreakGlassError::TtlTooLong`, as it
+    fails on any other invalid record. `BreakGlassService::restore_grant` now
+    returns a `Result`.
+  - `BreakGlassController::service_mut` is replaced by `alerter_mut`, so grants
+    change only through the controller. Elevation tokens are still held in memory,
+    so a restart drops every elevation; that fails closed.
+  - `close` and `review` revoke the grant's elevation first, before the journal
+    write and the audit entry, so a storage or audit failure leaves the access off.
+    Closing again is safe (a grant already closed keeps its time-box and is written
+    again), and a review whose write failed is undone in memory, so it can be
+    retried instead of being refused as already reviewed.
+- **The audit view hides a row whose target the caller may not read.** An approval's
+  `APPROVAL` rows, and an action's own row, name their target; they are now shown only
+  to a caller who may read that target, as `GET /approvals` already filtered, so the
+  ledger view is no oracle for a compartmented object behind a human gate.
+  [VLD-ANB-MIDGARD-0031] [VLD-ANB-MIDGARD-0038]
+- **Administration says nothing about the policy or the parked enrolments before the
+  administrator proves themselves.** An enrolment request's roles and purposes are
+  checked against the served policy only after the step-up, and approve and reject
+  look the enrolment id up only after re-authentication and the approver's capability
+  check, so a bad proof is one 401 whatever the body names. An auditor approving or
+  rejecting now gets 403 before the id is looked up. [VLD-ANB-MIDGARD-0002]
+  [VLD-ANB-MIDGARD-0066]
+- **Clients behind a reverse proxy no longer share one login allowance.** The
+  gateway's new repeatable `--trusted-proxy IP` names the operator's proxies; a login,
+  activation or administration request from one is charged to the right-most address
+  in its `X-Forwarded-For` that is not itself a trusted proxy, and the throttled-source
+  ledger row names that address. The header is ignored from any other peer, a list
+  over 1,024 bytes is refused with 400, and the allowance is still never keyed on the
+  username. [VLD-ANB-MIDGARD-0005]
+- **The passkey verifier reads the client data it checks from the signed bytes.**
+  `AuthAssertion` no longer carries caller-parsed `client_data`;
+  `WebAuthnCredential::verify_assertion` takes a `ClientDataParser` and runs it on the
+  assertion's own `clientDataJSON`, so the type, challenge and origin checked are what
+  the signature covers. `MfaProof::WebAuthn` carries the parser; the edge supplies
+  `webauthn_client_data::parse_client_data`. A document the parser refuses is
+  `BadClientData`. [VLD-ANB-MIDGARD-0084]
+- **An administrator's challenge answers one operation only.** `POST
+  /api/v1/admin/challenge` now takes `{"admin": ..., "purpose": ...}`, the purpose
+  `request`, `approve`, `reject` or `list` (a request without one is 400), and the reply
+  echoes it. The gateway keeps the purpose with the challenge and refuses an answer
+  presented to another operation with the same 401; the passkey signs it with the
+  nonce (`AdminChallenge::for_purpose`, the signed payload now
+  `nonce ‖ user_verified ‖ purpose`), so the assertion cannot be relabelled. A challenge
+  fetched to list the parked enrolments can no longer approve one. `mg-admin enrol`
+  asks for the purpose of each command; an older `mg-admin` is refused.
+  [VLD-ANB-MIDGARD-0020]
+- **Password hashing no longer holds the gateway's directory lock.** A login checks
+  its password (Argon2id), and any rehash, on a snapshot of the principal's enrollment
+  taken under the lock, then takes the lock again to commit only if the enrollment is
+  exactly the one checked; otherwise it is the uniform 401. Activation checks its code
+  and hashes the new password the same way, committing only while the same activation
+  is pending and unexpired. One slow hash no longer stalls every other login,
+  activation and enrolment. Unknown names still cost the same work.
+- **Keystore format version 3: the header is bound to the wrapped root.** A version 2
+  keystore's wrapped root bound only its key id, so whoever could write the file could
+  swap the verifying key a reader trusts or the root public key data is sealed to
+  without the passphrase. Version 3 makes the whole header, magic to root public key,
+  the wrapped root's AAD, and loading a signing key now checks with a probe signature
+  that it signs under the stored verifying key
+  (`kms::SoftwareSigningRoot::from_key`). Every reader refuses version 2 as it refuses
+  version 1, naming `mg-admin keystore migrate`, which now converts either to version 3
+  (checking a version 2 file's root public key and verifying key first); compose
+  `init` and `mg-install`'s repair run it on every keystore. A file claiming more than
+  10,000,000 PBKDF2 iterations is refused before any key is derived.
+  [VLD-ANB-MIDGARD-0007]
+- **`mg-admin keystore rotate-root` gives a keystore a new custody root**, keeping its
+  signing key and verifying key, for a keystore migrated from a version 1 file that
+  may have been exposed. It is staged, read back and checked as `migrate` is, and
+  recorded with `--state-dir`. It refuses a state directory's keystores and a mesh
+  service's audit keystore, whose roots seal the enclosure's data.
+  [VLD-ANB-MIDGARD-0007]
+- **`mg-verify --run-service` starts the bytes it verified.** The service binary is
+  read once and those bytes are verified (`attest::verify_artefact_bytes`); on Linux
+  they are then executed from a sealed in-memory file, so a binary swapped in at the
+  path after the check is not the one started. Other platforms execute the path, as
+  before. [AC-B-1] [VLD-ANB-MIDGARD-0068]
+- **`mg-admin mesh upgrade` keeps a certificate's purposes and clearance unless told
+  otherwise.** [VLD-ANB-MIDGARD-0063] Since the upgrade compared the grant asked for,
+  the routine `mesh upgrade --service X --roles Y` on a purpose-bound certificate
+  reissued it with no purposes and at clearance `open`. A flag left out now asks for
+  what the service's own certificate grants (read from a certificate this enclosure
+  signed for this service and key, expired or not); `--no-purposes` drops the binding.
 - **GitLab jobs run only digest-pinned images, and merge requests no longer run
   privileged.** [VLD-ANB-MIDGARD-0022] [VLD-ANB-MIDGARD-0043]
   - Every `image:` and service in `.gitlab-ci.yml` is pinned as
@@ -1120,12 +1284,6 @@ CONTRIBUTING.md for the version policy.
   can be scoped to that environment and no other job can read it. `pipelines.test.sh`
   refuses `apk` in any toolchain job and checks the environment. [AC-P4.5]
   (VLD-ANB-MIDGARD-0076)
-- **The release jobs are handed the keystore passphrases.** The preflight and
-  `signing_mounts` require `MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE` and
-  `MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE`, but neither forge's release jobs set them,
-  so no release could start. Both GitHub jobs on the signing runner and GitLab's
-  `.signing` now map them from the `_PATH` secrets the preflight names, which
-  `workflows.test.sh` checks. [VLD-ANB-MIDGARD-0007]
 - **`js-build` runs no dependency's install scripts.** It runs on the signing runner,
   and `pnpm install` ran every lifecycle script in the tree. It now passes
   `--ignore-scripts`; esbuild and rollup take their binaries from the per-platform

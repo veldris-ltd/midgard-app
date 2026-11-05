@@ -113,6 +113,7 @@ fn query(object_type: &str, token: Option<&str>, origin: Option<&str>) -> Reques
         body: format!("{{\"objectType\":\"{object_type}\"}}"),
         authorization: token.map(|t| format!("Bearer {t}")),
         origin: origin.map(str::to_string),
+        forwarded_for: None,
     }
 }
 
@@ -188,6 +189,7 @@ fn public_health_needs_no_token() {
         body: String::new(),
         authorization: None,
         origin: None,
+        forwarded_for: None,
     };
     let resp = gw.handle(&health, NOW);
     assert_eq!(

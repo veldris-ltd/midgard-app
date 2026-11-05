@@ -96,11 +96,11 @@ Services talk to each other over PQ-mTLS: a mutually authenticated handshake wit
   - [`deploy/kind/smoke.sh:115`](../../deploy/kind/smoke.sh)
   - [`deploy/kind/smoke.sh:140`](../../deploy/kind/smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:73`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:226`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:17`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/launch/pipeline/build-deck.js:470`](../../docs/launch/pipeline/build-deck.js)
-  - [`CHANGELOG.md:77`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:164`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:230`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:317`](../../CHANGELOG.md)
 
 ### `mesh-certificate-lifecycle` (reference)
 
@@ -111,8 +111,8 @@ A mesh certificate authority that issues, renews and revokes workload certificat
 **Milestone.** Services renew their own certificates before expiry (RF-IAM-6).
 
 - Source:
-  - [`tools/mg-admin/src/mesh.rs:215`](../../tools/mg-admin/src/mesh.rs)
-  - [`tools/mg-admin/src/mesh.rs:372`](../../tools/mg-admin/src/mesh.rs)
+  - [`tools/mg-admin/src/mesh.rs:217`](../../tools/mg-admin/src/mesh.rs)
+  - [`tools/mg-admin/src/mesh.rs:382`](../../tools/mg-admin/src/mesh.rs)
   - [`crypto/pq-mtls/src/revocation.rs:1`](../../crypto/pq-mtls/src/revocation.rs)
   - [`services/runtime/src/identity.rs:74`](../../services/runtime/src/identity.rs)
 - Tests:
@@ -137,16 +137,16 @@ The five running services keep their state in sealed, append-only journals: AES-
   - [`deploy/kind/smoke.sh:80`](../../deploy/kind/smoke.sh)
   - [`deploy/kind/smoke.sh:105`](../../deploy/kind/smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:121`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:274`](../../CHANGELOG.md)
   - [`docs/launch/pipeline/build-deck.js:471`](../../docs/launch/pipeline/build-deck.js)
-  - [`CHANGELOG.md:125`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:212`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:278`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:365`](../../CHANGELOG.md)
 
 ### `hardware-key-custody` (reference)
 
 A hardware trust root (HSM or TPM) in which the root secret never enters process memory, with root attestation and key rotation.
 
-**Until it is operable, say:** "Key custody is software: keystores are files whose custody root is wrapped under an operator passphrase (keystore format version 2: PBKDF2-HMAC-SHA256 at 600000 iterations, AES-256-GCM), held apart from the keystore. A hardware trust root with attestation is implemented and tested against a software stand-in (services/kms/tests/rc_28.rs), and a keystore can seal its root to it (crypto/attest/tests/keystore_v2.rs); no HSM or TPM has been used."
+**Until it is operable, say:** "Key custody is software: keystores are files whose custody root is wrapped under an operator passphrase (keystore format version 3: PBKDF2-HMAC-SHA256 at 600000 iterations, AES-256-GCM), held apart from the keystore. A hardware trust root with attestation is implemented and tested against a software stand-in (services/kms/tests/rc_28.rs), and a keystore can seal its root to it (crypto/attest/tests/keystore_v2.rs); no HSM or TPM has been used."
 
 **Milestone.** RC-40.3 passes with a release artefact signed by a key held in a real HSM (RF-SEC-8, RF-SC-8).
 
@@ -158,11 +158,11 @@ A hardware trust root (HSM or TPM) in which the root secret never enters process
   - [`services/kms/tests/rc_28.rs::root_attestation_verifies_and_fails_closed_on_tamper`](../../services/kms/tests/rc_28.rs)
   - [`crypto/attest/tests/keystore_v2.rs::external_root_wrap_round_trips`](../../crypto/attest/tests/keystore_v2.rs)
 - Stated at:
-  - [`CHANGELOG.md:108`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:261`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:112`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/launch/pipeline/build-deck.js:483`](../../docs/launch/pipeline/build-deck.js)
-  - [`CHANGELOG.md:112`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:199`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:265`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:352`](../../CHANGELOG.md)
 
 ## Core: fabric, identity and governance
 
@@ -177,10 +177,10 @@ Edge admission and every object-fabric call are written to one append-only ledge
   - [`crypto/audit-writer/src/checkpoint.rs:1`](../../crypto/audit-writer/src/checkpoint.rs)
   - [`services/http-gateway/src/enclosure.rs:856`](../../services/http-gateway/src/enclosure.rs)
   - [`crypto/audit-writer/src/record.rs:114`](../../crypto/audit-writer/src/record.rs)
-  - [`services/http-gateway/src/lib.rs:469`](../../services/http-gateway/src/lib.rs)
-  - [`services/http-gateway/src/lib.rs:1215`](../../services/http-gateway/src/lib.rs)
+  - [`services/http-gateway/src/lib.rs:566`](../../services/http-gateway/src/lib.rs)
+  - [`services/http-gateway/src/lib.rs:1370`](../../services/http-gateway/src/lib.rs)
   - [`crypto/audit-writer/src/file.rs:23`](../../crypto/audit-writer/src/file.rs)
-  - [`mimir/model-server/src/handler.rs:89`](../../mimir/model-server/src/handler.rs)
+  - [`mimir/model-server/src/handler.rs:91`](../../mimir/model-server/src/handler.rs)
 - Tests:
   - [`crypto/audit-writer/tests/tamper.rs::compromised_signer_cannot_rewrite_history`](../../crypto/audit-writer/tests/tamper.rs)
   - [`crypto/audit-writer/tests/truncation.rs::cutting_entries_off_the_end_is_detected`](../../crypto/audit-writer/tests/truncation.rs)
@@ -190,6 +190,7 @@ Edge admission and every object-fabric call are written to one append-only ledge
   - [`services/http-gateway/tests/fabric_edge.rs::a_query_returns_real_objects_and_its_audit_id_is_a_real_ledger_row`](../../services/http-gateway/tests/fabric_edge.rs)
   - [`services/http-gateway/tests/durable_enclosure.rs::an_action_and_its_lineage_survive_a_restart`](../../services/http-gateway/tests/durable_enclosure.rs)
   - [`services/http-gateway/tests/fabric_edge.rs::the_audit_view_hides_rows_about_objects_the_caller_cannot_read`](../../services/http-gateway/tests/fabric_edge.rs)
+  - [`services/http-gateway/tests/fabric_edge.rs::the_audit_view_hides_approval_rows_whose_target_the_caller_cannot_read`](../../services/http-gateway/tests/fabric_edge.rs)
   - [`services/http-gateway/tests/fabric_edge.rs::reading_the_audit_needs_the_read_audit_permission`](../../services/http-gateway/tests/fabric_edge.rs)
   - [`services/http-gateway/tests/fabric_edge.rs::other_principals_login_rows_need_the_sessions_grant`](../../services/http-gateway/tests/fabric_edge.rs)
   - [`crypto/audit-writer/tests/append_verify.rs::a_ledger_written_before_the_context_existed_still_verifies`](../../crypto/audit-writer/tests/append_verify.rs)
@@ -210,10 +211,10 @@ Edge admission and every object-fabric call are written to one append-only ledge
   - [`deploy/compose/smoke.sh:24`](../../deploy/compose/smoke.sh)
 - Stated at:
   - [`README.md:54`](../../README.md)
-  - [`CHANGELOG.md:64`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:217`](../../CHANGELOG.md)
   - [`docs/launch/pipeline/build-deck.js:334`](../../docs/launch/pipeline/build-deck.js)
-  - [`CHANGELOG.md:68`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:155`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:221`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:308`](../../CHANGELOG.md)
 
 ### `object-fabric` (operable)
 
@@ -253,11 +254,11 @@ An enclosure's object types, link types and actions come from an ontology file w
 mg-admin import adds objects and links from a JSON Lines file with a published record schema. Every record is checked against the ontology and the store before anything is written, and one bad line refuses the whole file. A mesh sync may raise but never lower an object's marking, never widen its purposes, and never touch an object under a human gate.
 
 - Source:
-  - [`tools/mg-admin/src/main.rs:376`](../../tools/mg-admin/src/main.rs)
+  - [`tools/mg-admin/src/main.rs:392`](../../tools/mg-admin/src/main.rs)
   - [`services/http-gateway/src/import_file.rs:91`](../../services/http-gateway/src/import_file.rs)
   - [`contracts/schema/import-record.v1.schema.json`](../../contracts/schema/import-record.v1.schema.json)
   - [`services/http-gateway/src/mesh_sync.rs:258`](../../services/http-gateway/src/mesh_sync.rs)
-  - [`tools/mg-admin/src/main.rs:421`](../../tools/mg-admin/src/main.rs)
+  - [`tools/mg-admin/src/main.rs:440`](../../tools/mg-admin/src/main.rs)
 - Tests:
   - [`services/http-gateway/tests/import_file.rs::a_bad_line_refuses_the_whole_file_and_names_it`](../../services/http-gateway/tests/import_file.rs)
   - [`services/http-gateway/tests/contract_schemas.rs::import_fixtures_get_the_same_verdict_from_the_schema_and_the_importer`](../../services/http-gateway/tests/contract_schemas.rs)
@@ -360,7 +361,7 @@ The gateway edge speaks plaintext HTTP and is kept off the network by default. I
   - [`services/http-gateway/tests/cli_modes.rs::dev_mode_serves_the_seeded_login_on_loopback`](../../services/http-gateway/tests/cli_modes.rs)
 - Stated at:
   - [`README.md:162`](../../README.md)
-  - [`deploy/README.md:92`](../../deploy/README.md)
+  - [`deploy/README.md:93`](../../deploy/README.md)
 
 ### `webauthn-oidc-federation` (reference)
 
@@ -378,6 +379,7 @@ WebAuthn assertion verification, a JWKS endpoint and federation with an enterpri
   - [`services/http-gateway/src/webauthn_client_data.rs:1`](../../services/http-gateway/src/webauthn_client_data.rs)
 - Tests:
   - [`admin/identity/tests/passkeys.rs::a_registered_passkey_signs_in_after_a_restart`](../../admin/identity/tests/passkeys.rs)
+  - [`admin/identity/tests/passkeys.rs::an_assertion_for_one_purpose_does_not_verify_for_another`](../../admin/identity/tests/passkeys.rs)
   - [`services/iam/tests/federation.rs::a_fresh_assertion_mints_a_local_token`](../../services/iam/tests/federation.rs)
   - [`services/iam/tests/federation.rs::expired_and_future_assertions_are_refused`](../../services/iam/tests/federation.rs)
   - [`services/iam/tests/federation.rs::a_replayed_assertion_is_refused_and_the_cache_is_bounded`](../../services/iam/tests/federation.rs)
@@ -385,6 +387,7 @@ WebAuthn assertion verification, a JWKS endpoint and federation with an enterpri
   - [`services/iam/tests/federation.rs::overlong_lifetime_and_v1_payloads_are_refused`](../../services/iam/tests/federation.rs)
   - [`services/iam/tests/primitives.rs::webauthn_assertion_verifies_and_fails_closed`](../../services/iam/tests/primitives.rs)
   - [`services/iam/tests/primitives.rs::webauthn_origin_mismatch_is_refused`](../../services/iam/tests/primitives.rs)
+  - [`services/iam/tests/primitives.rs::webauthn_client_data_is_read_from_the_signed_bytes`](../../services/iam/tests/primitives.rs)
   - [`services/iam/tests/primitives.rs::webauthn_uv_is_required_by_policy`](../../services/iam/tests/primitives.rs)
   - [`services/iam/tests/primitives.rs::webauthn_sign_count_must_increase`](../../services/iam/tests/primitives.rs)
   - [`services/http-gateway/tests/webauthn_client_data.rs::client_data_type_and_challenge_are_read_from_parsed_json`](../../services/http-gateway/tests/webauthn_client_data.rs)
@@ -402,7 +405,7 @@ Access is denied unless a written rule grants it: role, marking and purpose must
   - [`services/fabric/src/resource.rs:1`](../../services/fabric/src/resource.rs)
   - [`crypto/pq-mtls/src/handshake.rs:594`](../../crypto/pq-mtls/src/handshake.rs)
   - [`services/runtime/src/mesh.rs:18`](../../services/runtime/src/mesh.rs)
-  - [`mimir/model-server/src/handler.rs:157`](../../mimir/model-server/src/handler.rs)
+  - [`mimir/model-server/src/handler.rs:159`](../../mimir/model-server/src/handler.rs)
 - Tests:
   - [`services/http-gateway/tests/policy_file.rs::an_empty_rule_set_is_valid_and_grants_nothing`](../../services/http-gateway/tests/policy_file.rs)
   - [`crypto/pq-mtls/tests/authz.rs::deny_by_default_pdp_blocks_channel`](../../crypto/pq-mtls/tests/authz.rs)
@@ -426,15 +429,17 @@ Enrolling a principal online needs two different administrators, each proving po
 
 - Criteria: AC-AD-3, AC-AD-4
 - Source:
-  - [`services/http-gateway/src/admin_api.rs:274`](../../services/http-gateway/src/admin_api.rs)
-  - [`services/http-gateway/src/admin_api.rs:360`](../../services/http-gateway/src/admin_api.rs)
+  - [`services/http-gateway/src/admin_api.rs:311`](../../services/http-gateway/src/admin_api.rs)
+  - [`services/http-gateway/src/admin_api.rs:402`](../../services/http-gateway/src/admin_api.rs)
   - [`services/http-gateway/src/admin_totp.rs:1`](../../services/http-gateway/src/admin_totp.rs)
   - [`admin/identity/src/session.rs:1`](../../admin/identity/src/session.rs)
-  - [`services/http-gateway/src/activation.rs:38`](../../services/http-gateway/src/activation.rs)
-  - [`services/iam/src/auth.rs:120`](../../services/iam/src/auth.rs)
+  - [`services/http-gateway/src/activation.rs:43`](../../services/http-gateway/src/activation.rs)
+  - [`services/iam/src/auth.rs:123`](../../services/iam/src/auth.rs)
 - Tests:
   - [`services/http-gateway/tests/admin_enrolment.rs::an_enrolment_needs_a_second_administrator_and_survives_a_restart`](../../services/http-gateway/tests/admin_enrolment.rs)
   - [`services/http-gateway/tests/admin_enrolment.rs::a_requester_cannot_supply_credential_material`](../../services/http-gateway/tests/admin_enrolment.rs)
+  - [`services/http-gateway/tests/admin_enrolment.rs::an_unproven_caller_learns_nothing_about_roles_or_enrolments`](../../services/http-gateway/tests/admin_enrolment.rs)
+  - [`services/http-gateway/tests/admin_enrolment.rs::a_challenge_for_one_operation_cannot_be_used_for_another`](../../services/http-gateway/tests/admin_enrolment.rs)
   - [`services/http-gateway/tests/admin_enrolment.rs::approval_returns_an_activation_code_and_no_second_factor_secret`](../../services/http-gateway/tests/admin_enrolment.rs)
   - [`services/http-gateway/tests/admin_enrolment.rs::activation_is_single_use_and_first_login_needs_both_factors`](../../services/http-gateway/tests/admin_enrolment.rs)
   - [`services/http-gateway/tests/admin_enrolment.rs::roles_and_purposes_outside_the_policy_are_refused_and_the_approver_sees_the_full_record`](../../services/http-gateway/tests/admin_enrolment.rs)
@@ -452,11 +457,11 @@ Enrolling a principal online needs two different administrators, each proving po
   - [`tools/mg-admin/tests/enrol.rs::administration_needs_the_passphrase_and_a_one_time_code`](../../tools/mg-admin/tests/enrol.rs)
   - [`tools/mg-admin/tests/enrol.rs::a_wrong_passkey_passphrase_stops_before_the_gateway`](../../tools/mg-admin/tests/enrol.rs)
 - Stated at:
-  - [`CHANGELOG.md:71`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:56`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:138`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:75`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:162`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:224`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:209`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:291`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:228`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:315`](../../CHANGELOG.md)
 
 ## Admin
 
@@ -488,13 +493,15 @@ Break-glass access: a scoped, time-boxed elevation that alerts a security office
   - [`admin/breakglass/src/alert.rs:84`](../../admin/breakglass/src/alert.rs)
   - [`admin/breakglass/src/service.rs:1`](../../admin/breakglass/src/service.rs)
   - [`admin/breakglass/src/service.rs:20`](../../admin/breakglass/src/service.rs)
-  - [`admin/breakglass/src/controller.rs:131`](../../admin/breakglass/src/controller.rs)
+  - [`admin/breakglass/src/controller.rs:156`](../../admin/breakglass/src/controller.rs)
 - Tests:
   - [`admin/breakglass/tests/rc_32.rs::grant_delivers_a_real_alert_and_elevates_access_which_auto_expires`](../../admin/breakglass/tests/rc_32.rs)
   - [`admin/breakglass/tests/rc_32.rs::alert_delivery_is_durable_across_a_transient_bus_outage`](../../admin/breakglass/tests/rc_32.rs)
   - [`admin/breakglass/tests/ac_ad_8.rs::a_ttl_above_the_ceiling_is_refused`](../../admin/breakglass/tests/ac_ad_8.rs)
   - [`admin/breakglass/tests/rc_32.rs::review_revokes_the_capability_immediately`](../../admin/breakglass/tests/rc_32.rs)
   - [`admin/breakglass/tests/rc_32.rs::close_revokes_and_audits`](../../admin/breakglass/tests/rc_32.rs)
+  - [`admin/breakglass/tests/durable_restart.rs::the_controllers_close_survives_a_restart`](../../admin/breakglass/tests/durable_restart.rs)
+  - [`admin/breakglass/tests/durable_restart.rs::a_journal_record_past_the_four_hour_cap_is_refused`](../../admin/breakglass/tests/durable_restart.rs)
   - [`admin/breakglass/tests/mg_sec_07.rs::the_requester_cannot_approve_their_own_break_glass`](../../admin/breakglass/tests/mg_sec_07.rs)
   - [`admin/breakglass/tests/mg_sec_07.rs::an_unauthenticated_approver_is_refused`](../../admin/breakglass/tests/mg_sec_07.rs)
   - [`admin/breakglass/tests/mg_sec_07.rs::a_valid_two_person_grant_records_both_identities_in_the_ledger`](../../admin/breakglass/tests/mg_sec_07.rs)
@@ -532,15 +539,15 @@ Seven console interfaces: Midgard core, Forge, Mimir, Bifrost, Heimdall, Admin a
   - [`services/http-gateway/tests/rc_37.rs::login_issues_a_pq_token_that_authorises_data_requests`](../../services/http-gateway/tests/rc_37.rs)
 - Stated at:
   - [`README.md:816`](../../README.md)
-  - [`CHANGELOG.md:97`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:250`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:118`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/launch/pipeline/build-deck.js:544`](../../docs/launch/pipeline/build-deck.js)
   - [`README.md:812`](../../README.md)
-  - [`CHANGELOG.md:112`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:265`](../../CHANGELOG.md)
   - [`README.md:824`](../../README.md)
   - [`README.md:814`](../../README.md)
-  - [`CHANGELOG.md:116`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:203`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:269`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:356`](../../CHANGELOG.md)
 
 ## Mimir
 
@@ -552,8 +559,8 @@ mimir-server answers inference requests from a real model inside the enclosure: 
 
 - Source:
   - [`mimir/model-server/src/backends/openai_compat.rs:60`](../../mimir/model-server/src/backends/openai_compat.rs)
-  - [`mimir/model-server/src/handler.rs:445`](../../mimir/model-server/src/handler.rs)
-  - [`mimir/mimir-server/src/main.rs:281`](../../mimir/mimir-server/src/main.rs)
+  - [`mimir/model-server/src/handler.rs:447`](../../mimir/model-server/src/handler.rs)
+  - [`mimir/mimir-server/src/main.rs:301`](../../mimir/mimir-server/src/main.rs)
   - [`mimir/model-server/src/backends/openai_compat.rs:203`](../../mimir/model-server/src/backends/openai_compat.rs)
   - [`mimir/model-server/src/marking.rs:1`](../../mimir/model-server/src/marking.rs)
 - Tests:
@@ -575,12 +582,12 @@ mimir-server answers inference requests from a real model inside the enclosure: 
   - [`deploy/kind/smoke.sh:73`](../../deploy/kind/smoke.sh)
   - [`deploy/kind/smoke.sh:98`](../../deploy/kind/smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:72`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:225`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:22`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/launch/pipeline/build-deck.js:381`](../../docs/launch/pipeline/build-deck.js)
-  - [`CHANGELOG.md:87`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:91`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:178`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:240`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:244`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:331`](../../CHANGELOG.md)
 
 ### `mimir-inference-gpu` (reference)
 
@@ -596,11 +603,11 @@ GPU serving through vLLM, with a first token in under 800 ms.
 - Tests:
   - [`mimir/mimir-server/tests/serve.rs::a_signed_model_is_served_through_its_sidecar_and_a_tampered_one_never_starts`](../../mimir/mimir-server/tests/serve.rs)
 - Stated at:
-  - [`CHANGELOG.md:109`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:262`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:114`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/launch/pipeline/build-deck.js:541`](../../docs/launch/pipeline/build-deck.js)
-  - [`CHANGELOG.md:113`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:200`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:266`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:353`](../../CHANGELOG.md)
 
 ### `signed-model-manifest` (operable)
 
@@ -613,7 +620,7 @@ A model loads only from a manifest signed with ML-DSA, and its weights are check
   - [`tools/mg-model/src/main.rs:1`](../../tools/mg-model/src/main.rs)
   - [`mimir/model-server/src/artifact.rs:427`](../../mimir/model-server/src/artifact.rs)
   - [`tools/mg-model/src/main.rs:225`](../../tools/mg-model/src/main.rs)
-  - [`mimir/mimir-server/src/main.rs:158`](../../mimir/mimir-server/src/main.rs)
+  - [`mimir/mimir-server/src/main.rs:162`](../../mimir/mimir-server/src/main.rs)
   - [`deploy/trust/README.md`](../../deploy/trust/README.md)
   - [`deploy/compose/stage-model.sh`](../../deploy/compose/stage-model.sh)
 - Tests:
@@ -631,10 +638,10 @@ A model loads only from a manifest signed with ML-DSA, and its weights are check
   - [`mimir/mimir-server/tests/serve.rs::a_trust_anchor_inside_the_model_dir_is_refused_at_start`](../../mimir/mimir-server/tests/serve.rs)
   - [`deploy/compose/granite-smoke.sh:40`](../../deploy/compose/granite-smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:89`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:242`](../../CHANGELOG.md)
   - [`docs/launch/pipeline/build-deck.js:380`](../../docs/launch/pipeline/build-deck.js)
-  - [`CHANGELOG.md:93`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:180`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:246`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:333`](../../CHANGELOG.md)
 
 ### `model-family-routing` (reference)
 
@@ -684,7 +691,7 @@ A governed agent loop: plan, ground, assemble (untrusted grounding, memory, hist
 - Source:
   - [`mimir/agent-runtime/src/govloop.rs:368`](../../mimir/agent-runtime/src/govloop.rs)
   - [`mimir/agent-runtime/src/govloop.rs:190`](../../mimir/agent-runtime/src/govloop.rs)
-  - [`mimir/agent-runtime/src/assembly.rs:321`](../../mimir/agent-runtime/src/assembly.rs)
+  - [`mimir/agent-runtime/src/assembly.rs:346`](../../mimir/agent-runtime/src/assembly.rs)
 - Tests:
   - [`mimir/agent-runtime/tests/ac_mi_3.rs::mutation_is_denied_when_human_denies`](../../mimir/agent-runtime/tests/ac_mi_3.rs)
   - [`mimir/agent-runtime/tests/ac_mi_3.rs::irreversible_action_forces_human_even_if_preauthorised`](../../mimir/agent-runtime/tests/ac_mi_3.rs)
@@ -704,8 +711,8 @@ Input guardrails against prompt injection, applied to each untrusted item (groun
 **Milestone.** A classifier served by the model plane, a corpus with a stated block rate, and a service that applies them (RF-MI-7).
 
 - Source:
-  - [`mimir/agent-runtime/src/assembly.rs:276`](../../mimir/agent-runtime/src/assembly.rs)
-  - [`mimir/agent-runtime/src/defend.rs:383`](../../mimir/agent-runtime/src/defend.rs)
+  - [`mimir/agent-runtime/src/assembly.rs:300`](../../mimir/agent-runtime/src/assembly.rs)
+  - [`mimir/agent-runtime/src/defend.rs:607`](../../mimir/agent-runtime/src/defend.rs)
   - [`mimir/prompts/src/delimit.rs:245`](../../mimir/prompts/src/delimit.rs)
 - Tests:
   - [`mimir/agent-runtime/tests/guardrail_scope.rs::sanitise_rewrites_only_the_offending_item`](../../mimir/agent-runtime/tests/guardrail_scope.rs)
@@ -764,12 +771,12 @@ forge-worker syncs delimited files, PostgreSQL and S3-compatible stores into sea
   - [`deploy/kind/smoke.sh:105`](../../deploy/kind/smoke.sh)
   - [`deploy/kind/smoke.sh:130`](../../deploy/kind/smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:67`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:220`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:20`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/launch/pipeline/build-deck.js:367`](../../docs/launch/pipeline/build-deck.js)
-  - [`CHANGELOG.md:82`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:86`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:173`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:235`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:239`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:326`](../../CHANGELOG.md)
 
 ### `forge-compute-engine` (reference)
 
@@ -785,10 +792,10 @@ A partitioned compute engine in Rust: filter, derive, join, aggregate, sort and 
   - [`forge/engine/tests/partitioned.rs::partitioned_matches_reference_with_shuffle_and_spill`](../../forge/engine/tests/partitioned.rs)
   - [`forge/engine/tests/relational.rs::inner_join_then_aggregate`](../../forge/engine/tests/relational.rs)
 - Stated at:
-  - [`CHANGELOG.md:128`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:281`](../../CHANGELOG.md)
   - [`docs/launch/pipeline/build-deck.js:371`](../../docs/launch/pipeline/build-deck.js)
-  - [`CHANGELOG.md:132`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:219`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:285`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:372`](../../CHANGELOG.md)
 
 ### `forge-data-expectations` (reference)
 
@@ -889,14 +896,14 @@ heimdall-feed accepts an observation only over PQ-mTLS, only from the feed whose
 **Limit.** Observations carry no marking, and a timestamp inside the accepted window is still the feed's own assertion. A feed that restarts its sequence below its last is refused until it continues above it or is re-registered.
 
 - Source:
-  - [`heimdall/feed-server/src/lib.rs:309`](../../heimdall/feed-server/src/lib.rs)
+  - [`heimdall/feed-server/src/lib.rs:312`](../../heimdall/feed-server/src/lib.rs)
   - [`heimdall/store/src/picture_store.rs:115`](../../heimdall/store/src/picture_store.rs)
-  - [`heimdall/feed-server/src/lib.rs:696`](../../heimdall/feed-server/src/lib.rs)
-  - [`heimdall/feed-server/src/lib.rs:296`](../../heimdall/feed-server/src/lib.rs)
-  - [`heimdall/feed-server/src/lib.rs:356`](../../heimdall/feed-server/src/lib.rs)
+  - [`heimdall/feed-server/src/lib.rs:725`](../../heimdall/feed-server/src/lib.rs)
+  - [`heimdall/feed-server/src/lib.rs:299`](../../heimdall/feed-server/src/lib.rs)
+  - [`heimdall/feed-server/src/lib.rs:359`](../../heimdall/feed-server/src/lib.rs)
   - [`heimdall/feed-gateway/src/authenticator.rs:138`](../../heimdall/feed-gateway/src/authenticator.rs)
   - [`heimdall/feed-gateway/src/replay.rs:105`](../../heimdall/feed-gateway/src/replay.rs)
-  - [`heimdall/feed-server/src/lib.rs:166`](../../heimdall/feed-server/src/lib.rs)
+  - [`heimdall/feed-server/src/lib.rs:169`](../../heimdall/feed-server/src/lib.rs)
 - Tests:
   - [`heimdall/picture-sync/tests/rc_26.rs::rc_26_unsigned_feed_is_rejected_at_the_boundary`](../../heimdall/picture-sync/tests/rc_26.rs)
   - [`heimdall/feed-server/tests/limits.rs::a_flood_of_distinct_keys_ten_times_the_cap_keeps_the_picture_bounded`](../../heimdall/feed-server/tests/limits.rs)
@@ -1011,14 +1018,14 @@ Native applications for iOS, Android and Linux, a Tauri desktop application, a w
 
 Each release artefact passes one gate, in order, and each stage fails closed: built twice and proven bit-identical, described by a CycloneDX SBOM with component hashes, scanned offline for advisories and licences, signed with ML-DSA with a provenance attestation, then verified. The tooling the release jobs run is pinned too: the shell-audit server comes from a lockfile with registry integrity hashes, not fetched by name, and no checkout keeps the workflow token. A release tag is verified independently of the commit it tags: against the signing runner's own copy of allowed_signers, which the committed copy must equal, on a commit that must be on main, by scripts from a separate checkout of main; tag creation is restricted to a release-managers team by a ruleset applied as code. History is signed and reviewed: the commits job, in both pipelines, refuses a change set holding a commit that is neither signed by a key the base commit lists in allowed_signers nor a two-parent forge merge that GitHub verifies or that adds nothing of its own; the signed history ruleset on main and dev (required signatures, no force push or deletion, a pull request with code-owner review, no bypass) is applied as code and its live state exported for review; both maintainers own the trust set and the pipelines.
 
-**Limit.** The gate has run with throwaway keys only (a rehearsal on 2026-09-15). No key ceremony has been held, release keys have no revocation, and the release workflow has not run on a signing runner. Every CI job image is pinned by digest on both forges (GitLab images by digest, GitHub actions by commit), but the GitLab images are still pulled from Docker Hub until the owner mirrors them. The advisory scan refuses a snapshot more than 45 days old; the weekly advisory-refresh job and Renovate are configured on both forges but have not yet run on either. The tag-creation ruleset, the runner's copy of allowed_signers and an ephemeral runner are owner actions not yet confirmed by exported evidence. No maintainer commit key is in allowed_signers yet, so the commits job fails on every change, on both forges; that the signed history ruleset is live will be shown by docs/compliance/evidence/rulesets-<date>.json, which no maintainer has exported and committed yet.
+**Limit.** The gate has run with throwaway keys only (a rehearsal on 2026-09-15). No key ceremony has been held, release keys have no revocation, and the release workflow has not run on a signing runner. Every CI job image is pinned by digest on both forges (GitLab images by digest, GitHub actions by commit), but the GitLab images are still pulled from Docker Hub until the owner mirrors them. The advisory scan refuses a snapshot more than 45 days old; the weekly advisory-refresh job and Renovate are configured on both forges but have not yet run on either. The tag-creation ruleset, the runner's copy of allowed_signers and an ephemeral runner are owner actions not yet confirmed by exported evidence. No maintainer commit key is in allowed_signers yet, so the commits job passes only where GitHub verifies a commit and fails on CodeLab; that the signed history ruleset is live will be shown by docs/compliance/evidence/rulesets-<date>.json, which no maintainer has exported and committed yet.
 
 - Criteria: AC-M-6, AC-B-1
 - Source:
   - [`justfile:373`](../../justfile)
-  - [`tools/ci/release.sh:170`](../../tools/ci/release.sh)
-  - [`tools/ci/pipelines.sh:52`](../../tools/ci/pipelines.sh)
-  - [`tools/ci/release.sh:182`](../../tools/ci/release.sh)
+  - [`tools/ci/release.sh:178`](../../tools/ci/release.sh)
+  - [`tools/ci/pipelines.sh:56`](../../tools/ci/pipelines.sh)
+  - [`tools/ci/release.sh:190`](../../tools/ci/release.sh)
   - [`justfile:389`](../../justfile)
   - [`tools/ci/tests/js-toolchain.test.sh`](../../tools/ci/tests/js-toolchain.test.sh)
   - [`vendor/advisory-db/snapshot.toml:27`](../../vendor/advisory-db/snapshot.toml)
@@ -1027,7 +1034,7 @@ Each release artefact passes one gate, in order, and each stage fails closed: bu
   - [`.github/workflows/advisory-refresh.yml`](../../.github/workflows/advisory-refresh.yml)
   - [`tools/ci/tests/advisory-refresh.test.sh`](../../tools/ci/tests/advisory-refresh.test.sh)
   - [`tools/ci/shell-audit/package-lock.json`](../../tools/ci/shell-audit/package-lock.json)
-  - [`tools/ci/run.sh:373`](../../tools/ci/run.sh)
+  - [`tools/ci/run.sh:374`](../../tools/ci/run.sh)
   - [`tools/ci/tests/npx-pin.test.sh`](../../tools/ci/tests/npx-pin.test.sh)
   - [`tools/ci/tests/workflows.test.sh`](../../tools/ci/tests/workflows.test.sh)
   - [`tools/ci/verify-tag.sh`](../../tools/ci/verify-tag.sh)
@@ -1042,13 +1049,13 @@ Each release artefact passes one gate, in order, and each stage fails closed: bu
   - [`tools/mg-scan/tests/cli.rs::ac_rf_sc_4a_a_critical_or_high_advisory_blocks_and_names_the_component`](../../tools/mg-scan/tests/cli.rs)
   - [`tools/mg-scan/tests/cli.rs::snapshot_older_than_fail_after_days_fails`](../../tools/mg-scan/tests/cli.rs)
 - Service tests:
-  - [`tools/ci/run.sh:320`](../../tools/ci/run.sh)
+  - [`tools/ci/run.sh:321`](../../tools/ci/run.sh)
   - [`tools/ci/tests/pipelines.test.sh:73`](../../tools/ci/tests/pipelines.test.sh)
-  - [`tools/ci/run.sh:225`](../../tools/ci/run.sh)
-  - [`tools/ci/run.sh:232`](../../tools/ci/run.sh)
-  - [`tools/ci/run.sh:344`](../../tools/ci/run.sh)
-  - [`tools/ci/run.sh:369`](../../tools/ci/run.sh)
-  - [`tools/ci/run.sh:230`](../../tools/ci/run.sh)
+  - [`tools/ci/run.sh:226`](../../tools/ci/run.sh)
+  - [`tools/ci/run.sh:233`](../../tools/ci/run.sh)
+  - [`tools/ci/run.sh:345`](../../tools/ci/run.sh)
+  - [`tools/ci/run.sh:370`](../../tools/ci/run.sh)
+  - [`tools/ci/run.sh:231`](../../tools/ci/run.sh)
 - Stated at:
   - [`README.md:742`](../../README.md)
   - [`docs/compliance/GA_READINESS.md:66`](../../docs/compliance/GA_READINESS.md)
@@ -1071,12 +1078,12 @@ The workspace builds and its tests run with no network: every dependency is vend
   - [`tools/ci/vendor-check.sh`](../../tools/ci/vendor-check.sh)
   - [`.gitlab-ci.yml:121`](../../.gitlab-ci.yml)
 - Service tests:
-  - [`tools/ci/run.sh:306`](../../tools/ci/run.sh)
+  - [`tools/ci/run.sh:307`](../../tools/ci/run.sh)
   - [`tools/ci/tests/in-toolchain.test.sh:43`](../../tools/ci/tests/in-toolchain.test.sh)
-  - [`tools/ci/run.sh:215`](../../tools/ci/run.sh)
-  - [`tools/ci/run.sh:221`](../../tools/ci/run.sh)
-  - [`tools/ci/run.sh:209`](../../tools/ci/run.sh)
-  - [`tools/ci/run.sh:213`](../../tools/ci/run.sh)
+  - [`tools/ci/run.sh:216`](../../tools/ci/run.sh)
+  - [`tools/ci/run.sh:222`](../../tools/ci/run.sh)
+  - [`tools/ci/run.sh:210`](../../tools/ci/run.sh)
+  - [`tools/ci/run.sh:214`](../../tools/ci/run.sh)
 - Stated at:
   - [`README.md:130`](../../README.md)
   - [`docs/launch/pipeline/build-deck.js:508`](../../docs/launch/pipeline/build-deck.js)
@@ -1089,13 +1096,14 @@ Each service image re-verifies the ML-DSA signature, SBOM and provenance of its 
 
 - Criteria: AC-B-1
 - Source:
-  - [`tools/mg-verify/src/main.rs:267`](../../tools/mg-verify/src/main.rs)
+  - [`tools/mg-verify/src/main.rs:292`](../../tools/mg-verify/src/main.rs)
   - [`deploy/images/service.Dockerfile`](../../deploy/images/service.Dockerfile)
   - [`deploy/images/service.Dockerfile:50`](../../deploy/images/service.Dockerfile)
-  - [`tools/ci/release-preflight.sh:119`](../../tools/ci/release-preflight.sh)
+  - [`tools/ci/release-preflight.sh:121`](../../tools/ci/release-preflight.sh)
 - Tests:
   - [`tools/mg-verify/tests/ac_rf_sc_2.rs::run_service_refuses_an_unverified_binary_and_does_not_exec`](../../tools/mg-verify/tests/ac_rf_sc_2.rs)
   - [`tools/mg-verify/tests/ac_rf_sc_2.rs::run_service_execs_a_verified_binary_with_the_given_arguments`](../../tools/mg-verify/tests/ac_rf_sc_2.rs)
+  - [`tools/mg-verify/tests/ac_rf_sc_2.rs::run_service_execs_the_bytes_it_verified_not_the_path`](../../tools/mg-verify/tests/ac_rf_sc_2.rs)
   - [`tools/mg-verify/tests/ac_rf_sc_2.rs::run_service_without_a_service_name_is_a_usage_error`](../../tools/mg-verify/tests/ac_rf_sc_2.rs)
   - [`tools/mg-verify/tests/ac_rf_sc_2.rs::run_service_with_an_artefact_path_is_a_usage_error`](../../tools/mg-verify/tests/ac_rf_sc_2.rs)
   - [`tools/mg-verify/tests/ac_rf_sc_2.rs::run_service_with_no_service_options_refuses_to_start`](../../tools/mg-verify/tests/ac_rf_sc_2.rs)
@@ -1106,13 +1114,13 @@ Each service image re-verifies the ML-DSA signature, SBOM and provenance of its 
   - [`README.md:760`](../../README.md)
   - [`docs/releases/v0.1.0-rc.1.md:24`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/compliance/GA_READINESS.md:114`](../../docs/compliance/GA_READINESS.md)
-  - [`CHANGELOG.md:83`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:236`](../../CHANGELOG.md)
   - [`README.md:756`](../../README.md)
-  - [`CHANGELOG.md:98`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:251`](../../CHANGELOG.md)
   - [`README.md:768`](../../README.md)
   - [`README.md:758`](../../README.md)
-  - [`CHANGELOG.md:102`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:189`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:255`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:342`](../../CHANGELOG.md)
 
 ### `acceptance-gate` (operable)
 
@@ -1122,15 +1130,15 @@ Each of the 72 acceptance criteria maps to a test, and one script runs them all 
 
 - Source:
   - [`deploy/acceptance/run-airgapped.sh:10`](../../deploy/acceptance/run-airgapped.sh)
-  - [`.gitlab-ci.yml:245`](../../.gitlab-ci.yml)
+  - [`.gitlab-ci.yml:248`](../../.gitlab-ci.yml)
   - [`tools/ci/verify-tag.sh`](../../tools/ci/verify-tag.sh)
   - [`tools/ci/tests/verify-tag.test.sh`](../../tools/ci/tests/verify-tag.test.sh)
 - Service tests:
-  - [`tools/ci/run.sh:313`](../../tools/ci/run.sh)
-  - [`tools/ci/run.sh:215`](../../tools/ci/run.sh)
-  - [`tools/ci/run.sh:221`](../../tools/ci/run.sh)
-  - [`tools/ci/run.sh:209`](../../tools/ci/run.sh)
-  - [`tools/ci/run.sh:213`](../../tools/ci/run.sh)
+  - [`tools/ci/run.sh:314`](../../tools/ci/run.sh)
+  - [`tools/ci/run.sh:216`](../../tools/ci/run.sh)
+  - [`tools/ci/run.sh:222`](../../tools/ci/run.sh)
+  - [`tools/ci/run.sh:210`](../../tools/ci/run.sh)
+  - [`tools/ci/run.sh:214`](../../tools/ci/run.sh)
 - Stated at:
   - [`GETTING_STARTED.md:5`](../../GETTING_STARTED.md)
 
@@ -1152,12 +1160,12 @@ Five services (http-gateway, mimir-server, bifrost-fleet, heimdall-feed, forge-w
   - [`deploy/kind/smoke.sh:73`](../../deploy/kind/smoke.sh)
   - [`deploy/kind/smoke.sh:98`](../../deploy/kind/smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:63`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:216`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:18`](../../docs/releases/v0.1.0-rc.1.md)
   - [`docs/launch/pipeline/build-deck.js:323`](../../docs/launch/pipeline/build-deck.js)
-  - [`CHANGELOG.md:78`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:82`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:169`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:231`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:235`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:322`](../../CHANGELOG.md)
 
 ### `high-availability` (spec)
 
@@ -1194,9 +1202,9 @@ Each service exposes liveness, readiness and Prometheus metrics, and writes stru
 - Service tests:
   - [`deploy/compose/smoke.sh:15`](../../deploy/compose/smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:140`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:144`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:231`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:293`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:297`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:384`](../../CHANGELOG.md)
 
 ### `compliance-mapping` (spec)
 

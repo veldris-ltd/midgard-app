@@ -47,8 +47,11 @@ There are two startup modes:
   and returns a single-use activation code; the principal presents it to
   `POST /api/v1/activate` (`activation`) to set their password and receive their TOTP
   secret. A challenge request names its
-  administrator (`{"admin": ...}`); the challenge is theirs alone, each holds at most
-  four, and a flood naming one cannot evict another's.
+  administrator and the one operation it is for (`{"admin": ..., "purpose": ...}`,
+  the purpose `request`, `approve`, `reject` or `list`); the challenge is theirs alone
+  and answers that operation only, since the passkey signs the purpose with the nonce.
+  Each administrator holds at most four, and a flood naming one cannot evict
+  another's.
 - **Mesh door** (`mesh_sync`, `--mesh-bind` with `--mesh-identity-dir`): certified
   workloads — the Forge worker — sync objects and links into the fabric over PQ-mTLS.
   Each `SyncRecords` call is authorised by `policy.json` and audited in the one ledger.

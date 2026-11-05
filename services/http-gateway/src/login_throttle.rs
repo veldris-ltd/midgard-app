@@ -27,9 +27,12 @@
 //! (password spraying) is limited by source instead: the edge gives each client address
 //! a token bucket of [`LOGIN_SOURCE_BURST`] attempts refilling at
 //! [`LOGIN_SOURCE_PER_SEC`] a second, shared by the login and administration routes,
-//! and refuses an attempt past it before any password is checked. Under compose every
-//! client reaches the edge from the proxy's one address, so there that bucket is one
-//! for the whole site.
+//! and refuses an attempt past it before any password is checked. Behind a reverse
+//! proxy every client reaches the edge from the proxy's one address, so there that
+//! bucket is one for the whole site unless the proxy is named with `--trusted-proxy`:
+//! a request from it is charged to the client its `X-Forwarded-For` names, and the
+//! header is ignored from any other peer. The bucket is never keyed on the username,
+//! or a spray across names would get a fresh one per name.
 //!
 //! Throttled attempts are coalesced on the ledger rather than written one per probe: a
 //! locked name's first throttled attempt is recorded and later ones are counted onto
