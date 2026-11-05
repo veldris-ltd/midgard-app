@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Produce a signed offline release bundle from signed artefact binaries.
+# Produce a signed offline release bundle from signed artefacts.
 # Usage: produce.sh OUT.mgbundle ID LABEL KEYSTORE  [<component>=]<id>:<ver>:<path> ...
-# [FR-B-5] [RC-19]
+# [FR-B-5] [RC-19] [VLD-ANB-MIDGARD-0035]
 #
 # KEYSTORE is the Bifrost admission keystore (ML-DSA-65): the bundle and every artefact
-# in it are signed with it, and `mg-bundle import` accepts nothing else. The release
-# workflow's bundle job packs every gate-verified binary with its .sig and .att.
+# in it are signed with it, and `mg-bundle import` accepts nothing else. The release's
+# bundle job (`run.sh release-bundle`) packs every gate-verified binary with its .sig
+# and .att, and everything an install needs besides (README.md beside this file).
 set -euo pipefail
 
 if [ "$#" -lt 5 ]; then
