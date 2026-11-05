@@ -1,0 +1,21 @@
+# The images Midgard runs but does not build, pinned by their index digest, and the
+# bundle member each one crosses the air gap as. [VLD-ANB-MIDGARD-0035]
+# [VLD-ANB-MIDGARD-0068]
+#
+# The release machine fetches each one once, while connected, as an OCI archive that
+# keeps its index digest (`bash deploy/images/externals.sh fetch DIR`); `run.sh
+# release-bundle` packs them into the air-gap bundle, and install.sh refuses an archive
+# whose digest is not the one here. Each digest must equal the pin where the image is
+# used (`use`): tools/ci/tests/externals-lock.test.sh checks that they agree.
+#
+#   seedImage           deploy/helm/midgard/values.yaml (seedImage.repository and .digest)
+#   modelServing.image  deploy/helm/midgard/values.yaml, deploy/compose/compose.granite.yaml
+#                       and deploy/kind/model.sh
+#   egressBroker.image  deploy/helm/midgard/values.yaml
+#   kind                deploy/kind/cluster.yaml: the kind node image, for rehearsals only
+#
+# reference                                      index digest                                                             member                            use
+gcr.io/distroless/base-debian12:debug-nonroot    sha256:9162795c8ec16d4f83921e4c173d07ce366a5d6eef9c461e707dbef4f81146b9  seed-base-debian12-debug.oci.tar  seedImage
+ghcr.io/ggml-org/llama.cpp:server                sha256:bbf6fde2eedbe1b6c8ee9d93a54ea4606e90a4eda18681a7f8b4b6ed0cbc9f00  llama-cpp-server.oci.tar          modelServing.image
+haproxy                                          sha256:34cc7d1f6142464d7d2b73e2a1eef7392556dbf304160aef543e513cfd9e5162  haproxy.oci.tar                   egressBroker.image
+kindest/node:v1.37.0                             sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5  kindest-node.oci.tar              kind

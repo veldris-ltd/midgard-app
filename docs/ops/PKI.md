@@ -259,11 +259,20 @@ here if any is missing:
    `deploy/acceptance/Dockerfile` (Rust `1.82.0` and `just`, on a digest-pinned base),
    and pull both bases `deploy/images/service.Dockerfile` names: `BASE`, the toolchain
    image its prep stage lays files out on, and `RUNTIME`, the distroless
-   `cc-debian12:nonroot` image it runs on. Pull the chart's seed image too
-   (`seedImage` in `deploy/helm/midgard/values.yaml`, distroless
-   `base-debian12:debug-nonroot`, by digest), which the enclosure's registry must
-   carry for first start. Do all of this while connected. Every build and signing step runs in that image with
-   `--network none`. The runner itself only reaches GitHub.
+   `cc-debian12:nonroot` image it runs on. Do all of this while connected. Every build
+   and signing step runs in that image with `--network none`. The runner itself only
+   reaches GitHub.
+
+   **The external images, for the air-gap bundle** (VLD-ANB-MIDGARD-0035). Also while
+   connected, fetch every image in `deploy/images/externals.lock` (the chart's seed
+   image, the Granite llama.cpp server, the HAProxy egress broker and the kind node
+   image) by digest, every platform, as OCI archives that keep their index digests,
+   into a directory outside every checkout, with skopeo or crane:
+   `bash deploy/images/externals.sh fetch /srv/midgard-images`. Name it with the runner
+   secret `MIDGARD_EXTERNAL_IMAGES_PATH` (on GitLab, the CI/CD variable of that name).
+   The preflight checks that every archive is there with its pinned digest, offline
+   (`externals.sh check`); `release-bundle` packs them, so the enclosure needs no
+   registry outside it. Fetch again whenever a pin in `externals.lock` changes.
 2. **Offline advisory database.** The RustSec database is vendored at
    `vendor/advisory-db`, with the licence policy and exception tables in
    `supply-chain/`. The scan stage (`mg-scan`) reads nothing else.
@@ -372,6 +381,8 @@ offline, a release is made on one machine. [VLD-ANB-MIDGARD-0035]
 **The machine** is provisioned as the signing runner above, without the forge's runner:
 the toolchain image built locally (`bash tools/ci/run.sh toolchain`), the vendored
 advisory database, pnpm with its store filled (or the `js-build` output carried in),
+the external images fetched into a directory of their own (item 1: the one step that
+needs a network, done once while provisioning),
 each keystore and passphrase file outside every checkout, and its own copy of
 `allowed_signers` outside the checkout. Set the same variables a pipeline maps from its
 secrets, and name `main` locally, since there is no remote to fetch it from:
@@ -383,6 +394,7 @@ export MIDGARD_BIFROST_KEYSTORE=/srv/midgard-keys/bifrost.keystore
 export MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE=/srv/midgard-passphrases/bifrost.passphrase
 export MIDGARD_BIFROST_REGISTRY=/srv/midgard-registry
 export MIDGARD_ALLOWED_SIGNERS_PATH=/srv/midgard-trust/allowed_signers
+export MIDGARD_EXTERNAL_IMAGES=/srv/midgard-images
 export MIDGARD_MAINLINE_REF=refs/heads/main
 ```
 
@@ -400,7 +412,11 @@ local publish. It stops at the first step that fails. The publish writes every f
 forge would attach, with a `SHA256SUMS`, to `target/release-publish/<tag>/` (or
 `MIDGARD_RELEASE_DIR`), and never writes over a release already there. Carry that
 directory to the enclosure; `mg-verify` checks each binary against
-`deploy/trust/release-trust.pub` there, again with no forge.
+`deploy/trust/release-trust.pub` there, again with no forge. Its air-gap bundle,
+`midgard-<version>.mgbundle`, is all an enclosure needs to install from: the release's
+images, the external images, the chart, its signed values and the installer. The
+operator brings the two anchors by another route, and `install.sh` checks the
+bundle's copy against them (`deploy/air-gap-bundle/README.md`).
 
 **What changes without one.** `MIDGARD_MAINLINE_REF` names `main` locally, so "on
 `main`" means the `main` of that machine: keep it the reviewed history. Who may release

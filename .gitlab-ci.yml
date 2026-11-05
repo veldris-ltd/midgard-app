@@ -27,6 +27,7 @@
 #     with a shell executor, docker, node and pnpm, and the CI/CD variables
 #     MIDGARD_SIGNING_KEYSTORE_PATH, MIDGARD_BIFROST_KEYSTORE_PATH,
 #     MIDGARD_BIFROST_REGISTRY_PATH, MIDGARD_ALLOWED_SIGNERS_PATH,
+#     MIDGARD_EXTERNAL_IMAGES_PATH (the external images the air-gap bundle carries),
 #     MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE and MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE
 #     naming files on it (each passphrase file is a secret of its own);
 #   - for the apple shell audit: a runner tagged `macos`.
@@ -132,6 +133,7 @@ default:
     MIDGARD_SIGNING_KEYSTORE: $MIDGARD_SIGNING_KEYSTORE_PATH
     MIDGARD_BIFROST_KEYSTORE: $MIDGARD_BIFROST_KEYSTORE_PATH
     MIDGARD_BIFROST_REGISTRY: $MIDGARD_BIFROST_REGISTRY_PATH
+    MIDGARD_EXTERNAL_IMAGES: $MIDGARD_EXTERNAL_IMAGES_PATH
   # MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE and MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE
   # are CI/CD variables of the names run.sh reads, so they reach these jobs as they are:
   # a variable set in the project's settings overrides one set here, so nothing here

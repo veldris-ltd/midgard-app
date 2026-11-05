@@ -40,8 +40,13 @@ services="$(tr -d '\r' < "$values" | sed -n '/^  digests:/,/^  [^ ]/s/^    \([a-
 containers=$(tr -d '\r' < "$values" | grep -c '^  - name:')
 tools=$(( $(tr -d '\r' < "$values" | grep -c '^    seed: true') + $(tr -d '\r' < "$values" | grep -c '^    identity:') ))
 toolimage="$(tr -d '\r' < "$values" | sed -n '/^seedImage:/,/^[^ ]/{s/^  repository: //p}')@$(tr -d '\r' < "$values" | sed -n '/^seedImage:/,/^[^ ]/{s/^  digest: //p}')"
-check "the chart names a digest for each of the five services" \
-    test "$(echo $services)" = "http-gateway mimir-server bifrost-fleet heimdall-feed forge-worker"
+check "the chart names a digest for each of the five services, and the probes' image" \
+    test "$(echo $services)" = "http-gateway mimir-server bifrost-fleet heimdall-feed forge-worker mimir-probe"
+# Every image the release builds has a digest entry, or set-digests refuses the release's
+# images.lock and release-images stops. [VLD-ANB-MIDGARD-0035]
+check "the chart's digests name every image the release builds" \
+    test "$(echo $services | tr ' ' '\n' | sort | tr '\n' ' ')" = \
+         "$(bash "$root/tools/ci/release-artefacts.sh" --images 2>/dev/null | tr -d '[]"' | tr ',' '\n' | sort | tr '\n' ' ')"
 
 # --- the chart's image rule -----------------------------------------------------------
 HELM="${HELM:-helm}"
@@ -132,12 +137,12 @@ else
     fail "set-digests writes the release values"
 fi
 check "set-digests: the source values are unchanged" test "$(cksum < "$work/values.yaml")" = "$before"
-check "set-digests: five digests are set" \
-    test "$(count '^    [a-z-]+: sha256:[0-9a-f]{64}$' "$work/release/values.yaml")" = 5
+check "set-digests: six digests are set" \
+    test "$(count '^    [a-z-]+: sha256:[0-9a-f]{64}$' "$work/release/values.yaml")" = 6
 check "set-digests: each service has its own digest" \
     grep -q "^    forge-worker: sha256:$(hex 4)\$" "$work/release/values.yaml"
 check "set-digests: nothing else changes" \
-    test "$(diff <(tr -d '\r' < "$values") "$work/release/values.yaml" | grep -c '^[<>]')" = 10
+    test "$(diff <(tr -d '\r' < "$values") "$work/release/values.yaml" | grep -c '^[<>]')" = 12
 
 refused() { # refused NAME LOCK: set-digests must refuse LOCK and write nothing
     rm -f "$work/refused.yaml"
@@ -160,7 +165,7 @@ refused "an image named twice" "$work/twice.lock"
 { cat "$lock"; echo "registry.enclosure.local/midgard/stranger:0.1.0 sha256:$(hex e)"; } > "$work/extra.lock"
 refused "an image the chart does not know" "$work/extra.lock"
 if bash "$set_digests" "$lock" "$work/values.yaml" >/dev/null \
-    && [ "$(count '^    [a-z-]+: sha256:' "$work/values.yaml")" = 5 ]; then
+    && [ "$(count '^    [a-z-]+: sha256:' "$work/values.yaml")" = 6 ]; then
     pass "set-digests without --out rewrites the values file"
 else
     fail "set-digests without --out rewrites the values file"

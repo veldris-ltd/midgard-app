@@ -18,6 +18,9 @@
 # And: each keystore passphrase file, a runner secret of its own, is refused when it is
 # not configured, naming the secret PKI.md names, or names no readable file; and passes
 # when it names one outside the workspace. [VLD-ANB-MIDGARD-0007]
+#
+# And: the external images for the air-gap bundle (MIDGARD_EXTERNAL_IMAGES) are refused
+# when not configured, inside the workspace, or not all there as pinned.
 set -uo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -41,7 +44,7 @@ preflight() { # preflight VAR=VALUE...: run with only these runner settings
     env -u RUNNER_ENVIRONMENT -u ACTIONS_RUNNER_HOOK_JOB_COMPLETED -u MIDGARD_SIGNING_KEYSTORE \
         -u MIDGARD_BIFROST_KEYSTORE -u MIDGARD_BIFROST_REGISTRY -u MIDGARD_ALLOWED_SIGNERS_PATH \
         -u MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE -u MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE \
-        -u GITHUB_WORKSPACE -u CI_PROJECT_DIR PATH="$work/stubs:$PATH" \
+        -u GITHUB_WORKSPACE -u CI_PROJECT_DIR -u MIDGARD_EXTERNAL_IMAGES PATH="$work/stubs:$PATH" \
         "$@" bash "$script" 2>&1
 }
 
@@ -145,6 +148,21 @@ out="$(preflight GITHUB_WORKSPACE="$here/../../..")"
 grep -q 'ok — builds run in the toolchain container with --network none' <<<"$out" &&
     pass "this repository's in-toolchain.sh uses --network none" ||
     fail "this repository's in-toolchain.sh uses --network none: $out"
+
+# --- the external images, for the air-gap bundle [VLD-ANB-MIDGARD-0035] ---------------
+out="$(preflight GITHUB_WORKSPACE="$work/ws")"
+grep 'MIDGARD_EXTERNAL_IMAGES is not configured (runner secret MIDGARD_EXTERNAL_IMAGES_PATH)' <<<"$out" | grep -q "$pki" &&
+    pass "a runner with no external images fails closed, naming its runner secret and PKI.md" ||
+    fail "a runner with no external images fails closed, naming its runner secret and PKI.md: $out"
+mkdir -p "$work/runner/externals" "$work/ws/externals"
+out="$(preflight GITHUB_WORKSPACE="$work/ws" MIDGARD_EXTERNAL_IMAGES="$work/ws/externals")"
+grep -q "MIDGARD_EXTERNAL_IMAGES names a directory inside the job's workspace" <<<"$out" &&
+    pass "external images inside the workspace are refused" ||
+    fail "external images inside the workspace are refused: $out"
+out="$(preflight GITHUB_WORKSPACE="$work/ws" MIDGARD_EXTERNAL_IMAGES="$work/runner/externals")"
+grep 'the external images in .* are not all there as pinned' <<<"$out" | grep -q 'seed-base-debian12-debug.oci.tar is missing' &&
+    pass "a directory without the external images is refused, naming what is missing" ||
+    fail "a directory without the external images is refused, naming what is missing: $out"
 
 if [ "$failures" -gt 0 ]; then
     echo "$failures failure(s)"

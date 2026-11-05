@@ -10,6 +10,19 @@ CONTRIBUTING.md for the version policy.
 ## [Unreleased]
 
 ### Added
+- **Midgard installs from its air-gap bundle alone.** `run.sh release-bundle` now packs
+  everything an install needs: the release's service images with the signed
+  `images.lock`, the signed chart values and rendering, the chart (`helm package`), a
+  deploy kit holding `install.sh`, and the images Midgard runs but does not build (the
+  seed image, the Granite llama.cpp server, the HAProxy egress broker and the kind node
+  image), as OCI archives that keep their pinned index digests. It refuses, packing
+  nothing, when any of them is missing or not as pinned. `deploy/images/externals.lock`
+  pins those images; `deploy/images/externals.sh` fetches them once, while the release
+  machine is connected, into `MIDGARD_EXTERNAL_IMAGES`, and checks them offline; and
+  `tools/ci/tests/externals-lock.test.sh` requires the lock to agree with every pin in
+  the chart, compose and kind. `mg-bundle` accepts the `image` and `deploy` components,
+  and `deploy/kind/cluster.yaml` pins `kindest/node` by digest. [FR-B-5]
+  [VLD-ANB-MIDGARD-0035]
 - **Shamir secret sharing in the crypto core.** `pqc_agility::shamir` splits a secret
   k of n over GF(2^8) in constant time and zeroises its intermediates. Dvalin
   uses it, when key fragmentation is chosen, to split the escrow key that
@@ -29,6 +42,20 @@ CONTRIBUTING.md for the version policy.
   [MG-SEC-03] [MG-SEC-05]
 
 ### Changed
+- **`install.sh` installs from the bundle alone, and no longer rebuilds the images on
+  site.** It runs from a directory holding only the bundle, the operator's anchors and
+  the tools, and refuses, having changed nothing, when a member is missing, an image
+  archive is not its pin in `images.lock` or `externals.lock`, the bundled release anchor
+  is not the operator's (`--release-trust FILE` or `sha256:<hex>`, now required), the
+  script is not the installer the bundle carries, or a registry install has neither
+  skopeo nor crane. It pushes with skopeo or crane, which keep each digest, and checks
+  the digest the registry reports (`docker push` is no longer used), or loads into kind
+  under the names the chart resolves, and deploys the bundled chart with the seed, model
+  and egress images at the enclosure's registry by their pinned digests. `--rebuild`
+  keeps the on-site build as an opt-in, and its comparison with the signed chart values
+  now always runs. The release preflight checks the external images instead of a pulled
+  seed image (`MIDGARD_EXTERNAL_IMAGES_PATH`, docs/ops/PKI.md). [FR-B-5]
+  [VLD-ANB-MIDGARD-0035]
 - **The key ceremony is held with Dvalin**, a separate application
   (veldris-ltd/dvalin-app): a guided Windows and Linux app, with a console
   form, whose key generation, signing and verification are this repository's
@@ -1542,6 +1569,11 @@ CONTRIBUTING.md for the version policy.
     namespace mimir-server shares with it; that is now a recorded trust assumption.
 
 ### Fixed
+- **`release-images` refused the release's own `images.lock`.** The release builds an
+  image for `mimir-probe`, which had no `image.digests` entry in the chart, so
+  `set-digests.sh` refused the lock and the release's chart values were never written.
+  The chart now names it, and `tools/ci/tests/helm-digests.test.sh` requires an entry
+  for every image the release builds. [VLD-ANB-MIDGARD-0012]
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser
   in `services/runtime` recursed once per nesting level with no bound, and the edge
   parses bodies of up to 1 MiB with it before authentication, so one unauthenticated

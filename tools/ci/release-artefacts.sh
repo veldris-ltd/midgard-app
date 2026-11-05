@@ -18,6 +18,11 @@
 # or malformed entry fails --check, as does one binary name built by two packages.
 #
 # Every mode but --version checks first. Needs only bash, sed and awk.
+#
+# RELEASE_ARTEFACTS_ROWS names a frozen copy of --rows instead, as the air-gap bundle's
+# deploy kit carries (supply-chain/release-rows.txt): there is no workspace beside an
+# install to derive them from, so the rows are that file's and nothing is derived or
+# checked. [VLD-ANB-MIDGARD-0035]
 set -euo pipefail
 
 # RELEASE_ARTEFACTS_ROOT points the script at another workspace (its tests use this).
@@ -85,6 +90,10 @@ entries() {
 # The manifest: every built binary with its annotation, or the default for one the
 # list does not mention. Sorted by package then binary.
 rows() {
+    if [ -n "${RELEASE_ARTEFACTS_ROWS:-}" ]; then
+        tr -d '\r' < "$RELEASE_ARTEFACTS_ROWS" | sed 's/#.*//' | awk 'NF'
+        return
+    fi
     awk 'FILENAME == ARGV[1] { note[$1 " " $2] = $3 " " $4; next }
          { key = $1 " " $2; print key, (key in note ? note[key] : "tool -") }' \
         <(entries) <(built)
@@ -92,6 +101,13 @@ rows() {
 
 check() {
     local status=0 extra bad clash unlisted
+    if [ -n "${RELEASE_ARTEFACTS_ROWS:-}" ]; then
+        [ -s "$RELEASE_ARTEFACTS_ROWS" ] || {
+            echo "release-artefacts: RELEASE_ARTEFACTS_ROWS names $RELEASE_ARTEFACTS_ROWS, which is missing or empty" >&2
+            return 1
+        }
+        return 0
+    fi
     extra="$(comm -13 <(built) <(entries | awk '{print $1, $2}' | sort -u))"
     bad="$(entries | awk 'NF != 4 || ($3 != "service" && $3 != "tool") {print}')"
     clash="$(built | awk '{print $2}' | sort | uniq -d)"

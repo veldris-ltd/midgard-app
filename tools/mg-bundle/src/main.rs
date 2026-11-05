@@ -5,7 +5,9 @@
 //!   mg-bundle pack --out FILE --id ID --label LABEL (--keystore KEYSTORE | --key KEYFILE)
 //!                  SPEC...
 //!     where SPEC = [<component>=]<id>:<version>:<path>
-//!     <component> is service (the default), tool, client, model-bundle or attestation.
+//!     <component> is service (the default), tool, client, model-bundle, attestation,
+//!     image (an OCI image archive) or deploy (what an offline install needs besides
+//!     the images: the chart, its values, images.lock and the deploy kit).
 //!     An adjacent <path>.sbom.cdx.json is bundled as the artefact's SBOM if present.
 //!
 //! Consumer (air-gapped site, fully offline):
@@ -40,8 +42,18 @@ use bifrost_bundle::{
 };
 use pqc_agility::{SecretBytes, SigId, SigningKey, VerifyingKey};
 
-/// The components an artefact in a bundle may be.
-const COMPONENTS: [&str; 5] = ["service", "tool", "client", "model-bundle", "attestation"];
+/// The components an artefact in a bundle may be. `image` and `deploy` carry what an
+/// install from the bundle alone needs: the release's image archives, and its chart,
+/// values, images.lock and deploy kit. [VLD-ANB-MIDGARD-0035]
+const COMPONENTS: [&str; 7] = [
+    "service",
+    "tool",
+    "client",
+    "model-bundle",
+    "attestation",
+    "image",
+    "deploy",
+];
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -403,6 +415,16 @@ mod tests {
         assert_eq!(sig.component, "attestation");
         assert_eq!(sig.id, "mg-verify.sig");
         assert_eq!(sig.path, r"C:\out\mg-verify.sig");
+        assert_eq!(
+            parse_spec("image=http-gateway.oci.tar:1:p")
+                .unwrap()
+                .component,
+            "image"
+        );
+        assert_eq!(
+            parse_spec("deploy=deploy-kit.tar:1:p").unwrap().component,
+            "deploy"
+        );
         // An `=` in the path is not a component.
         assert_eq!(parse_spec("a:1:/x=y/a").unwrap().component, "service");
     }

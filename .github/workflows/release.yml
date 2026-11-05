@@ -101,6 +101,9 @@ jobs:
       MIDGARD_SIGNING_KEYSTORE: ${{ secrets.MIDGARD_SIGNING_KEYSTORE_PATH }}
       MIDGARD_BIFROST_KEYSTORE: ${{ secrets.MIDGARD_BIFROST_KEYSTORE_PATH }}
       MIDGARD_BIFROST_REGISTRY: ${{ secrets.MIDGARD_BIFROST_REGISTRY_PATH }}
+      # The external images, fetched while connected (deploy/images/externals.sh), which
+      # the air-gap bundle carries; a directory outside the workspace. [VLD-ANB-MIDGARD-0035]
+      MIDGARD_EXTERNAL_IMAGES: ${{ secrets.MIDGARD_EXTERNAL_IMAGES_PATH }}
       # Each keystore's passphrase is a separate secret naming a file on the runner;
       # only the path is mapped, and run.sh mounts the file read-only. [VLD-ANB-MIDGARD-0007]
       MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE: ${{ secrets.MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE }}
@@ -146,6 +149,9 @@ jobs:
       MIDGARD_SIGNING_KEYSTORE: ${{ secrets.MIDGARD_SIGNING_KEYSTORE_PATH }}
       MIDGARD_BIFROST_KEYSTORE: ${{ secrets.MIDGARD_BIFROST_KEYSTORE_PATH }}
       MIDGARD_BIFROST_REGISTRY: ${{ secrets.MIDGARD_BIFROST_REGISTRY_PATH }}
+      # The external images, fetched while connected (deploy/images/externals.sh), which
+      # the air-gap bundle carries; a directory outside the workspace. [VLD-ANB-MIDGARD-0035]
+      MIDGARD_EXTERNAL_IMAGES: ${{ secrets.MIDGARD_EXTERNAL_IMAGES_PATH }}
       MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE: ${{ secrets.MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE }}
       MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE: ${{ secrets.MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE }}
     steps:

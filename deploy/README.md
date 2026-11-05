@@ -83,7 +83,10 @@ default-deny, egress-denied, PQ-mTLS on every internal hop. [NFR-AVA-1] [NFR-PRV
   `verify-*.sh` suites, and the pinned toolchain `Dockerfile`).
 - **`trust/`** — the pinned public release trust key `mg-verify` checks against.
 - **`air-gap-bundle/`** — signed offline release bundles produced/consumed by
-  Bifrost (RT-19), verified offline before deploy (AC-B-3). *Not yet present.*
+  Bifrost (RT-19), verified offline before deploy (AC-B-3). A release's bundle carries
+  everything an install needs: the release's images, the external images
+  (`images/externals.lock`), the chart, its signed values and the installer;
+  `install.sh` installs from it alone, with the operator's two anchors and no network.
 
 ## Applying
 
@@ -112,8 +115,15 @@ signed build: a tag can be moved in the registry to an image that skips the chec
   `images.lock` that `images/build.sh` writes and the release signs, refusing a lock
   that lacks a service or carries a malformed digest. The `release-images` job runs it
   and renders the chart with the result; `chart/values.yaml` and `chart/enclosure.yaml`
-  are signed and published with the release. `air-gap-bundle/install.sh` pins the
-  images it builds the same way.
+  are signed and published with the release. `air-gap-bundle/install.sh` deploys
+  with that signed `chart/values.yaml` from the bundle, and with `--rebuild` requires
+  the images it builds to have the same digests.
+- **`images/externals.lock`** pins, by index digest, the images Midgard runs but does
+  not build: the seed image, the llama.cpp server, the HAProxy egress broker and the
+  kind node image. `images/externals.sh fetch` copies them, while connected, as OCI
+  archives that keep those digests; the air-gap bundle carries them, and
+  `tools/ci/tests/externals-lock.test.sh` requires that the chart, compose and kind
+  pin the same digests.
 - **`image.allowTag: true`** is for development clusters only: a service with no digest
   is rendered by tag, pulled `Always`, and annotated `image-pinned: "false"`. The
   committed `k8s/enclosure.yaml` is rendered this way until a release produces
