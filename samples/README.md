@@ -82,6 +82,8 @@ These steps follow [Import your own data](../docs/guides/IMPORT_YOUR_OWN_DATA.md
 
 ```bash
 cargo build --release -p http-gateway -p mg-admin
+(umask 077; head -c 32 /dev/urandom | base64 > "$HOME/.midgard-passphrase")
+export MIDGARD_KEYSTORE_PASSPHRASE_FILE="$HOME/.midgard-passphrase"
 ./target/release/mg-admin init --state-dir ./enclosure
 
 python3 samples/convert.py ontology > ./enclosure/ontology.json
