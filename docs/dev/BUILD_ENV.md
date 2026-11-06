@@ -56,7 +56,8 @@ by Renovate, both as pull or merge requests a person reviews
   workflows on GitHub; close and reopen it, or push to it, so the gates run before
   merge.
 - On GitLab the job needs `MIDGARD_MR_TOKEN`, a project access token with api scope,
-  as a protected, masked CI/CD variable; `CI_JOB_TOKEN` can neither push nor open a
+  as a protected, masked CI/CD variable scoped to the `advisory-refresh` environment,
+  which only that job enters; `CI_JOB_TOKEN` can neither push nor open a
   merge request. Create the schedule on the default branch.
   (VLD-ANB-MIDGARD-0090) (VLD-ANB-MIDGARD-0076)
 

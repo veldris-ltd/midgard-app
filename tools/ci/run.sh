@@ -202,18 +202,18 @@ committed_toolchain_digest() {
 
 # Inside the published image (GitLab's merge-request jobs) there is nothing to build:
 # the job is the check that the image GitLab started is the one this commit pins. The
-# image is chosen from the CI/CD variable MIDGARD_TOOLCHAIN_DIGEST before any script
-# runs, so a variable left behind when the file moved on fails here, closed.
+# image is chosen from MIDGARD_TOOLCHAIN_DIGEST, declared in .gitlab-ci.yml, before any
+# script runs, so a value left behind when the file moved on fails here, closed.
 # [VLD-ANB-MIDGARD-0043]
 toolchain_assert_pinned() {
     local want recorded
     want="$(committed_toolchain_digest)"
     [ -n "$want" ] || {
-        ci_error "toolchain: $TOOLCHAIN_DIGEST_FILE pins no published digest yet; run toolchain-publish on main and commit the digest it prints" "$TOOLCHAIN_DIGEST_FILE"
+        ci_error "toolchain: $TOOLCHAIN_DIGEST_FILE pins no published digest yet; run toolchain-publish on main and commit the digest it prints, here and in .gitlab-ci.yml" "$TOOLCHAIN_DIGEST_FILE"
         exit 1
     }
     [ "${MIDGARD_TOOLCHAIN_DIGEST:-}" = "$want" ] || {
-        ci_error "toolchain: this job runs in toolchain@${MIDGARD_TOOLCHAIN_DIGEST:-<unset>}, but $TOOLCHAIN_DIGEST_FILE pins $want; set the CI/CD variable MIDGARD_TOOLCHAIN_DIGEST from $TOOLCHAIN_DIGEST_FILE" "$TOOLCHAIN_DIGEST_FILE"
+        ci_error "toolchain: this job runs in toolchain@${MIDGARD_TOOLCHAIN_DIGEST:-<unset>}, but $TOOLCHAIN_DIGEST_FILE pins $want; set MIDGARD_TOOLCHAIN_DIGEST in .gitlab-ci.yml from $TOOLCHAIN_DIGEST_FILE" "$TOOLCHAIN_DIGEST_FILE"
         exit 1
     }
     recorded="$(sed -n 's/^# *dockerfile-sha16: *\([0-9a-f]\{16\}\).*/\1/p' "$TOOLCHAIN_DIGEST_FILE" | head -1)"
@@ -259,8 +259,8 @@ job_toolchain() {
 # Build the toolchain image and push it to the GitLab project registry, where the
 # merge-request jobs run it by digest. Runs only on the privileged runner, by hand, on a
 # protected branch. The digest a push gets cannot be known before it, so the job fails,
-# printing it, until it is committed to tools/ci/toolchain.digest; once it is, a rerun
-# finds that image already published from this Dockerfile and pushes nothing.
+# printing it, until it is committed to tools/ci/toolchain.digest and .gitlab-ci.yml;
+# then a rerun finds that image already published from this Dockerfile, pushing nothing.
 # [VLD-ANB-MIDGARD-0043]
 job_toolchain_publish() {
     local key repo want got line
@@ -299,10 +299,10 @@ job_toolchain_publish() {
     }
     echo "toolchain-publish: pushed $repo:$key as $repo@$got"
     if [ "$got" != "$want" ]; then
-        ci_error "toolchain-publish: the pushed image is $got, but $TOOLCHAIN_DIGEST_FILE pins ${want:-nothing}; commit the new digest to $TOOLCHAIN_DIGEST_FILE, then set MIDGARD_TOOLCHAIN_DIGEST to it" "$TOOLCHAIN_DIGEST_FILE"
+        ci_error "toolchain-publish: the pushed image is $got, but $TOOLCHAIN_DIGEST_FILE pins ${want:-nothing}; commit the new digest to $TOOLCHAIN_DIGEST_FILE, and to MIDGARD_TOOLCHAIN_DIGEST in .gitlab-ci.yml" "$TOOLCHAIN_DIGEST_FILE"
         echo "$TOOLCHAIN_DIGEST_FILE should end:"
-        echo "# dockerfile-sha16: $key"
-        echo "$got"
+        printf '# dockerfile-sha16: %s\n%s\n' "$key" "$got"
+        printf '.gitlab-ci.yml should declare, under variables:\n  MIDGARD_TOOLCHAIN_DIGEST: "%s"\n' "$got"
         exit 1
     fi
 }
@@ -483,13 +483,18 @@ job_acceptance() { bash tools/ci/gate-run.sh acceptance; }
 # here, as building the toolchain image is for Rust; --frozen-lockfile makes it install
 # exactly what pnpm-lock.yaml pins, by integrity hash, or fail. A runner with no route
 # to the registry installs from a store filled in advance (`pnpm fetch`).
+# --ignore-scripts: this runs on the signing runner, so no dependency's lifecycle script
+# runs. None is needed: esbuild and rollup take their native binaries from the optional
+# per-platform packages the lockfile pins (esbuild's postinstall only checks for one,
+# and downloads one if it is missing), and the workspace's own packages have none.
+# [VLD-ANB-MIDGARD-0058]
 job_js_build() {
     need node "js-build: node is not on PATH"
     if ! command -v pnpm >/dev/null 2>&1; then
         need corepack "js-build: neither pnpm nor corepack is on PATH"
         corepack enable pnpm
     fi
-    pnpm install --frozen-lockfile --prefer-offline
+    pnpm install --frozen-lockfile --prefer-offline --ignore-scripts
     # The selftest job has no installed workspace, so the mock-bundle test runs here:
     # an http build of the midgard console holds no mock fixture. [AC-25.2]
     bash tools/ci/tests/js-mock-bundle.test.sh

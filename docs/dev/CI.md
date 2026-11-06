@@ -103,7 +103,7 @@ host; build the image first with `just ci toolchain`. See [BUILD_ENV.md](BUILD_E
 |---|---|---|
 | `selftest` | host | the CI scripts' own tests pass and both pipelines call the same jobs |
 | `provenance` | host | changed sources under governed trees cite a requirement |
-| `commits` | host | every commit the change brings is signed by a key in `deploy/trust/allowed_signers`, or verified by GitHub, or is a forge merge that adds nothing of its own |
+| `commits` | host | every commit the change brings is signed by a key in `deploy/trust/allowed_signers`, or is a two-parent forge merge that GitHub verifies or that adds nothing of its own |
 | `vendor` | host | `/vendor` is exactly the crates `Cargo.lock` names, and Cargo is pinned to it |
 | `claims` | host | every row of `docs/compliance/claims.toml` cites files, lines and tests that exist, and `CLAIMS.md` is what it renders |
 | `gate-record` | host | the committed gate record is what its logs give, and the README and GA_READINESS status tables are what it gives |
@@ -215,14 +215,19 @@ without a refresh fails closed until someone runs one.
 
 The write access is the scheduled job's alone. On GitHub the workflow grants
 `contents: write` and `pull-requests: write` to that job, and passes the workflow
-token to it through the environment, never persisted in the checkout; a pull request
+token through the environment of its one step that pushes and opens the pull request
+(the toolchain build never sees it), never persisted in the checkout; a pull request
 opened with that token does not start other workflows, so close and reopen it (or push
 to it) to run CI. On GitLab `CI_JOB_TOKEN` can neither push nor open a merge request:
 the owner creates a project access token with `api` scope, stores it as the protected,
-masked CI/CD variable `MIDGARD_MR_TOKEN`, and creates the weekly pipeline schedule. The
+masked CI/CD variable `MIDGARD_MR_TOKEN` with its environment scope set to
+`advisory-refresh` (the environment only that job enters, as `action: access`, so no
+other job can read the token), and creates the weekly pipeline schedule. The
 token reaches `git` through a credential helper and `curl` through a header file, never
-a command line. The bot's commit is unsigned; squash-merge it through the forge (which
-signs the result) or re-sign it before merging into a branch that requires signatures.
+a command line. The bot's commit is unsigned, and the `commits` job takes the forge's
+signature only on a two-parent merge, not on a squash: a maintainer re-signs it with a
+key in `deploy/trust/allowed_signers` (`git commit --amend -S --no-edit`, then push the
+branch) before it is merged.
 
 ## The gate record
 
@@ -324,7 +329,7 @@ touches the release machinery, and by hand on any branch.
 ### A real release
 
 Needs a signing runner provisioned as [docs/ops/PKI.md](../ops/PKI.md) describes —
-labelled `[self-hosted, kms]` on GitHub, tagged `kms` on GitLab — with four settings
+labelled `[self-hosted, kms]` on GitHub, tagged `kms` on GitLab — with six settings
 naming files on that runner, all outside the job's workspace:
 
 | Setting | What |
@@ -451,12 +456,16 @@ thing from inside the pipeline, on both forges, so a rule that was never applied
 was turned off, is noticed. It checks every commit between the change's base and its
 head: a commit passes when git verifies its SSH signature against
 `deploy/trust/allowed_signers` as the base commit has it (so a change cannot add the key
-that vouches for it), or, on GitHub, when GitHub reports it verified, or when it is a
-merge by the forge (`noreply@github.com`, or the identities in the CI variable
-`MIDGARD_MERGE_COMMITTERS`) whose combined diff is empty. It names every commit that
-fails. With no key in `allowed_signers` and no forge to ask it fails closed: until the
-maintainers' keys are committed there (docs/ops/PKI.md, "Git signing") the job can pass
-on GitHub only, and fails on CodeLab.
+that vouches for it), or when it is a two-parent merge by the forge (`noreply@github.com`,
+or the identities in the CI variable `MIDGARD_MERGE_COMMITTERS`) that, on GitHub,
+GitHub reports verified, or whose tree is exactly what `git merge-tree --write-tree`
+gives for its parents (git 2.38 or later; the job says so on an older one). A combined
+diff would hide a merge that keeps one parent's side of what the other changed. A merge
+whose parents conflict, and an octopus merge, are not exempt. GitHub's verdict counts
+for its own merges only: a commit signed by a key GitHub knows but `allowed_signers`
+does not list fails. It names every commit that fails. With no key in `allowed_signers` it
+fails closed on both forges, until the maintainers' keys are committed there
+(docs/ops/PKI.md, "Git signing").
 
 Tag creation is a ruleset of its own because a bypass actor bypasses every rule in its
 ruleset: in the immutability ruleset it would let a release manager move or delete a
@@ -492,8 +501,11 @@ GITLAB_TOKEN=... bash tools/ci/gitlab-rules.sh --url https://gitlab.example.org 
   use it (`extends: .docker`): `toolchain-publish`, by hand, and `acceptance`, on
   pushes to `main` and `dev`, which starts its own containers under `--network none`.
   No merge-request job runs on it.
-- **The CI/CD variable `MIDGARD_TOOLCHAIN_DIGEST`** (protected; masking not needed),
-  set to the digest line of `tools/ci/toolchain.digest`.
+- **No CI/CD variable for the toolchain digest.** `MIDGARD_TOOLCHAIN_DIGEST` is declared
+  in `.gitlab-ci.yml`'s `variables:`, as the last line of `tools/ci/toolchain.digest`
+  (`pipelines.test.sh` checks the two agree). A digest is not a secret, and a protected
+  variable never reaches a merge request's pipeline. Delete a project variable of that
+  name if one was set: it would override the file.
 - **Pipelines for fork merge requests require a maintainer's approval** (Settings →
   CI/CD → General pipelines), so code from a fork runs only once a maintainer has read
   it.
@@ -503,8 +515,9 @@ GITLAB_TOKEN=... bash tools/ci/gitlab-rules.sh --url https://gitlab.example.org 
 - A `macos`-tagged runner for the `apple` shell audit. Without one that job waits, and
   the release with it.
 - For the weekly `advisory-refresh`: a pipeline schedule on the default branch and the
-  `MIDGARD_MR_TOKEN` variable ([Dependency updates](#dependency-updates)). The job uses
-  the Docker-in-Docker executor and needs to reach github.com and
+  `MIDGARD_MR_TOKEN` variable, scoped to the `advisory-refresh` environment
+  ([Dependency updates](#dependency-updates)). The job runs in the toolchain image on
+  the unprivileged executor and needs to reach github.com and
   osv-vulnerabilities.storage.googleapis.com.
 
 ### Publishing the toolchain image
@@ -517,9 +530,9 @@ from a protected branch. To publish it, the first time and whenever
    `toolchain-publish` job builds the Dockerfile, pushes it as
    `$CI_REGISTRY_IMAGE/toolchain:<dockerfile-sha16>` and prints the digest it was
    given. It fails while that digest is not the one committed.
-2. Commit the two lines it prints to `tools/ci/toolchain.digest` through a merge
-   request, and set `MIDGARD_TOOLCHAIN_DIGEST` to the same digest. Until the variable
-   and the file agree, every `.toolchain` job fails, closed.
+2. Commit the two lines it prints to `tools/ci/toolchain.digest`, and the
+   `MIDGARD_TOOLCHAIN_DIGEST` line it prints to `.gitlab-ci.yml`, in one merge request.
+   Until the two agree, `selftest` fails, and so does every `.toolchain` job, closed.
 3. Running it again is safe: it finds the committed image published from this
    Dockerfile and pushes nothing. Keep that digest in the registry (exclude
    `toolchain` from cleanup policies), or merge-request jobs cannot start.
@@ -570,14 +583,14 @@ administrator:
 2. provides an unprivileged Docker executor for merge-request jobs;
 3. assigns the privileged Docker-in-Docker runner to protected branches and tags only,
    and tags it `protected`;
-4. runs `toolchain-publish` on `main`, commits the digest, and sets the protected CI/CD
-   variable `MIDGARD_TOOLCHAIN_DIGEST` from `tools/ci/toolchain.digest`;
+4. runs `toolchain-publish` on `main`, and commits the digest it prints to
+   `tools/ci/toolchain.digest` and `.gitlab-ci.yml`;
 5. turns on approval for pipelines from fork merge requests;
 6. exports the runner and project CI/CD settings to
    `docs/compliance/evidence/gitlab-ci-settings-<YYYY-MM-DD>.md`, recording: each
    runner, its executor, whether it is privileged, its tags and whether it runs only
-   on protected refs; the fork merge-request pipeline setting; and the
-   `MIDGARD_TOOLCHAIN_DIGEST` variable's value and protection.
+   on protected refs; the fork merge-request pipeline setting; and that no project
+   variable overrides `MIDGARD_TOOLCHAIN_DIGEST`.
 
 ## What has and has not been exercised
 

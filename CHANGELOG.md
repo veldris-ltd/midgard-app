@@ -1285,6 +1285,42 @@ CONTRIBUTING.md for the version policy.
   for `decode_message` lives in `crypto/pq-mtls/fuzz`, outside the workspace and the CI
   gate, run on the release runner. [VLD-ANB-MIDGARD-0010] [VLD-ANB-MIDGARD-0044]
   [NFR-SEC-1]
+- **The `commits` job takes GitHub's word only for the merges GitHub makes.**
+  `tools/ci/verify-commits.sh` accepted any commit GitHub reported verified, so a key
+  registered on GitHub but not in `deploy/trust/allowed_signers` could sign into the
+  protected history. Now every commit must verify against `allowed_signers`, except a
+  two-parent merge committed as one of `MIDGARD_MERGE_COMMITTERS`, the only kind for
+  which GitHub's verdict is asked. With no key in `allowed_signers` the job fails on
+  both forges. [VLD-ANB-MIDGARD-0069]
+- **A forge merge is exempt only when it is exactly the merge of its parents.** The
+  `commits` job exempted a forge merge whose combined diff was empty, which hides a
+  merge that keeps one parent's side of what the other changed. It now requires the
+  merge's tree to equal `git merge-tree --write-tree` of its two parents (git 2.38 or
+  later; an older git fails the run and says so). A merge whose parents conflict, and an
+  octopus merge, are refused. [VLD-ANB-MIDGARD-0069]
+- **GitLab merge-request jobs can find their image.** `.toolchain` jobs run in
+  `$CI_REGISTRY_IMAGE/toolchain@$MIDGARD_TOOLCHAIN_DIGEST`, and the digest was a
+  protected CI/CD variable, which a merge request's pipeline never sees. It is now
+  declared in `.gitlab-ci.yml`'s `variables:`; `pipelines.test.sh` fails unless it is the
+  last line of `tools/ci/toolchain.digest`, and `toolchain-publish` prints the line for
+  both files. Until the first publish both say `unpublished`. [VLD-ANB-MIDGARD-0043]
+- **GitLab's advisory refresh can run, and its token can be fenced to it.** The job ran
+  `apk add` in the toolchain image, which is Debian (`rust:1.82`), so it failed at its
+  first step; it now installs nothing, as the image has git, curl, unzip and diff. It
+  enters the `advisory-refresh` environment (`action: access`), so `MIDGARD_MR_TOKEN`
+  can be scoped to that environment and no other job can read it. `pipelines.test.sh`
+  refuses `apk` in any toolchain job and checks the environment. [AC-P4.5]
+  (VLD-ANB-MIDGARD-0076)
+- **`js-build` runs no dependency's install scripts.** It runs on the signing runner,
+  and `pnpm install` ran every lifecycle script in the tree. It now passes
+  `--ignore-scripts`; esbuild and rollup take their binaries from the per-platform
+  packages the lockfile pins. `npx-pin.test.sh` refuses a CI `pnpm install` without
+  it. [VLD-ANB-MIDGARD-0058]
+- **The advisory refresh's write token reaches one step.** `GH_TOKEN`, with
+  `contents: write` and `pull-requests: write`, was job-level in
+  `.github/workflows/advisory-refresh.yml`, so every step had it, the toolchain build
+  included. It is now set on the `run.sh advisory-refresh` step alone, the only one
+  that pushes or calls gh; `workflows.test.sh` checks. [AC-P4.5] (VLD-ANB-MIDGARD-0076)
 
 ### Tests
 - **The edge's token refusals and the handshake decoder's negative paths are tested.**

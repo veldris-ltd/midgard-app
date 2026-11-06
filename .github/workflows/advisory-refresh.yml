@@ -8,8 +8,9 @@
 # from a pipeline schedule (.gitlab-ci.yml, `advisory-refresh`).
 #
 # Only this workflow may write: it pushes deps/advisory-refresh-<date> and opens the
-# pull request with the workflow token, passed to the job through the environment and
-# never persisted in the checkout. See docs/dev/CI.md, "Dependency updates".
+# pull request with the workflow token, passed through the environment of that one
+# step and never persisted in the checkout: the toolchain build and every other step
+# never see it. See docs/dev/CI.md, "Dependency updates".
 name: advisory-refresh
 
 on:
@@ -32,8 +33,6 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-    env:
-      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
@@ -44,3 +43,6 @@ jobs:
           key: toolchain-${{ runner.arch }}-${{ hashFiles('deploy/acceptance/Dockerfile') }}
       - run: bash tools/ci/run.sh toolchain
       - run: bash tools/ci/run.sh advisory-refresh
+        env:
+          # The only step that pushes or calls gh. [AC-P4.5]
+          GH_TOKEN: ${{ github.token }}

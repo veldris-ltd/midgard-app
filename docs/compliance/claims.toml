@@ -155,7 +155,7 @@ limit = "TLS termination in front of the edge is a deployment responsibility. Th
 evidence = ["services/http-gateway/src/cli.rs:1", "sdk/ts/src/http/baseUrl.ts:1", "deploy/installer/console.security-headers.conf:1"]
 tests = ["services/http-gateway/tests/cli_modes.rs::a_bare_address_or_no_arguments_is_a_usage_error", "services/http-gateway/tests/cli_modes.rs::non_loopback_binds_are_refused_unless_allowed", "services/http-gateway/src/lib.rs::check_bind_refuses_non_loopback_hosts_unless_allowed"]
 service_tests = ["services/http-gateway/tests/cli_modes.rs::dev_mode_serves_the_seeded_login_on_loopback"]
-stated_in = ["README.md:98", "docs/guides/RUNNING.md:41", "deploy/README.md:95"]
+stated_in = ["README.md:98", "docs/guides/RUNNING.md:41", "deploy/README.md:96"]
 
 [[claim]]
 id = "webauthn-oidc-federation"
@@ -470,7 +470,7 @@ milestone = "RF-CL-1 to RF-CL-7."
 [[claim]]
 id = "supply-chain-gate"
 area = "Supply chain and release"
-claim = "Each release artefact passes one gate, in order, and each stage fails closed: built twice and proven bit-identical, described by a CycloneDX SBOM with component hashes, scanned offline for advisories and licences, signed with ML-DSA with a provenance attestation, then verified. The tooling the release jobs run is pinned too: the shell-audit server comes from a lockfile with registry integrity hashes, not fetched by name, and no checkout keeps the workflow token. A release tag is verified independently of the commit it tags: against the signing runner's own copy of allowed_signers, which the committed copy must equal, on a commit that must be on main, by scripts from a separate checkout of main; tag creation is restricted to a release-managers team by a ruleset applied as code. History is signed and reviewed: the commits job, in both pipelines, refuses a change set holding a commit that is neither signed by a key the base commit lists in allowed_signers nor verified by GitHub, nor a forge merge adding nothing of its own; the signed history ruleset on main and dev (required signatures, no force push or deletion, a pull request with code-owner review, no bypass) is applied as code and its live state exported for review; both maintainers own the trust set and the pipelines."
+claim = "Each release artefact passes one gate, in order, and each stage fails closed: built twice and proven bit-identical, described by a CycloneDX SBOM with component hashes, scanned offline for advisories and licences, signed with ML-DSA with a provenance attestation, then verified. The tooling the release jobs run is pinned too: the shell-audit server comes from a lockfile with registry integrity hashes, not fetched by name, and no checkout keeps the workflow token. A release tag is verified independently of the commit it tags: against the signing runner's own copy of allowed_signers, which the committed copy must equal, on a commit that must be on main, by scripts from a separate checkout of main; tag creation is restricted to a release-managers team by a ruleset applied as code. History is signed and reviewed: the commits job, in both pipelines, refuses a change set holding a commit that is neither signed by a key the base commit lists in allowed_signers nor a two-parent forge merge that GitHub verifies or that adds nothing of its own; the signed history ruleset on main and dev (required signatures, no force push or deletion, a pull request with code-owner review, no bypass) is applied as code and its live state exported for review; both maintainers own the trust set and the pipelines."
 status = "operable"
 criteria = ["AC-M-6", "AC-B-1"]
 evidence = ["justfile:373", "tools/ci/release.sh:178", "tools/ci/pipelines.sh:56", "tools/ci/release.sh:190", "justfile:389", "tools/ci/tests/js-toolchain.test.sh", "vendor/advisory-db/snapshot.toml:27", "vendor/advisory-db-npm/snapshot.toml:15", "renovate.json", ".github/workflows/advisory-refresh.yml", "tools/ci/tests/advisory-refresh.test.sh", "tools/ci/shell-audit/package-lock.json", "tools/ci/run.sh:374", "tools/ci/tests/npx-pin.test.sh", "tools/ci/tests/workflows.test.sh", "tools/ci/verify-tag.sh", "tools/ci/tests/verify-tag.test.sh", "tools/ci/github-rules.sh", "tools/ci/tests/github-rules.test.sh", "tools/ci/verify-commits.sh", "tools/ci/tests/verify-commits.test.sh", ".github/CODEOWNERS"]
@@ -485,7 +485,7 @@ area = "Supply chain and release"
 claim = "The workspace builds and its tests run with no network: every dependency is vendored, Cargo is pinned to the vendored directory, and the CI jobs run in a container started with no network, except GitLab merge-request jobs, which run unprivileged inside the digest-pinned toolchain image with Cargo forced offline."
 status = "operable"
 criteria = ["AC-M-5"]
-evidence = [".cargo/config.toml:18", "tools/ci/in-toolchain.sh:12", "tools/ci/in-toolchain.sh:60", "tools/ci/vendor-check.sh", ".gitlab-ci.yml:117"]
+evidence = [".cargo/config.toml:18", "tools/ci/in-toolchain.sh:12", "tools/ci/in-toolchain.sh:60", "tools/ci/vendor-check.sh", ".gitlab-ci.yml:122"]
 service_tests = ["tools/ci/run.sh:307", "tools/ci/tests/in-toolchain.test.sh:43", "tools/ci/run.sh:216", "tools/ci/run.sh:222", "tools/ci/run.sh:210", "tools/ci/run.sh:214"]
 limit = "The recorded gate run covers the one commit named in docs/compliance/gate-runs/CURRENT. Later commits are not covered until the gate is recorded again. On GitLab merge requests the offline property rests on Cargo (vendored sources, CARGO_NET_OFFLINE) rather than a network sandbox, and those runs cannot be recorded as the gate; the unprivileged and protected runner configuration is the owner's and is not yet evidenced."
 stated_in = ["README.md:83", "docs/launch/pipeline/build-deck.js:508"]
@@ -507,7 +507,7 @@ id = "acceptance-gate"
 area = "Supply chain and release"
 claim = "Each of the 72 acceptance criteria maps to a test, and one script runs them all in a container with no network. A release is gated only on a tag whose commit is on main, checked by the release pipeline itself, not only on the operator's side."
 status = "operable"
-evidence = ["deploy/acceptance/run-airgapped.sh:10", ".gitlab-ci.yml:245", "tools/ci/verify-tag.sh", "tools/ci/tests/verify-tag.test.sh"]
+evidence = ["deploy/acceptance/run-airgapped.sh:10", ".gitlab-ci.yml:250", "tools/ci/verify-tag.sh", "tools/ci/tests/verify-tag.test.sh"]
 service_tests = ["tools/ci/run.sh:314", "tools/ci/run.sh:216", "tools/ci/run.sh:222", "tools/ci/run.sh:210", "tools/ci/run.sh:214"]
 limit = "Recorded at the commit named in docs/compliance/gate-runs/CURRENT: every criterion passed, in a CI run under --network none, not on release infrastructure. Later commits are not covered until the gate is recorded again. On GitLab the suite runs only on protected branches, on the privileged runner tagged protected; merge-request jobs run unprivileged and never start it."
 stated_in = ["GETTING_STARTED.md:5"]
