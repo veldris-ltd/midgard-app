@@ -102,7 +102,9 @@ GitHub; times to the minute are file times on the ceremony machine.
 | 8 Nov | this record updated for the BitLocker-encrypted keys disk and the digest check, committed signed as `cd38e89` |
 | 9 Nov, about 00:00 | a copy of the unpublished first model key destroyed (the Security Officer's statement; see "A first key that was not published"); the keys folder's copy still present at 01:01 |
 | 9 Nov, between 01:01 and 01:18 | the unpublished first model key destroyed in its remaining copies, in the keys folder and on `KEYS_BACKUP`; a recursive digest listing of both then shows only the published model key's files |
-| 9 Nov | this record updated for the backup folder's removal and the first key's destruction, in the commit that carries this line |
+| 9 Nov | this record updated for the backup folder's removal and the first key's destruction, committed signed as `ea81de4` |
+| 9 Nov 01:30:00 | the model keystore passphrase file, which `bf86295` said had been deleted, found still on the internal disk and deleted (see the correction under "The model-signing key, generated 7 November") |
+| 9 Nov | this record corrected for that, in the commit that carries this line |
 
 ## Backup
 
@@ -178,6 +180,16 @@ section set out:
    the machine's disks were searched for `*.passphrase` and for `*.keystore` outside
    the keys folder and its backup; none remained. The machine went back online only
    after that.
+
+   **Correction, 9 November.** The statement above, made in `bf86295`, was wrong on
+   one point: the passphrase file (`C:\Users\t3kao\model.passphrase`, 16 bytes, written
+   7 November 01:41:50Z) had not been deleted. It was found still on the ceremony
+   machine's disk on 9 November and deleted at 01:30:00Z. It held the passphrase of the
+   published model-signing keystore, which is also recorded in the password manager;
+   the file was on the BitLocker-encrypted internal disk, outside every checkout and
+   outside the keys folder and its backups, and nothing indicates it was read by anyone
+   else. The passphrase is not changed by this correction. A search of the disks for
+   `*.passphrase` after the deletion found none.
 
 ### A first key that was not published
 
