@@ -96,30 +96,40 @@ GitHub; times to the minute are file times on the ceremony machine.
 | 7 Nov 09:07:28 | second review by the witness: changes requested (model key not in the record, commit title and PR text, Brokkr update) |
 | 7 Nov, before 10:49 | backup folder copied to the new encrypted `KEYS_BACKUP` drive (see "Backup") |
 | 7 Nov 10:57 | model-signing key's id and digest published as a dated update on the Brokkr note |
-| 7 Nov | this record updated for the model-signing key, the first unpublished key and the backup drive, in the commit that carries this line |
+| 7 Nov 11:00:55 | this record updated for the model-signing key, the first unpublished key and the backup drive, committed signed as `bf86295` |
+| 8 Nov | the `KEYS_BACKUP` copy checked by digest against the keys folder: all four keystores match (see "Backup") |
+| 9 Nov | this record updated for the BitLocker-encrypted keys disk and the digest check of `KEYS_BACKUP`, in the commit that carries this line |
 
 ## Backup
 
 Key fragmentation was not used. The backup is a copy of the keystores and the custody
 register, made at 21:08Z and checked identical by digest.
 
-Where it is. On 6 November and until the morning of 7 November the copy was a second
-folder on the same internal disk of the ceremony machine as the keys folder, not on a
-separate encrypted drive; the first version of this record said "a second encrypted
-drive, held apart from the first", which was the intended custody (dvalin-app
-`docs/KEY_CEREMONY.md`, B8), not what existed. On 7 November, before 10:49Z, a new
-external NVMe drive was formatted, encrypted with BitLocker To Go and labelled
-`KEYS_BACKUP` (mounted as J:), and the backup folder was copied to it. Two photographs
-of the drive and of the copy are kept outside the repository, beside the backup folder
-on the ceremony machine. The backup folder also holds an accidental nested copy of the
-model-signing keystore (`model\model\`), identical to the one above it.
+Where it is. The keys folder is on an internal disk of the ceremony machine that is
+BitLocker-encrypted (the Security Officer's statement, 7 November; the record's author
+could not read the BitLocker status without administrator rights). That disk serves as
+the `KEYS` drive of dvalin-app `docs/KEY_CEREMONY.md`, B3, though it is not removable.
+On 6 November and until the morning of 7 November the only copy was a second folder on
+that same disk; the first version of this record said "a second encrypted drive, held
+apart from the first", which was the intended custody (B8), not what existed. On
+7 November, before 10:49Z, a new external NVMe drive was formatted, encrypted with
+BitLocker To Go and labelled `KEYS_BACKUP` (mounted as J:), and the backup folder was
+copied to it. Two photographs of the drive and of the copy are kept outside the
+repository, beside the backup folder on the ceremony machine. The copy on the internal
+disk still exists as well, and holds an accidental nested copy of the model-signing
+keystore (`model\model\`), identical to the one above it.
 
-Still to do, and to be recorded here when done: check the copy on `KEYS_BACKUP` by
-digest against the keys folder (it must hold the model-signing keystore of 01:42Z as
-well as the two keystores of 6 November), remove the backup folder from the ceremony
-machine's disk, move the keys folder itself to an encrypted `KEYS` drive, destroy the
-unpublished first model key (see below) in every copy, and keep the password manager's
-database apart from both drives.
+On 8 November the copy on `KEYS_BACKUP` was checked by digest against the keys folder
+(`Get-FileHash`, SHA-256, in an administrator PowerShell): the four keystores match in
+both places, release `a67b4e09…`, Bifrost `37638330…`, model-signing of 01:42Z
+`982c614e…`, and the unpublished first key `3a306e85…`, which is therefore on
+`KEYS_BACKUP` as well and must be destroyed there too.
+
+Still to do, and to be recorded here when done: destroy the unpublished first model key
+(see below) in every copy; remove the duplicate backup folder from the internal disk,
+or keep it knowingly as a third copy on the same disk as the originals; and move the
+password manager's database, which is on the same disk as the keys folder, apart from
+both drives, as B8 requires.
 
 ## The model-signing key, generated 7 November
 
@@ -178,9 +188,9 @@ passphrase, so the file alone is the private key; the ceremony checkout's `attes
 refuses to read it. Its public half (SHA-256
 `d706bf461446202570d325c9b39561b7ea99946045982b18ebd09355bc55f6a6`) was never committed
 or published, and nothing has been signed with it. The two files are still in the keys
-folder and in the backup folder, and on `KEYS_BACKUP` if the copy there was taken from
-the backup folder as it stood. They are to be destroyed, both people present, in every
-copy, and the destruction recorded here. Until then that key is unpublished material,
+folder, in the backup folder on the internal disk, and on `KEYS_BACKUP` (confirmed by
+the digest check of 8 November). They are to be destroyed, both people present, in
+every copy, and the destruction recorded here. Until then that key is unpublished material,
 not a trust anchor: nothing verifies against it.
 
 Still to do, per `docs/ops/KEY_CEREMONY.md`: the keystore and its passphrase go to the
