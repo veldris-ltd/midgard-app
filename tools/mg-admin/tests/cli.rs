@@ -43,12 +43,20 @@ fn mg_admin(args: &[&str], stdin: &str) -> Output {
         .stderr(Stdio::piped())
         .spawn()
         .expect("mg-admin starts");
-    child
+    // A refusal made before the password is read — an unknown option, a duplicate
+    // subject, a clearance outside the bands, a held lock — can close the pipe before
+    // this write lands, and the write then fails with EPIPE. That is the command
+    // refusing early, which is what those cases test, not the pipe failing.
+    match child
         .stdin
         .take()
         .expect("stdin is piped")
         .write_all(stdin.as_bytes())
-        .expect("stdin accepts input");
+    {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => {}
+        Err(e) => panic!("stdin accepts input: {e}"),
+    }
     child.wait_with_output().expect("mg-admin exits")
 }
 
