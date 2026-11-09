@@ -392,8 +392,12 @@ numbers sheet and the claims ledger check, the release notes exist, and
 the tag against the runner's copy of `deploy/trust/allowed_signers` before anything is
 built or signed, so an unsigned tag, a lightweight tag, one signed by a key not listed
 there, one whose commit changed the signers, or one on a commit not on `main` starts no
-release. `tag-release.sh` checks that the commit is the tip of `origin/main` on your
-side; the runner checks again, since a tag can be pushed by other means.
+release. In a pipeline it judges the tag as origin holds it, fetched afresh: the checkout
+made for a tag's own run holds a lightweight stand-in for an annotated tag, because
+`actions/checkout` fetches the pushed commit over the tag when the tag's object is not
+that commit, which an annotated tag's never is. `tag-release.sh` checks that the commit
+is the tip of `origin/main` on your side; the runner checks again, since a tag can be
+pushed by other means.
 
 Because the gate record names the commit it gated, the order is: merge to `main`; run
 the gate on that commit and record it (see "The gate record"); write the numbers sheet;
