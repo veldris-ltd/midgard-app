@@ -6,7 +6,7 @@
 [snapshot]
 source = "https://osv-vulnerabilities.storage.googleapis.com/npm/all.zip"
 ecosystem = "npm"
-date = "2026-11-01"
+date = "2026-11-09"
 advisory_count = 92
 package_count = 125
 
