@@ -1,4 +1,4 @@
-# Key ceremony, 6 November 2026
+﻿# Key ceremony, 6 November 2026
 
 Release signing and Bifrost admission keys, and the release tag signers, per
 `docs/ops/KEY_CEREMONY.md`. Held with Dvalin 0.1.0, built on the ceremony machine from
@@ -128,8 +128,8 @@ the backup is the copy on `KEYS_BACKUP` alone.
 
 On 8 November the copy on `KEYS_BACKUP` was checked by digest against the keys folder
 (`Get-FileHash`, SHA-256, in an administrator PowerShell): the four keystores match in
-both places, release `a67b4e09…`, Bifrost `37638330…`, model-signing of 01:42Z
-`982c614e…`, and the unpublished first key `3a306e85…`, which is therefore on
+both places, release `a67b4e09â€¦`, Bifrost `37638330â€¦`, model-signing of 01:42Z
+`982c614eâ€¦`, and the unpublished first key `3a306e85â€¦`, which is therefore on
 `KEYS_BACKUP` as well and must be destroyed there too.
 
 Still to do, and to be recorded here when done: move the password manager's database,
@@ -211,7 +211,7 @@ root of the keys folder on the ceremony machine. Between 01:01Z and 01:18Z the
 Security Officer removed them from the root of the keys folder and from `KEYS_BACKUP`
 in one administrator PowerShell command, then listed every `model-signing.keystore`
 and `model-signing.pub` under both places recursively with their SHA-256: only the
-published key's two digests appear, `982c614e…` for the keystore and `58941dee…` for
+published key's two digests appear, `982c614eâ€¦` for the keystore and `58941deeâ€¦` for
 the public file, once in the keys folder and twice on `KEYS_BACKUP` (the copy and its
 accidental nested duplicate). No copy of the first key remains in either place. The
 witness's presence at the destruction is not recorded here; the witness confirms it,
@@ -242,7 +242,7 @@ are, how to check them, and asks the witness to confirm there.
 
 The fingerprints and SHA-256 values above were published at:
 
-- Brokkr, project Midgard // Open Source, note "Key ceremony 6 November 2026 · second
+- Brokkr, project Midgard // Open Source, note "Key ceremony 6 November 2026 Â· second
   channel: trust-file digests and signer fingerprint",
   <https://project.veldris.dev/#/notes/record/7c92d400-5352-4260-9c06-7bc1893db01d>,
   on 2026-11-07 at 00:40 (UTC), by JB Webb-Benjamin.
@@ -270,4 +270,4 @@ the repository.
 | Role | Name | Confirmed | Date |
 |---|---|---|---|
 | Security Officer | JB Webb-Benjamin | Yes | 2026-11-09 |
-| Witness | Philip Snelling | | |
+| Witness | Philip Snelling | Yes, PR 87 review of 2026-11-09 13:54Z | 2026-11-09 |
