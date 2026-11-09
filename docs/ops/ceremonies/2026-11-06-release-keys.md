@@ -269,5 +269,5 @@ the repository.
 
 | Role | Name | Confirmed | Date |
 |---|---|---|---|
-| Security Officer | JB Webb-Benjamin | | |
+| Security Officer | JB Webb-Benjamin | Yes | 2026-11-09 |
 | Witness | Philip Snelling | | |
