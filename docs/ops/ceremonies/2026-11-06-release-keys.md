@@ -97,8 +97,12 @@ GitHub; times to the minute are file times on the ceremony machine.
 | 7 Nov, before 10:49 | backup folder copied to the new encrypted `KEYS_BACKUP` drive (see "Backup") |
 | 7 Nov 10:57 | model-signing key's id and digest published as a dated update on the Brokkr note |
 | 7 Nov 11:00:55 | this record updated for the model-signing key, the first unpublished key and the backup drive, committed signed as `bf86295` |
+| 7 Nov 11:15 | the duplicate backup folder removed from the internal disk; the backup is now the `KEYS_BACKUP` copy alone |
 | 8 Nov | the `KEYS_BACKUP` copy checked by digest against the keys folder: all four keystores match (see "Backup") |
-| 9 Nov | this record updated for the BitLocker-encrypted keys disk and the digest check of `KEYS_BACKUP`, in the commit that carries this line |
+| 8 Nov | this record updated for the BitLocker-encrypted keys disk and the digest check, committed signed as `cd38e89` |
+| 9 Nov, about 00:00 | a copy of the unpublished first model key destroyed (the Security Officer's statement; see "A first key that was not published"); the keys folder's copy still present at 01:01 |
+| 9 Nov, between 01:01 and 01:18 | the unpublished first model key destroyed in its remaining copies, in the keys folder and on `KEYS_BACKUP`; a recursive digest listing of both then shows only the published model key's files |
+| 9 Nov | this record updated for the backup folder's removal and the first key's destruction, in the commit that carries this line |
 
 ## Backup
 
@@ -115,9 +119,10 @@ apart from the first", which was the intended custody (B8), not what existed. On
 7 November, before 10:49Z, a new external NVMe drive was formatted, encrypted with
 BitLocker To Go and labelled `KEYS_BACKUP` (mounted as J:), and the backup folder was
 copied to it. Two photographs of the drive and of the copy are kept outside the
-repository, beside the backup folder on the ceremony machine. The copy on the internal
-disk still exists as well, and holds an accidental nested copy of the model-signing
-keystore (`model\model\`), identical to the one above it.
+repository, in the folder that held the backup on the ceremony machine. The duplicate
+copy on the internal disk, with an accidental nested copy of the model-signing
+keystore (`model\model\`) inside it, was removed on 7 November at 11:15Z; since then
+the backup is the copy on `KEYS_BACKUP` alone.
 
 On 8 November the copy on `KEYS_BACKUP` was checked by digest against the keys folder
 (`Get-FileHash`, SHA-256, in an administrator PowerShell): the four keystores match in
@@ -125,11 +130,8 @@ both places, release `a67b4e09…`, Bifrost `37638330…`, model-signing of 01:4
 `982c614e…`, and the unpublished first key `3a306e85…`, which is therefore on
 `KEYS_BACKUP` as well and must be destroyed there too.
 
-Still to do, and to be recorded here when done: destroy the unpublished first model key
-(see below) in every copy; remove the duplicate backup folder from the internal disk,
-or keep it knowingly as a third copy on the same disk as the originals; and move the
-password manager's database, which is on the same disk as the keys folder, apart from
-both drives, as B8 requires.
+Still to do, and to be recorded here when done: move the password manager's database,
+which is on the same disk as the keys folder, apart from both drives, as B8 requires.
 
 ## The model-signing key, generated 7 November
 
@@ -187,11 +189,23 @@ Before the session above, at 00:46:30Z, `mg-model keygen` had been run once with
 passphrase, so the file alone is the private key; the ceremony checkout's `attest`
 refuses to read it. Its public half (SHA-256
 `d706bf461446202570d325c9b39561b7ea99946045982b18ebd09355bc55f6a6`) was never committed
-or published, and nothing has been signed with it. The two files are still in the keys
-folder, in the backup folder on the internal disk, and on `KEYS_BACKUP` (confirmed by
-the digest check of 8 November). They are to be destroyed, both people present, in
-every copy, and the destruction recorded here. Until then that key is unpublished material,
-not a trust anchor: nothing verifies against it.
+or published, and nothing has been signed with it. There were three copies of the two
+files: in the root of the keys folder, in the backup folder on the internal disk, and
+on `KEYS_BACKUP` (confirmed by the digest check of 8 November). The copy in the backup
+folder on the internal disk went with that folder on 7 November at 11:15Z. On
+9 November at about 00:00Z the Security Officer destroyed a copy (their statement;
+which copy is not stated). As of 9 November 01:01Z the two files were still in the
+root of the keys folder on the ceremony machine. Between 01:01Z and 01:18Z the
+Security Officer removed them from the root of the keys folder and from `KEYS_BACKUP`
+in one administrator PowerShell command, then listed every `model-signing.keystore`
+and `model-signing.pub` under both places recursively with their SHA-256: only the
+published key's two digests appear, `982c614e…` for the keystore and `58941dee…` for
+the public file, once in the keys folder and twice on `KEYS_BACKUP` (the copy and its
+accidental nested duplicate). No copy of the first key remains in either place. The
+witness's presence at the destruction is not recorded here; the witness confirms it,
+or not, in the sign-off. The key is destroyed material, never a trust anchor: nothing
+verifies against it, and a file with its public digest, if one were ever found, would
+be a copy that escaped, to be reported.
 
 Still to do, per `docs/ops/KEY_CEREMONY.md`: the keystore and its passphrase go to the
 staging enclave (the `midgard-model-signing` and `midgard-model-signing-passphrase`
