@@ -269,5 +269,5 @@ the repository.
 
 | Role | Name | Confirmed | Date |
 |---|---|---|---|
-| Security Officer | JB Webb-Benjamin | | |
-| Witness | Philip Snelling | | |
+| Security Officer | JB Webb-Benjamin | Yes | 2026-11-09 |
+| Witness | Philip Snelling | Yes, PR 87 review of 2026-11-09 13:54Z | 2026-11-09 |
