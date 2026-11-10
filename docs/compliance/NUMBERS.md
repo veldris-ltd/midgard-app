@@ -32,13 +32,12 @@ Counted from tracked files. `vendor/` is other people's code and is not counted.
 
 Read from the gate record and from nowhere else. A test count here is of tests that ran and passed in that run. It is a different measure from the count of test functions above, and the two are never quoted as one figure.
 
-The gate was run at commit [`a86498f2001b4155dc32f1eea681c04c2a3eeaa5`](gate-runs/a86498f2001b4155dc32f1eea681c04c2a3eeaa5.md). This tree is that commit, apart from the record itself and the prose generated from it, so its results are this tree's.
+The gate has not been run at this commit. Files it covers have changed since the last recorded run, so that run's results are not this tree's and are shown only as what they are: the results of another commit.
 
-| Figure | Value | Counting rule |
+| Figure | Value | Last recorded run |
 |---|---|---|
-| Gate result | **PASS** | the acceptance suite and `just test` both exited 0 and no criterion failed |
-| Acceptance criteria passed | **72 / 72** | criteria of Part C with a PASS verdict line in the acceptance log |
-| Tests passed, `just test` | **1,649** | sum of the `test result:` lines of the `just test` log; 0 failed, 2 ignored, in 394 test binaries across 51 of 51 invocations |
-| Tests passed, acceptance suite | **281** | sum of the `test result:` lines between each step's header and its verdict; 0 failed, 0 ignored. The suite runs selected tests, some more than once, so this is not comparable with the figure above |
+| Acceptance criteria passed | not run at this commit | at `a86498f2001b4155dc32f1eea681c04c2a3eeaa5`: 72 / 72 |
+| Tests passed, `just test` | not run at this commit | at `a86498f2001b4155dc32f1eea681c04c2a3eeaa5`: 1,649 |
+| Tests passed, acceptance suite | not run at this commit | at `a86498f2001b4155dc32f1eea681c04c2a3eeaa5`: 281 |
 
-Reproduce: `bash tools/ci/gate-record.sh --check` makes these from the logs under [`gate-runs/a86498f2001b4155dc32f1eea681c04c2a3eeaa5/`](gate-runs/a86498f2001b4155dc32f1eea681c04c2a3eeaa5/); [the record](gate-runs/a86498f2001b4155dc32f1eea681c04c2a3eeaa5.md) says how to make the run again.
+The record of that run is [`gate-runs/a86498f2001b4155dc32f1eea681c04c2a3eeaa5.md`](gate-runs/a86498f2001b4155dc32f1eea681c04c2a3eeaa5.md).

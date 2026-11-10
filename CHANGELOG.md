@@ -1480,6 +1480,15 @@ CONTRIBUTING.md for the version policy.
     namespace mimir-server shares with it; that is now a recorded trust assumption.
 
 ### Fixed
+- **A release tag now verifies on the signing runner.** `tools/ci/verify-tag.sh` fetches
+  the tag afresh from origin in a pipeline before judging it. The checkout
+  `actions/checkout` makes for a tag's run holds a lightweight stand-in for an annotated
+  tag, because the action fetches the pushed commit over the tag when the tag's object
+  is not that commit, which an annotated tag's never is; the stand-in carries no
+  signature, so the first `v0.1.0-rc.1` preflight refused it. The tag origin holds is
+  the one judged, the signature, the pinned signers and the main check deciding as
+  before; on a developer's shell the tag in the checkout is still the one judged, as
+  `tag-release.sh` needs. [AC-RF-CA-6a] [VLD-ANB-MIDGARD-0035]
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser
   in `services/runtime` recursed once per nesting level with no bound, and the edge
   parses bodies of up to 1 MiB with it before authentication, so one unauthenticated

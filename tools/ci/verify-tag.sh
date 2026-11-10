@@ -15,6 +15,15 @@
 #   - points at the commit checked out, when the checkout is a commit and not a branch;
 #   - points at a commit on main: an ancestor of origin/main, fetched afresh.
 #
+# In a pipeline the tag itself is fetched afresh from origin first. The checkout made
+# for a tag's own run holds a lightweight stand-in for an annotated tag: actions/checkout
+# fetches every tag, then compares the pushed commit with `git rev-parse refs/tags/TAG`,
+# which for an annotated tag is the tag object and never the commit, and so "corrects"
+# the tag to the commit. The stand-in carries no signature; the tag origin holds does,
+# and only a release manager can have put it there (docs/dev/CI.md, "Repository rules").
+# On a developer's shell the tag in the checkout is judged as it is: tag-release.sh
+# verifies the tag it has just made, before it is pushed.
+#
 # The allowed-signers file is git's format (ssh-keygen(1), "ALLOWED SIGNERS"): one
 # `<principal> namespaces="git" <key type> <public key>` per line, published by the key
 # ceremony as deploy/trust/allowed_signers (docs/ops/PKI.md, "Git signing"). That copy
@@ -56,6 +65,14 @@ tag="${1:-$(cd "$ROOT" && ci_tag)}"
 [ -n "$tag" ] || fail "no tag to verify: name one, or run on a tag pipeline"
 cd "$ROOT" || exit 2
 ROOT="$(pwd -P)"
+
+# The tag as origin has it now, in a pipeline (see the header): the checkout made for
+# the tag's run holds a lightweight stand-in for it. When the fetch cannot be made, the
+# tag this checkout holds is judged, and the checks below decide.
+if [ "$(ci_platform)" != local ]; then
+    GIT_TERMINAL_PROMPT=0 git fetch --quiet --no-tags origin "+refs/tags/$tag:refs/tags/$tag" 2>/dev/null ||
+        ci_warning "verify-tag: could not fetch $tag from origin; checking the tag this checkout holds"
+fi
 
 git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null || fail "there is no tag $tag here" \
     "A shallow checkout may not have fetched it: fetch with tags, or fetch-depth: 0."
