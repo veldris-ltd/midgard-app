@@ -100,6 +100,10 @@ jobs:
     env:
       MIDGARD_SIGNING_KEYSTORE: ${{ secrets.MIDGARD_SIGNING_KEYSTORE_PATH }}
       MIDGARD_BIFROST_KEYSTORE: ${{ secrets.MIDGARD_BIFROST_KEYSTORE_PATH }}
+      # Each keystore's root is wrapped under a passphrase kept apart from it
+      # (docs/ops/PKI.md, "Signing runner"). [VLD-ANB-MIDGARD-0007]
+      MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE: ${{ secrets.MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE }}
+      MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE: ${{ secrets.MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE }}
       MIDGARD_BIFROST_REGISTRY: ${{ secrets.MIDGARD_BIFROST_REGISTRY_PATH }}
       # The runner's own copy of allowed_signers, outside the workspace: the tag is
       # verified against it, not against the tagged commit's (docs/ops/PKI.md).
@@ -136,11 +140,16 @@ jobs:
   release:
     name: gate, admit, account
     needs: [preflight, shell-audits]
+    # The shell-audit gate's verdict decides, not the audit jobs' results: see the header
+    # of shell-audit.yml. A cancelled run stops here.
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.shell-audits.outputs.verdict == 'pass' }}
     runs-on: [self-hosted, kms]
     environment: release
     env:
       MIDGARD_SIGNING_KEYSTORE: ${{ secrets.MIDGARD_SIGNING_KEYSTORE_PATH }}
       MIDGARD_BIFROST_KEYSTORE: ${{ secrets.MIDGARD_BIFROST_KEYSTORE_PATH }}
+      MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE: ${{ secrets.MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE }}
+      MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE: ${{ secrets.MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE }}
       MIDGARD_BIFROST_REGISTRY: ${{ secrets.MIDGARD_BIFROST_REGISTRY_PATH }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0

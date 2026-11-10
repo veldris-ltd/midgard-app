@@ -1480,6 +1480,28 @@ CONTRIBUTING.md for the version policy.
     namespace mimir-server shares with it; that is now a recorded trust assumption.
 
 ### Fixed
+- **A waived pre-release now reaches its release job on GitHub.** The gate, admit,
+  account job needed the client shell audits as a whole to succeed, which they never
+  do before the shells exist: an audit that fails is covered by `continue-on-error`, but
+  the apple audit asked for `macos-14`, an image GitHub retired on 2026-11-02, and a job
+  GitHub cancels before it starts is not. So every `v0.1.0-rc.1` run skipped the release
+  and ended cancelled, although its preflight and the "every shell audited" gate passed
+  under the rc.1 waiver. `shell-audit.yml` now outputs the gate's verdict, written only
+  once the gate passes, and the release job runs on that verdict and a passed preflight,
+  never in a cancelled run. The apple audit runs on `macos-15`. `tools/ci/tests/workflows.test.sh`
+  checks the condition, the output and where the verdict is written. [RC-49] [AC-C-11]
+- **The release workflow passes each keystore's passphrase file to the signing runner.**
+  Since each keystore's root became wrapped under a passphrase of its own, the preflight
+  and `release.sh` have required `MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE` and
+  `MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE`, but `release.yml` passed neither to the
+  preflight or to the gate, admit, account job, so a tagged release stopped at the
+  preflight even with both runner secrets set; the `v0.1.0-rc.1` run did. Both jobs now
+  map the runner secrets of those names, as `docs/ops/PKI.md` names them, and the
+  preflight's message for an unset passphrase file names that secret rather than one
+  ending in `_PATH`. `tools/ci/tests/release-preflight.test.sh` checks that every job on
+  the signing runner is given each keystore, passphrase file and the registry, from the
+  secret the preflight names. The `.gitlab-ci.yml` header lists the two CI/CD
+  variables. [VLD-ANB-MIDGARD-0007]
 - **A release tag now verifies on the signing runner.** `tools/ci/verify-tag.sh` fetches
   the tag afresh from origin in a pipeline before judging it. The checkout
   `actions/checkout` makes for a tag's run holds a lightweight stand-in for an annotated
