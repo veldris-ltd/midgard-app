@@ -120,11 +120,17 @@ fi
 # 3. Key material: named explicitly, readable, and never inside the checkout.
 # Each keystore's passphrase is a separate secret, mounted read-only like the keystore;
 # without it the keystore does not open. [VLD-ANB-MIDGARD-0007]
+# The runner secrets are named as docs/ops/PKI.md names them: a keystore's is the
+# variable's name with _PATH, a passphrase file's is the variable's own name.
 for var in MIDGARD_SIGNING_KEYSTORE MIDGARD_BIFROST_KEYSTORE \
     MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE; do
     path="${!var:-}"
+    case "$var" in
+        *_PASSPHRASE_FILE) secret="$var" ;;
+        *) secret="${var}_PATH" ;;
+    esac
     if [ -z "$path" ]; then
-        bad "$var is not configured (runner secret ${var}_PATH)"
+        bad "$var is not configured (runner secret $secret)"
     elif [ ! -r "$path" ] || [ -d "$path" ]; then
         bad "$var names $path, which is not a readable file"
     elif in_workspace "$path"; then

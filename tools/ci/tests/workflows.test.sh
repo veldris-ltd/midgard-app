@@ -81,6 +81,41 @@ for job in preflight release; do
         fail "GitHub: the $job job runs in the release environment"
 done
 
+# The release goes by the shell-audit gate's verdict, not by the audit jobs' results: a
+# waived pre-release has audits that failed, or that GitHub cancelled before they
+# started, and its release must still run once the gate passes; with no verdict of
+# "pass" it must not. [RC-49] [AC-C-11]
+# job_block FILE JOB: the job's lines, up to the next job.
+job_block() {
+    tr -d '\r' < "$1" | awk -v job="$2" '
+        $0 ~ "^  " job ":$" { on = 1; next }
+        on && /^  [a-z]/ { on = 0 }
+        on'
+}
+release_if="$(job_block "$workflows/release.yml" release | sed -n 's/^    if: *//p')"
+for part in '!cancelled()' "needs.preflight.result == 'success'" "needs.shell-audits.outputs.verdict == 'pass'"; do
+    grep -qF -- "$part" <<<"$release_if" &&
+        pass "GitHub: the release job requires $part" ||
+        fail "GitHub: the release job requires $part: if: $release_if"
+done
+grep -qE 'always\(\)|failure\(\)|\|\|' <<<"$release_if" &&
+    fail "GitHub: the release job's condition only narrows, never widens: if: $release_if" ||
+    pass "GitHub: the release job's condition only narrows, never widens"
+audit="$workflows/shell-audit.yml"
+tr -d '\r' < "$audit" | grep -q '^        value: \${{ jobs.gate.outputs.verdict }}$' &&
+    pass "GitHub: shell-audit.yml outputs the gate job's verdict" ||
+    fail "GitHub: shell-audit.yml outputs the gate job's verdict"
+# In the gate job the verdict is written by a step with no condition of its own, right
+# after the gate step, so it is reached only when the gate passed.
+gate_steps="$(job_block "$audit" gate | sed -n '/^    steps:$/,$p' | grep -E '^      - |^        (run|if|id):')"
+tail -n 3 <<<"$gate_steps" | tr '\n' '|' |
+    grep -qF -- '      - run: bash tools/ci/run.sh shell-audit-gate|      - id: verdict|        run: echo "verdict=pass" >> "$GITHUB_OUTPUT"|' &&
+    pass "GitHub: the verdict is written only after the gate step passes" ||
+    fail "GitHub: the verdict is written only after the gate step passes:"$'\n'"$gate_steps"
+job_block "$audit" gate | grep -q '^      verdict: \${{ steps.verdict.outputs.verdict }}$' &&
+    pass "GitHub: the gate job exposes the verdict step's output" ||
+    fail "GitHub: the gate job exposes the verdict step's output"
+
 if [ "$failures" -gt 0 ]; then
     echo "$failures failure(s)"
     exit 1

@@ -368,6 +368,9 @@ both pipelines the gate runs from `.ci-trusted` before anything else.
 
 A release also waits on the client shell audits, which fail closed until every shell
 has a buildable project (see [`clients/shells/AUDIT_SCHEMA.md`](../../clients/shells/AUDIT_SCHEMA.md)).
+On GitHub the release job goes by the audit gate's verdict, the `verdict` output of
+`shell-audit.yml`, and not by the audit jobs' results: a waived pre-release passes the
+gate with audits that failed, or that GitHub cancelled before they started.
 
 Publishing is deliberately limited. On GitHub, `release-publish` creates a **draft**
 pre-release. GitLab has no draft state, so there the files are uploaded to the
