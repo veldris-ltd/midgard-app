@@ -9,6 +9,16 @@ CONTRIBUTING.md for the version policy.
 
 ## [Unreleased]
 
+## [0.1.0-rc.2] — release candidate
+
+The second release candidate. `v0.1.0-rc.1` was tagged on 2026-11-09 and never
+released: three faults in the release workflow kept its run from the signing jobs (the
+first three entries under Fixed), and a tag's run uses its own commit's workflow files,
+so no re-run could release it. Apart from those fixes and the version, rc.2 is the
+tree rc.1 tagged: every other entry below was already in it. **A release candidate is
+not a supported release**; GA remains blocked as under 0.1.0-rc.1. See
+`docs/releases/v0.1.0-rc.2.md`.
+
 ### Added
 - **Shamir secret sharing in the crypto core.** `pqc_agility::shamir` splits a secret
   k of n over GF(2^8) in constant time and zeroises its intermediates. Dvalin
@@ -1527,7 +1537,7 @@ CONTRIBUTING.md for the version policy.
   publishes to be committed, so committing them failed. The anchors are now excepted;
   other `.pub` files stay ignored, and `tools/ci/tests/ceremony.test.sh` holds both.
 
-## [0.1.0-rc.1] — release candidate, not yet tagged
+## [0.1.0-rc.1] — release candidate, tagged 2026-11-09, never released
 
 The first release candidate: from verified libraries to a platform that can be
 deployed and used. **A release candidate is not a supported release.** It exercises

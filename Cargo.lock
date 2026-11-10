@@ -4,7 +4,7 @@ version = 3
 
 [[package]]
 name = "admin-ai-assist"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "admin-identity",
  "admin-privilege",
@@ -16,7 +16,7 @@ dependencies = [
 
 [[package]]
 name = "admin-audit"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "admin-breakglass",
  "admin-config",
@@ -29,7 +29,7 @@ dependencies = [
 
 [[package]]
 name = "admin-breakglass"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "admin-identity",
  "audit-writer",
@@ -39,7 +39,7 @@ dependencies = [
 
 [[package]]
 name = "admin-config"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "audit-writer",
  "kms",
@@ -48,7 +48,7 @@ dependencies = [
 
 [[package]]
 name = "admin-identity"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "audit-writer",
  "kms",
@@ -57,7 +57,7 @@ dependencies = [
 
 [[package]]
 name = "admin-orchestrator"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "admin-config",
  "admin-identity",
@@ -71,7 +71,7 @@ dependencies = [
 
 [[package]]
 name = "admin-privilege"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "admin-identity",
  "audit-writer",
@@ -81,7 +81,7 @@ dependencies = [
 
 [[package]]
 name = "admin-service-identity"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "iam",
  "policy",
@@ -91,7 +91,7 @@ dependencies = [
 
 [[package]]
 name = "admin-sim"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "policy",
 ]
@@ -135,7 +135,7 @@ dependencies = [
 
 [[package]]
 name = "agent-runtime"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "fabric",
  "governance",
@@ -161,7 +161,7 @@ dependencies = [
 
 [[package]]
 name = "attest"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "attest",
  "kms",
@@ -170,7 +170,7 @@ dependencies = [
 
 [[package]]
 name = "audit-writer"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "pqc-agility",
 ]
@@ -183,7 +183,7 @@ checksum = "8c3c1a368f70d6cf7302d78f8f7093da241fb8e8807c05cc9e51a125895a6d5b"
 
 [[package]]
 name = "bifrost-artefact"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "attest",
  "pqc-agility",
@@ -191,7 +191,7 @@ dependencies = [
 
 [[package]]
 name = "bifrost-bundle"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "attest",
  "bifrost-artefact",
@@ -200,7 +200,7 @@ dependencies = [
 
 [[package]]
 name = "bifrost-fleet"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "audit-writer",
  "bifrost-rollout",
@@ -212,7 +212,7 @@ dependencies = [
 
 [[package]]
 name = "bifrost-fleet-server"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "attest",
  "audit-writer",
@@ -230,7 +230,7 @@ dependencies = [
 
 [[package]]
 name = "bifrost-risk"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "mimir-bridge",
  "mimir-prompts",
@@ -239,7 +239,7 @@ dependencies = [
 
 [[package]]
 name = "bifrost-rollout"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "bifrost-artefact",
  "pqc-agility",
@@ -346,7 +346,7 @@ dependencies = [
 
 [[package]]
 name = "fabric"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "audit-writer",
  "governance",
@@ -399,7 +399,7 @@ dependencies = [
 
 [[package]]
 name = "forge-ai-assist"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "forge-dataset-store",
  "forge-engine",
@@ -410,7 +410,7 @@ dependencies = [
 
 [[package]]
 name = "forge-connector-sdk"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "forge-dataset-store",
  "kms",
@@ -419,7 +419,7 @@ dependencies = [
 
 [[package]]
 name = "forge-dataset-store"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "kms",
  "pqc-agility",
@@ -427,7 +427,7 @@ dependencies = [
 
 [[package]]
 name = "forge-engine"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "fabric",
  "forge-connector-sdk",
@@ -438,7 +438,7 @@ dependencies = [
 
 [[package]]
 name = "forge-health"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "forge-dataset-store",
  "forge-engine",
@@ -449,7 +449,7 @@ dependencies = [
 
 [[package]]
 name = "forge-pipeline"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "forge-connector-sdk",
  "forge-dataset-store",
@@ -460,7 +460,7 @@ dependencies = [
 
 [[package]]
 name = "forge-projection"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "fabric",
  "forge-dataset-store",
@@ -470,7 +470,7 @@ dependencies = [
 
 [[package]]
 name = "forge-worker"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "attest",
  "audit-writer",
@@ -491,7 +491,7 @@ dependencies = [
 
 [[package]]
 name = "gateway"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "governance",
  "iam",
@@ -534,7 +534,7 @@ dependencies = [
 
 [[package]]
 name = "governance"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "audit-writer",
  "kms",
@@ -544,14 +544,14 @@ dependencies = [
 
 [[package]]
 name = "heimdall-classify"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "heimdall-picture",
 ]
 
 [[package]]
 name = "heimdall-decision-support"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "heimdall-picture",
  "mimir-bridge",
@@ -561,7 +561,7 @@ dependencies = [
 
 [[package]]
 name = "heimdall-feed-gateway"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "heimdall-picture",
  "iam",
@@ -572,7 +572,7 @@ dependencies = [
 
 [[package]]
 name = "heimdall-feed-server"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "attest",
  "audit-writer",
@@ -592,7 +592,7 @@ dependencies = [
 
 [[package]]
 name = "heimdall-fusion"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "fabric",
  "heimdall-classify",
@@ -604,11 +604,11 @@ dependencies = [
 
 [[package]]
 name = "heimdall-picture"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 
 [[package]]
 name = "heimdall-picture-sync"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "heimdall-feed-gateway",
  "heimdall-fusion",
@@ -621,7 +621,7 @@ dependencies = [
 
 [[package]]
 name = "heimdall-store"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "audit-writer",
  "heimdall-picture",
@@ -632,7 +632,7 @@ dependencies = [
 
 [[package]]
 name = "heimdall-workflow"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "audit-writer",
  "heimdall-decision-support",
@@ -660,7 +660,7 @@ dependencies = [
 
 [[package]]
 name = "http-gateway"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "admin-identity",
  "admin-privilege",
@@ -680,7 +680,7 @@ dependencies = [
 
 [[package]]
 name = "iam"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "argon2",
  "audit-writer",
@@ -710,7 +710,7 @@ dependencies = [
 
 [[package]]
 name = "kms"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "audit-writer",
  "pqc-agility",
@@ -724,7 +724,7 @@ checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
 
 [[package]]
 name = "mg-admin"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "admin-identity",
  "attest",
@@ -742,7 +742,7 @@ dependencies = [
 
 [[package]]
 name = "mg-bundle"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "attest",
  "bifrost-artefact",
@@ -752,7 +752,7 @@ dependencies = [
 
 [[package]]
 name = "mg-model"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "attest",
  "bifrost-artefact",
@@ -764,7 +764,7 @@ dependencies = [
 
 [[package]]
 name = "mg-register"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "attest",
  "bifrost-artefact",
@@ -774,7 +774,7 @@ dependencies = [
 
 [[package]]
 name = "mg-repro"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "attest",
  "pqc-agility",
@@ -782,7 +782,7 @@ dependencies = [
 
 [[package]]
 name = "mg-sbom"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "attest",
  "pqc-agility",
@@ -790,14 +790,14 @@ dependencies = [
 
 [[package]]
 name = "mg-scan"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "attest",
 ]
 
 [[package]]
 name = "mg-sign"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "attest",
  "kms",
@@ -806,7 +806,7 @@ dependencies = [
 
 [[package]]
 name = "mg-verify"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "attest",
  "kms",
@@ -816,14 +816,14 @@ dependencies = [
 
 [[package]]
 name = "midgard-client-broker"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "mimir-prompts",
 ]
 
 [[package]]
 name = "midgard-client-core"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "kms",
  "midgard-client-enclosure",
@@ -836,7 +836,7 @@ dependencies = [
 
 [[package]]
 name = "midgard-client-delivery"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "bifrost-artefact",
  "bifrost-bundle",
@@ -845,7 +845,7 @@ dependencies = [
 
 [[package]]
 name = "midgard-client-enclosure"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "policy",
  "pq-mtls",
@@ -854,7 +854,7 @@ dependencies = [
 
 [[package]]
 name = "midgard-client-inference"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "audit-writer",
  "midgard-client-enclosure",
@@ -866,7 +866,7 @@ dependencies = [
 
 [[package]]
 name = "midgard-client-keystore"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "kms",
  "pqc-agility",
@@ -874,7 +874,7 @@ dependencies = [
 
 [[package]]
 name = "midgard-client-store"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "kms",
  "midgard-client-keystore",
@@ -884,11 +884,11 @@ dependencies = [
 
 [[package]]
 name = "midgard-client-sync"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 
 [[package]]
 name = "mimir-bridge"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "gateway",
  "governance",
@@ -901,11 +901,11 @@ dependencies = [
 
 [[package]]
 name = "mimir-prompts"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 
 [[package]]
 name = "mimir-server"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "attest",
  "gateway",
@@ -922,7 +922,7 @@ dependencies = [
 
 [[package]]
 name = "model-server"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "attest",
  "audit-writer",
@@ -938,7 +938,7 @@ dependencies = [
 
 [[package]]
 name = "oag-retriever"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "fabric",
  "mimir-prompts",
@@ -974,7 +974,7 @@ dependencies = [
 
 [[package]]
 name = "policy"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 
 [[package]]
 name = "polyval"
@@ -991,7 +991,7 @@ dependencies = [
 
 [[package]]
 name = "pq-mtls"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "policy",
  "pqc-agility",
@@ -999,7 +999,7 @@ dependencies = [
 
 [[package]]
 name = "pqc-agility"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -1058,7 +1058,7 @@ dependencies = [
 
 [[package]]
 name = "scheduler"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 
 [[package]]
 name = "semver"
@@ -1068,7 +1068,7 @@ checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
 
 [[package]]
 name = "service-runtime"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "attest",
  "audit-writer",
@@ -1105,7 +1105,7 @@ dependencies = [
 
 [[package]]
 name = "staging"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "mimir-prompts",
  "model-server",
@@ -1131,7 +1131,7 @@ dependencies = [
 
 [[package]]
 name = "telemetry"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 dependencies = [
  "service-runtime",
 ]

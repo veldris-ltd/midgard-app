@@ -5,7 +5,7 @@
 
 Every headline figure about this repository, each with the rule that counts it and a command that reproduces it. This sheet is the single source for these figures: a document that quotes one quotes it from here, and `bash tools/ci/numbers.sh --check` fails if it differs.
 
-The figures are of the tree this file is committed with, version `0.1.0-rc.1`. A sheet cannot contain the id of the commit that contains it, so it does not name one; check it against any checkout with `bash tools/ci/numbers.sh --check`.
+The figures are of the tree this file is committed with, version `0.1.0-rc.2`. A sheet cannot contain the id of the commit that contains it, so it does not name one; check it against any checkout with `bash tools/ci/numbers.sh --check`.
 
 ## In the tree
 
