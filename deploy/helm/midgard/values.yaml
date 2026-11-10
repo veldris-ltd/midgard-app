@@ -23,7 +23,7 @@ image:
   # true renders "<registry>/<service>:<tag>" for a service with no digest, with
   # imagePullPolicy Always: for development clusters only, never a release.
   allowTag: false
-  tag: "0.1.0-rc.1"
+  tag: "0.1.0-rc.2"
   # Used for image.single only: a digest pulls IfNotPresent, a tag Always.
   pullPolicy: IfNotPresent
   # Set to one image holding every binary (the compose image) to run each service's

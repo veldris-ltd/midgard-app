@@ -28,11 +28,11 @@ artefacts. By hand:
 
 ```bash
 # produce.sh OUT.mgbundle ID LABEL KEYSTORE  [<component>=]<id>:<ver>:<path> ...
-bash deploy/air-gap-bundle/produce.sh midgard-0.1.0-rc.1.mgbundle midgard-0.1.0-rc.1 v0.1.0-rc.1 \
+bash deploy/air-gap-bundle/produce.sh midgard-0.1.0-rc.2.mgbundle midgard-0.1.0-rc.2 v0.1.0-rc.2 \
     "$MIDGARD_BIFROST_KEYSTORE" \
-    http-gateway:0.1.0-rc.1:target/verified/http-gateway \
-    attestation=http-gateway.sig:0.1.0-rc.1:target/verified/http-gateway.sig \
-    attestation=http-gateway.att:0.1.0-rc.1:target/verified/http-gateway.att
+    http-gateway:0.1.0-rc.2:target/verified/http-gateway \
+    attestation=http-gateway.sig:0.1.0-rc.2:target/verified/http-gateway.sig \
+    attestation=http-gateway.att:0.1.0-rc.2:target/verified/http-gateway.att
 ```
 
 The keystore is sealed (`mg-sign keygen --alg ML-DSA-65`), and the signing key is
@@ -47,7 +47,7 @@ Nothing else crosses the gap.
 ## Install (disconnected site, no network)
 
 ```bash
-bash deploy/air-gap-bundle/install.sh midgard-0.1.0-rc.1.mgbundle \
+bash deploy/air-gap-bundle/install.sh midgard-0.1.0-rc.2.mgbundle \
     --bundle-trust deploy/trust/bifrost-trust.pub \
     --registry registry.enclosure.local/midgard --push
 ```

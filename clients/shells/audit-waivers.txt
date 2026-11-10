@@ -11,3 +11,4 @@
 # Format: <version>  approved-by: <name>  date: <YYYY-MM-DD>  reason: <text>
 
 0.1.0-rc.1  approved-by: JB Webb-Benjamin (owner)  date: 2026-10-22  reason: none of the six shells has a buildable project yet (RF-CL-2..7), so no audit can run; rc.1 ships no client shell, and its notes and GA_READINESS record the shells and their audits as GA blockers
+0.1.0-rc.2  approved-by: JB Webb-Benjamin (owner)  date: 2026-11-10  reason: as for 0.1.0-rc.1, none of the six shells has a buildable project yet (RF-CL-2..7), so no audit can run; rc.2 is rc.1 with the release workflow fixed so it can reach its signing jobs, ships no client shell, and its notes and GA_READINESS record the shells and their audits as GA blockers
