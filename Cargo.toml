@@ -80,7 +80,7 @@ members = [
 exclude = ["crypto/pq-mtls/fuzz"]
 
 [workspace.package]
-version = "0.1.0-rc.2"
+version = "0.1.0-rc.3"
 edition = "2021"
 license = "Apache-2.0"
 authors = ["Veldris Ltd. <hello@veldris.io>"]

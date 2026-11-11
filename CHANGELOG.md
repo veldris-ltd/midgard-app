@@ -9,7 +9,41 @@ CONTRIBUTING.md for the version policy.
 
 ## [Unreleased]
 
-## [0.1.0-rc.2] — release candidate
+## [0.1.0-rc.3] — release candidate
+
+The third release candidate. `v0.1.0-rc.2` was tagged on 2026-11-10 and never
+released: its run gated, signed and admitted every artefact, then stopped on the
+faults fixed below, which no earlier run had reached. Apart from those fixes and the
+version, rc.3 is the tree rc.2 tagged, and the entries under 0.1.0-rc.2 describe it.
+**A release candidate is not a supported release**; GA remains blocked as under
+0.1.0-rc.1. See `docs/releases/v0.1.0-rc.3.md`.
+
+### Fixed
+- **A tagged release reaches its images and its bundle.** The toolchain container runs
+  as root, so on the signing runner the release left `target/release-out` owned by
+  root: the images step, run as the runner's user, could not write into it, and the
+  runner's job-completed hook could not clear the workspace. `tools/ci/in-toolchain.sh`
+  now hands `target/` back to the calling user when each command ends, on a Linux host
+  whose user is not root (`MIDGARD_TOOLCHAIN_OWNER` names another).
+- **The release chart pins the `mimir-probe` image.** The release builds an image for
+  each one `supply-chain/release-artefacts.txt` names, six in all, and
+  `deploy/helm/set-digests.sh` refuses a lock naming an image the chart has no digest
+  entry for; `values.yaml` named five. It now names `mimir-probe` too, and
+  `tools/ci/tests/helm-digests.test.sh` checks the chart's entries against the
+  release's image list.
+- **The release renders its chart.** The chart refuses the kubernetes secrets provider
+  without `secrets.acknowledgeEtcdEncryption`, and the release's reference rendering
+  did not set it. It now does, as `deploy/k8s/render.sh` does; an operator on another
+  provider renders the signed `values.yaml` with their own.
+- **The air-gap bundle carries the JavaScript artefacts.** `mg-bundle` refused the
+  `ui-bundle` and `npm-package` kinds the release gates and admits, so the bundle step
+  failed. It packs both now, and `tools/ci/tests/release-artefacts.test.sh` checks
+  every kind the release gates against the ones it packs.
+- **The bundle unseals its keystore.** `deploy/air-gap-bundle/produce.sh` did not pass
+  the admission keystore's passphrase file to `mg-bundle`; it now passes
+  `MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE`, as the release provides it.
+
+## [0.1.0-rc.2] — release candidate, tagged 2026-11-10, never released
 
 The second release candidate. `v0.1.0-rc.1` was tagged on 2026-11-09 and never
 released: three faults in the release workflow kept its run from the signing jobs (the
