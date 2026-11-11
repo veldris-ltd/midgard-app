@@ -44,7 +44,7 @@ The gate was last recorded at commit [`b65890afa598`](docs/compliance/gate-runs/
 
 What that does **not** yet mean:
 
-- **No release has been published yet.** `v0.1.0-rc.1` was tagged, but its release workflow could not reach the signing jobs, so it produced nothing. Version `0.1.0-rc.2` is that candidate with the release workflow fixed: the release workflow, the verify-before-run images and the signed air-gap bundle are in place (see [the release candidate notes](docs/releases/v0.1.0-rc.2.md)), and the key ceremony and the signing runner are done.
+- **No release has been published yet.** `v0.1.0-rc.1` and `v0.1.0-rc.2` were tagged, but faults in the release workflow stopped each run before it produced a release. Version `0.1.0-rc.3` is that candidate with those faults fixed: the release workflow, the verify-before-run images and the signed air-gap bundle are in place (see [the release candidate notes](docs/releases/v0.1.0-rc.3.md)), and the key ceremony and the signing runner are done.
 - **Most subsystems are still libraries, not services.** Every crate is implemented and tested. Five are running services so far:
   - `http-gateway`, the enclosure's edge
   - `mimir-server`, the inference plane over PQ-mTLS
@@ -927,7 +927,7 @@ The set of artefacts to release is derived from the workspace (`just release-man
 
 Both pipelines call the same jobs in `tools/ci/run.sh`; see [docs/dev/CI.md](docs/dev/CI.md).
 
-See [the release candidate notes](docs/releases/v0.1.0-rc.2.md) and `docs/ops/PKI.md`.
+See [the release candidate notes](docs/releases/v0.1.0-rc.3.md) and `docs/ops/PKI.md`.
 
 At run time, each release image's entrypoint, `mg-verify --run-service` on a distroless runtime with no shell, re-verifies the signature, SBOM and provenance against the pinned release trust key before exec'ing any service — a tampered or unsigned binary refuses to start.
 

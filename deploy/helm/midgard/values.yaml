@@ -11,19 +11,23 @@ image:
   # deploy/images/service.Dockerfile). The verifier and its key travel inside the
   # image, so only the digest binds a pod to the signed build: a release chart pins
   # every image by digest, and does not render while a service's digest is empty.
-  # deploy/helm/set-digests.sh writes them from the signed images.lock of a release.
-  # [VLD-ANB-MIDGARD-0012]
+  # deploy/helm/set-digests.sh writes them from the signed images.lock of a release,
+  # which names every release image (supply-chain/release-artefacts.txt), so each has an
+  # entry here. mimir-probe is one the chart does not run: it is the image for the
+  # mimir-probe mesh client (`clients`, below), which runs as a Job, and its digest is
+  # here so that Job can be pinned too. [VLD-ANB-MIDGARD-0012]
   registry: registry.enclosure.local/midgard
   digests:
     http-gateway: ""
     mimir-server: ""
+    mimir-probe: ""
     bifrost-fleet: ""
     heimdall-feed: ""
     forge-worker: ""
   # true renders "<registry>/<service>:<tag>" for a service with no digest, with
   # imagePullPolicy Always: for development clusters only, never a release.
   allowTag: false
-  tag: "0.1.0-rc.2"
+  tag: "0.1.0-rc.3"
   # Used for image.single only: a digest pulls IfNotPresent, a tag Always.
   pullPolicy: IfNotPresent
   # Set to one image holding every binary (the compose image) to run each service's

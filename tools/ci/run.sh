@@ -525,8 +525,13 @@ job_release_images() {
         --trust "${MIDGARD_TRUST_ANCHORS:-deploy/trust/release-trust.pub}" --out "$out/images"
     bash deploy/helm/set-digests.sh "$out/images/images.lock" deploy/helm/midgard/values.yaml \
         --out "$out/chart/values.yaml"
+    # The release values keep the kubernetes secrets provider, which the chart refuses to
+    # render without secrets.acknowledgeEtcdEncryption; the reference rendering sets it,
+    # as deploy/k8s/render.sh does, and an operator on another provider renders the
+    # signed values.yaml with their own. [VLD-ANB-MIDGARD-0018]
     "${HELM:-helm}" template midgard deploy/helm/midgard -f "$out/chart/values.yaml" \
-        --namespace default | tr -d '\r' > "$out/chart/enclosure.yaml"
+        --namespace default --set secrets.acknowledgeEtcdEncryption=true \
+        | tr -d '\r' > "$out/chart/enclosure.yaml"
     signing_mounts mounts
     in_toolchain "${mounts[@]}" \
         --env "MIDGARD_TRUST_ANCHORS=${MIDGARD_TRUST_ANCHORS:-deploy/trust/release-trust.pub}" -- \

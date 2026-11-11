@@ -533,7 +533,7 @@ spec:
             - { name: keystore-passphrase, mountPath: /keystore-passphrase }
       containers:
         - name: http-gateway
-          image: registry.enclosure.local/midgard/http-gateway:0.1.0-rc.2
+          image: registry.enclosure.local/midgard/http-gateway:0.1.0-rc.3
           imagePullPolicy: Always
           env:
             - name: MIDGARD_SERVICE
@@ -692,7 +692,7 @@ spec:
             - { name: keystore-passphrase, mountPath: /keystore-passphrase }
       containers:
         - name: mimir-server
-          image: registry.enclosure.local/midgard/mimir-server:0.1.0-rc.2
+          image: registry.enclosure.local/midgard/mimir-server:0.1.0-rc.3
           imagePullPolicy: Always
           env:
             - name: MIDGARD_SERVICE
@@ -851,7 +851,7 @@ spec:
             - { name: keystore-passphrase, mountPath: /keystore-passphrase }
       containers:
         - name: bifrost-fleet
-          image: registry.enclosure.local/midgard/bifrost-fleet:0.1.0-rc.2
+          image: registry.enclosure.local/midgard/bifrost-fleet:0.1.0-rc.3
           imagePullPolicy: Always
           env:
             - name: MIDGARD_SERVICE
@@ -1010,7 +1010,7 @@ spec:
             - { name: keystore-passphrase, mountPath: /keystore-passphrase }
       containers:
         - name: heimdall-feed
-          image: registry.enclosure.local/midgard/heimdall-feed:0.1.0-rc.2
+          image: registry.enclosure.local/midgard/heimdall-feed:0.1.0-rc.3
           imagePullPolicy: Always
           env:
             - name: MIDGARD_SERVICE
@@ -1142,7 +1142,7 @@ spec:
             - { name: keystore-passphrase, mountPath: /keystore-passphrase }
       containers:
         - name: forge-worker
-          image: registry.enclosure.local/midgard/forge-worker:0.1.0-rc.2
+          image: registry.enclosure.local/midgard/forge-worker:0.1.0-rc.3
           imagePullPolicy: Always
           env:
             - name: MIDGARD_SERVICE
