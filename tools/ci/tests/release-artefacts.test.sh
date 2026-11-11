@@ -134,6 +134,23 @@ else
     fail "this workspace's own list checks clean: $(cat "$work/err")"
 fi
 
+# Every kind the release gates and admits goes into the air-gap bundle with that kind
+# (tools/ci/run.sh, job_release_bundle), and mg-bundle refuses a kind it does not know:
+# each must be in its COMPONENTS, or the release stops at its bundle step.
+repo="$(cd "$here/../../.." && pwd)"
+packs="$(tr -d '\r' < "$repo/tools/mg-bundle/src/main.rs" |
+    sed -n '/^const COMPONENTS/,/\];/p' | grep -o '"[a-z-]*"' | tr -d '"' | sort -u)"
+gated="$(
+    grep -v '^#' "$repo/supply-chain/release-artefacts.txt" | tr -d '\r' | awk 'NF { print $3 }'
+    grep -o 'kind=[a-z-]*' "$repo/tools/ci/js-artefacts.sh" | sed 's/kind=//'
+)"
+missing="$(comm -23 <(sort -u <<<"$gated") <(echo "$packs"))"
+if [ -n "$packs" ] && [ -n "$gated" ] && [ -z "$missing" ]; then
+    pass "mg-bundle packs every kind the release gates ($(sort -u <<<"$gated" | tr '\n' ' '))"
+else
+    fail "mg-bundle does not pack the release kind(s): ${missing:-<none found>}"
+fi
+
 if [ "$failures" -gt 0 ]; then
     echo "release-artefacts tests: $failures failure(s)"
     exit 1

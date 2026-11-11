@@ -40,8 +40,13 @@ services="$(tr -d '\r' < "$values" | sed -n '/^  digests:/,/^  [^ ]/s/^    \([a-
 containers=$(tr -d '\r' < "$values" | grep -c '^  - name:')
 tools=$(( $(tr -d '\r' < "$values" | grep -c '^    seed: true') + $(tr -d '\r' < "$values" | grep -c '^    identity:') ))
 toolimage="$(tr -d '\r' < "$values" | sed -n '/^seedImage:/,/^[^ ]/{s/^  repository: //p}')@$(tr -d '\r' < "$values" | sed -n '/^seedImage:/,/^[^ ]/{s/^  digest: //p}')"
-check "the chart names a digest for each of the five services" \
-    test "$(echo $services)" = "http-gateway mimir-server bifrost-fleet heimdall-feed forge-worker"
+nservices=$(echo $services | wc -w)
+# The release builds an image for each one supply-chain/release-artefacts.txt names, and
+# set-digests refuses a lock naming an image the chart has no entry for: the two lists
+# must be the same, or a tagged release stops at its images step.
+images="$(cd "$root" && bash tools/ci/release-artefacts.sh --images | tr -d '[]"' | tr ',' '\n' | sort)"
+check "the chart names a digest for each release image" \
+    test "$(echo $services | tr ' ' '\n' | sort)" = "$images"
 
 # --- the chart's image rule -----------------------------------------------------------
 HELM="${HELM:-helm}"
@@ -83,14 +88,14 @@ else
     check "the committed deploy/k8s/enclosure.yaml is the allowTag rendering" \
         bash "$root/deploy/k8s/render.sh" --check
 
-    # AC-37.2: five digests pin every container and init container.
+    # AC-37.2: the digests pin every container and init container.
     a="sha256:$(hex a)"
     pins=()
     for s in $services; do pins+=(--set "image.digests.$s=$a"); done
     if render "${pins[@]}" > "$work/pinned.yaml"; then
-        pass "five digests render"
+        pass "$nservices digests render"
     else
-        fail "five digests render: $(head -3 "$work/pinned.yaml")"
+        fail "$nservices digests render:$(head -3 "$work/pinned.yaml")"
     fi
     check "pinned: every service image ($containers) is registry/name@digest" \
         test "$(count "^ *image: registry.enclosure.local/midgard/[a-z-]+@$a\$" "$work/pinned.yaml")" = "$containers"
@@ -132,12 +137,28 @@ else
     fail "set-digests writes the release values"
 fi
 check "set-digests: the source values are unchanged" test "$(cksum < "$work/values.yaml")" = "$before"
-check "set-digests: five digests are set" \
-    test "$(count '^    [a-z-]+: sha256:[0-9a-f]{64}$' "$work/release/values.yaml")" = 5
+check "set-digests: every digest is set" \
+    test "$(count '^    [a-z-]+: sha256:[0-9a-f]{64}$' "$work/release/values.yaml")" = "$nservices"
 check "set-digests: each service has its own digest" \
-    grep -q "^    forge-worker: sha256:$(hex 4)\$" "$work/release/values.yaml"
+    grep -q "^    mimir-server: sha256:$(hex 1)\$" "$work/release/values.yaml"
 check "set-digests: nothing else changes" \
-    test "$(diff <(tr -d '\r' < "$values") "$work/release/values.yaml" | grep -c '^[<>]')" = 10
+    test "$(diff <(tr -d '\r' < "$values") "$work/release/values.yaml" | grep -c '^[<>]')" = "$((2 * nservices))"
+
+# The release's reference rendering (tools/ci/run.sh, job_release_images) renders those
+# values with the acknowledgement deploy/k8s/render.sh gives; without it the chart
+# refuses the kubernetes secrets provider, and the release stops at its images step.
+check "release-images renders the chart with secrets.acknowledgeEtcdEncryption=true" \
+    grep -q -- '--set secrets.acknowledgeEtcdEncryption=true' "$root/tools/ci/run.sh"
+if command -v "$HELM" >/dev/null 2>&1; then
+    if "$HELM" template midgard "$chart" -f "$work/release/values.yaml" --namespace default \
+        --set secrets.acknowledgeEtcdEncryption=true > "$work/release/enclosure.yaml" 2>&1; then
+        pass "the release values render as release-images renders them"
+    else
+        fail "the release values render: $(head -3 "$work/release/enclosure.yaml")"
+    fi
+    check "the release rendering pins every service image by digest" \
+        test "$(count "^ *image: registry.enclosure.local/midgard/[a-z-]+@sha256:[0-9a-f]{64}\$" "$work/release/enclosure.yaml")" = "$containers"
+fi
 
 refused() { # refused NAME LOCK: set-digests must refuse LOCK and write nothing
     rm -f "$work/refused.yaml"
@@ -160,7 +181,7 @@ refused "an image named twice" "$work/twice.lock"
 { cat "$lock"; echo "registry.enclosure.local/midgard/stranger:0.1.0 sha256:$(hex e)"; } > "$work/extra.lock"
 refused "an image the chart does not know" "$work/extra.lock"
 if bash "$set_digests" "$lock" "$work/values.yaml" >/dev/null \
-    && [ "$(count '^    [a-z-]+: sha256:' "$work/values.yaml")" = 5 ]; then
+    && [ "$(count '^    [a-z-]+: sha256:' "$work/values.yaml")" = "$nservices" ]; then
     pass "set-digests without --out rewrites the values file"
 else
     fail "set-digests without --out rewrites the values file"
