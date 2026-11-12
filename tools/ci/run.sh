@@ -564,11 +564,102 @@ job_release_bundle() {
         /keys/admission.keystore "${specs[@]}"
 }
 
+# The release a tag's own run made, fetched into OUT. Publishing never builds or signs
+# again: a second release of the same version is refused by the Bifrost registry (each
+# signature is fresh, so its .sig conflicts with the one already admitted), and what is
+# published must be what was released. So the publish run is made on the tag, with the
+# tag's own files, and takes the output of the tag's push run.
+fetch_tag_release() {
+    local tag="$1" out="$2" commit run
+    [ "$(ci_tag)" = "$tag" ] || {
+        case "$(ci_platform)" in
+            github) ci_error "release-publish: run this on the tag itself, so its own files publish it: gh workflow run release.yml --ref $tag -f mode=release -f publish=$tag" ;;
+            *) ci_error "release-publish: run this pipeline on the tag $tag itself, so its own files publish it" ;;
+        esac
+        exit 1
+    }
+    mkdir -p "$out"
+    case "$(ci_platform)" in
+        github)
+            need gh "release-publish: the gh CLI is needed"
+            : "${GITHUB_REPOSITORY:?}"
+            # On the tag, the commit this run builds is the tag's.
+            commit="$(ci_sha)"
+            # The tag is checked above to be a plain release tag, so it is safe in the
+            # filter. The latest successful push run of this workflow on the tag.
+            run="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow release.yml --event push \
+                --commit "$commit" --status success --limit 20 --json databaseId,headBranch \
+                --jq "map(select(.headBranch == \"$tag\")) | .[0].databaseId // empty")"
+            [ -n "$run" ] || {
+                ci_error "release-publish: $tag has no successful release run to publish; its own run must pass first"
+                exit 1
+            }
+            gh run download "$run" --repo "$GITHUB_REPOSITORY" --name release --dir "$out"
+            echo "release-publish: the release $tag's run $run made"
+            ;;
+        gitlab)
+            need curl "release-publish: curl is needed"
+            need unzip "release-publish: unzip is needed"
+            : "${CI_JOB_TOKEN:?}" "${CI_API_V4_URL:?}" "${CI_PROJECT_ID:?}"
+            # The artefacts of the latest successful `release` job on the tag; they hold
+            # target/release-out/, so they unpack into place from the checkout's root.
+            curl --fail --silent --show-error --location --header "JOB-TOKEN: $CI_JOB_TOKEN" \
+                --output "$out.zip" \
+                "$CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/artifacts/$tag/download?job=release" || {
+                ci_error "release-publish: $tag has no successful release job to publish; its own pipeline must pass first"
+                exit 1
+            }
+            unzip -q -o "$out.zip" && rm -f "$out.zip"
+            echo "release-publish: the release $tag's pipeline made"
+            ;;
+        *)
+            ci_error "release-publish: $out holds no completed release, and only a pipeline can fetch one"
+            exit 1
+            ;;
+    esac
+}
+
+# What is published is what was released: every artefact the manifest names is there,
+# with its signature and provenance, and hashes to the digest the release recorded.
+check_release() {
+    local out="$1" tag="$2" id version sha file got f n=0
+    [ -s "$out/release-manifest.txt" ] && [ -s "$out/artefacts.txt" ] || {
+        ci_error "release-publish: $out holds no completed release"
+        exit 1
+    }
+    while read -r id version _ sha; do
+        case "$id" in \#* | "") continue ;; esac
+        [ "v$version" = "$tag" ] || {
+            ci_error "release-publish: the release holds $id $version, not $tag"
+            exit 1
+        }
+        file="$(tr -d '\r' < "$out/artefacts.txt" | awk -v id="$id" '$1 == id { print $4 }')"
+        for f in "$file" "$file.sig" "$file.att"; do
+            [ -n "$file" ] && [ -f "$out/$f" ] || {
+                ci_error "release-publish: $id is in the manifest but $out/${f:-its file} is missing"
+                exit 1
+            }
+        done
+        got="$( (sha256sum "$out/$file" 2>/dev/null || shasum -a 256 "$out/$file") | awk '{print $1}')"
+        [ "$got" = "$sha" ] || {
+            ci_error "release-publish: $out/$file does not hash to the digest the release recorded"
+            exit 1
+        }
+        n=$((n + 1))
+    done < <(tr -d '\r' < "$out/release-manifest.txt")
+    [ "$n" -gt 0 ] || {
+        ci_error "release-publish: the release manifest names no artefact"
+        exit 1
+    }
+    echo "release-publish: $n artefacts, each as the release recorded it"
+}
+
 # A DRAFT pre-release at most: nothing here makes a release public. On GitHub that is
 # a draft release. GitLab has no draft state, so the files go to the project's package
-# registry and the release entry is left for a person to create.
+# registry and the release entry is left for a person to create. It publishes the
+# release the tag's own run made (fetch_tag_release), never a new one.
 job_release_publish() {
-    local tag out=target/release-out files=() f
+    local tag out="${MIDGARD_RELEASE_OUT:-target/release-out}" files=() f
     tag="${1:-${MIDGARD_PUBLISH_TAG:-$(ci_tag)}}"
     [[ "$tag" =~ ^v[0-9A-Za-z.+-]+$ ]] || [ -z "$tag" ] || {
         ci_error "release-publish: $tag is not a release tag"
@@ -578,10 +669,8 @@ job_release_publish() {
         ci_error "release-publish: no tag to publish as"
         exit 1
     }
-    [ -s "$out/release-manifest.txt" ] || {
-        ci_error "release-publish: $out holds no completed release"
-        exit 1
-    }
+    [ -s "$out/release-manifest.txt" ] || fetch_tag_release "$tag" "$out"
+    check_release "$out" "$tag"
     while IFS= read -r f; do files+=("$f"); done < <(
         find "$out" -maxdepth 2 -type f \
             \( -name '*.sig' -o -name '*.att' -o -name '*.sbom.cdx.json' -o -name '*.repro.json' \

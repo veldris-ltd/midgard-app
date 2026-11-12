@@ -9,6 +9,16 @@ CONTRIBUTING.md for the version policy.
 
 ## [Unreleased]
 
+### Fixed
+- **Publishing a tag no longer releases it again.** A manual release run with `publish`
+  set ran the whole release job before drafting, and the Bifrost registry refuses a
+  second release of a version it holds: every signature is fresh, so the new `.sig`
+  files conflict with those already admitted. A publish run is now made on the tag and
+  starts no preflight, audit or release job. `release-publish` takes the output of the
+  tag's own successful release run (on GitLab, its `release` job), checks every
+  artefact against the release manifest, and drafts that. `docs/dev/CI.md` has the
+  command.
+
 ## [0.1.0-rc.3] — release candidate
 
 The third release candidate. `v0.1.0-rc.2` was tagged on 2026-11-10 and never

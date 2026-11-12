@@ -116,6 +116,41 @@ job_block "$audit" gate | grep -q '^      verdict: \${{ steps.verdict.outputs.ve
     pass "GitHub: the gate job exposes the verdict step's output" ||
     fail "GitHub: the gate job exposes the verdict step's output"
 
+# Publishing a tag never releases it again: the Bifrost registry refuses a second
+# release of a version it holds, and what is published must be what was released. So a
+# publish run starts no preflight, audit or release job, and its publish job depends on
+# none: it fetches what the tag's own run made (tools/ci/run.sh, fetch_tag_release).
+# [RC-07] [AC-RF-SC-5e]
+for job in preflight shell-audits; do
+    job_block "$workflows/release.yml" "$job" | grep -q "^    if: .*inputs.publish == ''" &&
+        pass "GitHub: a publish run does not start the $job job" ||
+        fail "GitHub: a publish run does not start the $job job"
+done
+publish_job="$(job_block "$workflows/release.yml" publish)"
+grep -q '^    needs:' <<<"$publish_job" &&
+    fail "GitHub: the publish job waits on no release in its own run" ||
+    pass "GitHub: the publish job waits on no release in its own run"
+grep -q '^      actions: read$' <<<"$publish_job" && grep -q '^      contents: write$' <<<"$publish_job" &&
+    pass "GitHub: the publish job may read the tag's run and write the draft" ||
+    fail "GitHub: the publish job may read the tag's run and write the draft"
+grep -q 'download-artifact' <<<"$publish_job" &&
+    fail "GitHub: the publish job takes no artefact from its own run" ||
+    pass "GitHub: the publish job takes no artefact from its own run"
+# gitlab_block NAME: a top-level key of .gitlab-ci.yml and its lines, up to the next.
+gitlab_block() { tr -d '\r' < "$gitlab" | awk -v j="$1:" '$0 == j { on = 1; next } on && /^[^ #]/ { on = 0 } on'; }
+gitlab_block release-publish | grep -q '^  needs: \[\]$' &&
+    pass "GitLab: release-publish waits on no release in its own pipeline" ||
+    fail "GitLab: release-publish waits on no release in its own pipeline"
+# Every job rule in the file that starts a job on a v* tag or in release mode excludes
+# a publish run, release-publish's own rule apart. (The pipeline-level `workflow:` rules
+# decide only whether there is a pipeline.)
+rule_lines="$(tr -d '\r' < "$gitlab" | awk '/^workflow:/ { skip = 1; next } /^[^ #]/ { skip = 0 } !skip' |
+    grep -E -- '- if: .*(CI_COMMIT_TAG =~|MIDGARD_RELEASE_MODE == "release")' |
+    grep -v 'MIDGARD_PUBLISH_TAG != ""')"
+[ "$(wc -l <<<"$rule_lines")" -ge 5 ] && ! grep -v 'MIDGARD_PUBLISH_TAG == ""' <<<"$rule_lines" | grep -q . &&
+    pass "GitLab: every rule for a tag or a release excludes a publish run" ||
+    fail "GitLab: every rule for a tag or a release excludes a publish run:"$'\n'"$(grep -v 'MIDGARD_PUBLISH_TAG == ""' <<<"$rule_lines")"
+
 if [ "$failures" -gt 0 ]; then
     echo "$failures failure(s)"
     exit 1

@@ -9,8 +9,11 @@
 #     runner, and nothing is published;
 #   - a `v*` tag, or a manual run in `release` mode: the release itself, on the
 #     self-hosted signing runners (docs/ops/PKI.md, "Signing runner");
-#   - a manual run in `release` mode with `publish` set to a tag: the same, then a
-#     DRAFT pre-release. Nothing here makes a release public.
+#   - a manual run in `release` mode with `publish` set to a tag, made ON that tag:
+#     the output of the tag's own release run, as it was released, becomes a DRAFT
+#     pre-release. Nothing is built or signed again: the Bifrost registry refuses a
+#     second release of a version it holds, and what is published must be what was
+#     released. Nothing here makes a release public.
 #
 # The set of binaries is derived from the workspace (`just release-manifest`), so a new
 # binary is gated with no edit to this file. tools/ci/release.sh fails the run if what
@@ -92,7 +95,7 @@ jobs:
 
   preflight:
     name: signing-runner preflight
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'release')
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'release' && inputs.publish == '')
     runs-on: [self-hosted, kms]
     # The protected `release` environment: v* tags only, and a second maintainer
     # approves before anything runs on the signing runner. [VLD-ANB-MIDGARD-0035]
@@ -134,7 +137,7 @@ jobs:
 
   shell-audits:
     name: client shell audits
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'release')
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'release' && inputs.publish == '')
     uses: ./.github/workflows/shell-audit.yml
 
   release:
@@ -168,10 +171,11 @@ jobs:
   publish:
     name: draft pre-release
     if: github.event_name == 'workflow_dispatch' && inputs.mode == 'release' && inputs.publish != ''
-    needs: release
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      # To find the tag's release run and download what it made.
+      actions: read
     env:
       GH_TOKEN: ${{ github.token }}
       # Passed as data, never interpolated into a command line.
@@ -180,8 +184,5 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: release
-          path: target/release-out
+      # Fetches the release the tag's own run made, checks it, and drafts it.
       - run: bash tools/ci/run.sh release-publish
