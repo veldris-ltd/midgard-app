@@ -58,7 +58,7 @@ variables:
     description: "Manual runs only. dry-run: gate everything, publish nothing. release: the release, on the kms runners. audit: the client shell audits."
   MIDGARD_PUBLISH_TAG:
     value: ""
-    description: "release mode only: upload the release files to the package registry under this tag."
+    description: "release mode only, in a pipeline run on this tag: upload the files the tag's own release job made to the package registry under it. Nothing is built or signed again."
 
 default:
   interruptible: true
@@ -128,15 +128,17 @@ default:
     MIDGARD_BIFROST_KEYSTORE: $MIDGARD_BIFROST_KEYSTORE_PATH
     MIDGARD_BIFROST_REGISTRY: $MIDGARD_BIFROST_REGISTRY_PATH
 
+# A manual release run with MIDGARD_PUBLISH_TAG set only publishes: it builds and signs
+# nothing again (see release-publish).
 .on-release:
   rules:
-    - if: $CI_COMMIT_TAG =~ /^v/
-    - if: $CI_PIPELINE_SOURCE == "web" && $MIDGARD_RELEASE_MODE == "release"
+    - if: $CI_COMMIT_TAG =~ /^v/ && $MIDGARD_PUBLISH_TAG == ""
+    - if: $CI_PIPELINE_SOURCE == "web" && $MIDGARD_RELEASE_MODE == "release" && $MIDGARD_PUBLISH_TAG == ""
 
 .on-audit:
   rules:
-    - if: $CI_COMMIT_TAG =~ /^v/
-    - if: $CI_PIPELINE_SOURCE == "web" && $MIDGARD_RELEASE_MODE == "release"
+    - if: $CI_COMMIT_TAG =~ /^v/ && $MIDGARD_PUBLISH_TAG == ""
+    - if: $CI_PIPELINE_SOURCE == "web" && $MIDGARD_RELEASE_MODE == "release" && $MIDGARD_PUBLISH_TAG == ""
     - if: $CI_PIPELINE_SOURCE == "web" && $MIDGARD_RELEASE_MODE == "audit"
 
 .on-dry-run:
@@ -360,9 +362,9 @@ shell-audit-gate:
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc # alpine:3.20 resolved 2026-10-31
   # Runs even when an audit failed, so the gate reports every missing record at once.
   rules:
-    - if: $CI_COMMIT_TAG =~ /^v/
+    - if: $CI_COMMIT_TAG =~ /^v/ && $MIDGARD_PUBLISH_TAG == ""
       when: always
-    - if: $CI_PIPELINE_SOURCE == "web" && $MIDGARD_RELEASE_MODE == "release"
+    - if: $CI_PIPELINE_SOURCE == "web" && $MIDGARD_RELEASE_MODE == "release" && $MIDGARD_PUBLISH_TAG == ""
       when: always
     - if: $CI_PIPELINE_SOURCE == "web" && $MIDGARD_RELEASE_MODE == "audit"
       when: always
@@ -417,16 +419,16 @@ release:
       - target/release-out/
 
 # GitLab has no draft releases. The files are uploaded to the project's package registry
-# under the tag, and creating the release entry is left to a person.
+# under the tag, and creating the release entry is left to a person. Run it on the tag:
+# it takes the artefacts of the tag's own release job, as they were released, and builds
+# and signs nothing again; the Bifrost registry refuses a second release of a version.
 release-publish:
   stage: publish
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc # alpine:3.20 resolved 2026-10-31
   rules:
     - if: $CI_PIPELINE_SOURCE == "web" && $MIDGARD_RELEASE_MODE == "release" && $MIDGARD_PUBLISH_TAG != ""
-  needs:
-    - job: release
-      artifacts: true
+  needs: []
   before_script:
-    - apk add --no-cache bash git curl coreutils findutils gawk
+    - apk add --no-cache bash git curl unzip coreutils findutils gawk
   script:
     - bash tools/ci/run.sh release-publish
