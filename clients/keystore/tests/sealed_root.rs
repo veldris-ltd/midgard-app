@@ -179,6 +179,31 @@ fn a_platform_side_that_does_not_seal_is_refused() {
     ));
 }
 
+/// A platform side whose output is too short to be a sealed key (it would need at
+/// least the key and a 16-byte tag).
+struct TooShort;
+impl RootSealer for TooShort {
+    fn seal(&self, _: &SecretBytes) -> Result<Vec<u8>, KeystoreError> {
+        let mut v = vec![0u8; 47];
+        OsRng.fill(&mut v);
+        Ok(v)
+    }
+    fn unseal(&self, _: &[u8]) -> Result<SecretBytes, KeystoreError> {
+        Err(KeystoreError::Unseal)
+    }
+    fn hardware_backed(&self) -> bool {
+        true
+    }
+}
+
+#[test]
+fn a_sealed_key_shorter_than_key_and_tag_is_refused() {
+    assert!(matches!(
+        SealedRootKeystore::create(&provider(), "device-root", &TooShort, &mut OsRng),
+        Err(KeystoreError::PlatformUnavailable(_))
+    ));
+}
+
 #[test]
 fn a_cancelled_prompt_is_reported_as_such() {
     assert!(matches!(

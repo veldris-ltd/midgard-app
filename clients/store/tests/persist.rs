@@ -101,14 +101,16 @@ fn written() -> (TestSealer, Vec<u8>, Vec<u8>) {
 fn the_cache_round_trips_and_drops_above_clearance_rows() {
     let (sealer, root, file) = written();
     let mut same = open(&root, &sealer, cl(L::SECRET), "persona-one");
-    assert_eq!(same.import_sealed(&file).unwrap(), (2, 1));
+    let r = same.import_sealed(&file, 0).unwrap();
+    assert_eq!((r.kept, r.dropped), (2, 1));
     assert_eq!(same.get("row-alpha").unwrap(), b"open row text");
     assert_eq!(same.get("row-charlie").unwrap(), b"secret row text");
     // row-bravo is in a compartment this clearance does not hold.
     assert!(matches!(same.get("row-bravo"), Err(StoreError::NotFound)));
 
     let mut lower = open(&root, &sealer, cl(L::CONFIDENTIAL), "persona-one");
-    assert_eq!(lower.import_sealed(&file).unwrap(), (1, 2));
+    let r = lower.import_sealed(&file, 0).unwrap();
+    assert_eq!((r.kept, r.dropped), (1, 2));
     assert_eq!(lower.get("row-alpha").unwrap(), b"open row text");
     assert!(matches!(
         lower.get("row-charlie"),
@@ -143,7 +145,7 @@ fn a_file_sealed_to_another_root_is_refused_and_nothing_is_loaded() {
     // Same key id, another root: exactly the case where only AES-GCM can tell.
     let other = TestSealer([2; 32]);
     let mut t = open(&root(&other), &other, cl(L::SECRET), "persona-one");
-    assert!(t.import_sealed(&file).is_err());
+    assert!(t.import_sealed(&file, 0).is_err());
     assert!(t.is_empty());
 }
 
@@ -151,7 +153,7 @@ fn a_file_sealed_to_another_root_is_refused_and_nothing_is_loaded() {
 fn a_file_written_for_another_scope_is_refused() {
     let (sealer, root, file) = written();
     let mut t = open(&root, &sealer, cl(L::SECRET), "persona-two");
-    assert!(t.import_sealed(&file).is_err());
+    assert!(t.import_sealed(&file, 0).is_err());
     assert!(t.is_empty());
 }
 
@@ -167,14 +169,17 @@ fn any_flipped_byte_or_truncation_loads_nothing() {
         let mut t = open(&root, &sealer, cl(L::SECRET), "persona-one");
         t.put("already", mk(L::UNCLASSIFIED), b"kept", &mut OsRng)
             .unwrap();
-        assert!(t.import_sealed(&bad).is_err(), "byte {i} flipped accepted");
+        assert!(
+            t.import_sealed(&bad, 0).is_err(),
+            "byte {i} flipped accepted"
+        );
         // A refused file changes nothing: the store is as it was.
         assert_eq!(t.len(), 1);
         assert_eq!(t.get("already").unwrap(), b"kept");
     }
     for n in [0, 3, 4, 20, file.len() / 2, file.len() - 1] {
         let mut t = open(&root, &sealer, cl(L::SECRET), "persona-one");
-        assert!(t.import_sealed(&file[..n]).is_err(), "truncated to {n}");
+        assert!(t.import_sealed(&file[..n], 0).is_err(), "truncated to {n}");
         assert!(t.is_empty());
     }
 }
@@ -185,7 +190,7 @@ fn an_import_replaces_what_was_cached() {
     let mut t = open(&root, &sealer, cl(L::SECRET), "persona-one");
     t.put("stale", mk(L::UNCLASSIFIED), b"old", &mut OsRng)
         .unwrap();
-    t.import_sealed(&file).unwrap();
+    t.import_sealed(&file, 0).unwrap();
     assert!(!t.contains("stale"));
     assert_eq!(t.len(), 2);
 }
@@ -206,4 +211,83 @@ fn a_change_of_scope_drops_every_row_and_a_change_of_clearance_drops_the_rest() 
     assert_eq!(dropped, 1);
     assert!(s.is_empty());
     assert_eq!(s.scope(), "persona-two");
+}
+
+#[test]
+fn each_export_has_a_higher_generation_and_an_older_file_is_refused() {
+    let sealer = TestSealer([1; 32]);
+    let root = root(&sealer);
+    let mut s = open(&root, &sealer, cl(L::SECRET), "persona-one");
+    s.put("a", mk(L::UNCLASSIFIED), b"first", &mut OsRng)
+        .unwrap();
+    let old = s.export_sealed(&mut OsRng).unwrap();
+    assert_eq!(s.generation(), 1);
+    s.put("a", mk(L::UNCLASSIFIED), b"second", &mut OsRng)
+        .unwrap();
+    let new = s.export_sealed(&mut OsRng).unwrap();
+    assert_eq!(s.generation(), 2);
+
+    // The shell keeps the latest generation outside the file; an older file, though
+    // genuine, is a rollback and is refused, loading nothing.
+    let mut t = open(&root, &sealer, cl(L::SECRET), "persona-one");
+    assert!(matches!(
+        t.import_sealed(&old, 2),
+        Err(StoreError::Stale { found: 1, min: 2 })
+    ));
+    assert!(t.is_empty());
+    let r = t.import_sealed(&new, 2).unwrap();
+    assert_eq!(r.generation, 2);
+    assert_eq!(t.get("a").unwrap(), b"second");
+    t.export_sealed(&mut OsRng).unwrap();
+    assert_eq!(t.generation(), 3);
+}
+
+#[test]
+fn a_refused_file_still_raises_the_generation_to_the_minimum() {
+    let sealer = TestSealer([1; 32]);
+    let root = root(&sealer);
+    let mut t = open(&root, &sealer, cl(L::SECRET), "persona-one");
+    assert!(t.import_sealed(b"not a file", 7).is_err());
+    // The next file written supersedes every file the shell has seen.
+    t.export_sealed(&mut OsRng).unwrap();
+    assert_eq!(t.generation(), 8);
+}
+
+#[test]
+fn files_are_padded_so_their_length_hides_how_much_is_cached() {
+    let sealer = TestSealer([1; 32]);
+    let root = root(&sealer);
+    let mut one = open(&root, &sealer, cl(L::SECRET), "persona-one");
+    one.put("a", mk(L::UNCLASSIFIED), b"x", &mut OsRng).unwrap();
+    let mut many = open(&root, &sealer, cl(L::SECRET), "persona-one");
+    for i in 0..20 {
+        many.put(&format!("row-{i}"), mk(L::SECRET), &[7u8; 300], &mut OsRng)
+            .unwrap();
+    }
+    let empty = open(&root, &sealer, cl(L::SECRET), "persona-one");
+    let lens: Vec<usize> = [one, many, empty]
+        .iter_mut()
+        .map(|s| s.export_sealed(&mut OsRng).unwrap().len())
+        .collect();
+    assert!(lens.iter().all(|l| *l == lens[0]), "{lens:?}");
+    assert!(lens[0] > 64 * 1024);
+}
+
+#[test]
+fn reserved_objects_dropped_on_import_are_named() {
+    let sealer = TestSealer([1; 32]);
+    let root = root(&sealer);
+    let mut s = open(&root, &sealer, cl(L::SECRET), "persona-one");
+    s.put("\0sys/pending", mk(L::SECRET), b"ops", &mut OsRng)
+        .unwrap();
+    s.put("row-secret", mk(L::SECRET), b"r", &mut OsRng)
+        .unwrap();
+    s.put("\0sys/clock", mk(L::UNCLASSIFIED), b"c", &mut OsRng)
+        .unwrap();
+    let file = s.export_sealed(&mut OsRng).unwrap();
+    let mut lower = open(&root, &sealer, cl(L::CONFIDENTIAL), "persona-one");
+    let r = lower.import_sealed(&file, 0).unwrap();
+    assert_eq!((r.kept, r.dropped), (1, 2));
+    // Only reserved ids are named; a dropped row's id is not handed back.
+    assert_eq!(r.dropped_reserved, vec!["\0sys/pending".to_string()]);
 }

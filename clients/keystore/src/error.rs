@@ -1,4 +1,5 @@
 //! Keystore error type. Hand-rolled to keep the dependency surface minimal.
+//! `[FR-C-2]`
 
 use std::fmt;
 

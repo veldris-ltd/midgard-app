@@ -18,6 +18,16 @@ pub enum CoreError {
     /// Cached state opened but did not parse (a collection index or the pending
     /// queue). Nothing of it was loaded.
     Malformed(String),
+    /// A state file older than the newest the shell has seen (a rollback). Nothing
+    /// was loaded.
+    Stale {
+        /// The file's generation.
+        found: u64,
+        /// The lowest generation accepted.
+        min: u64,
+    },
+    /// A collection name or object id the core reserves for itself.
+    Reserved(String),
 }
 
 impl fmt::Display for CoreError {
@@ -27,6 +37,11 @@ impl fmt::Display for CoreError {
             CoreError::MalformedOp(d) => write!(f, "malformed sync op: {d}"),
             CoreError::PendingOps(n) => write!(f, "{n} unsent op(s); sync first"),
             CoreError::Malformed(d) => write!(f, "cached state malformed: {d}"),
+            CoreError::Stale { found, min } => write!(
+                f,
+                "state file generation {found} is older than {min}: refused as a rollback"
+            ),
+            CoreError::Reserved(what) => write!(f, "reserved name: {what}"),
         }
     }
 }
@@ -35,7 +50,10 @@ impl std::error::Error for CoreError {}
 
 impl From<StoreError> for CoreError {
     fn from(e: StoreError) -> Self {
-        CoreError::Store(e)
+        match e {
+            StoreError::Stale { found, min } => CoreError::Stale { found, min },
+            e => CoreError::Store(e),
+        }
     }
 }
 

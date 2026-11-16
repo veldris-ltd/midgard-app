@@ -330,6 +330,18 @@ impl Replica {
         }
     }
 
+    /// The Lamport clock: the highest version counter this replica has made or seen.
+    pub fn lamport(&self) -> u64 {
+        self.lamport
+    }
+
+    /// Raise the clock to at least `lamport` (restored across a relaunch), so the
+    /// next edit's version is above every version made or seen before. Never lowers
+    /// it. `[FR-C-4]`
+    pub fn observe(&mut self, lamport: u64) {
+        self.lamport = self.lamport.max(lamport);
+    }
+
     /// Drop the local view and the queue (a persona switch), keeping the id and the
     /// Lamport clock so a later edit never reuses a version this replica has made.
     /// `[FR-C-4]`
@@ -433,6 +445,16 @@ mod tests {
         assert!(!a.has_pending());
         // A later edit never reuses a version this replica has made.
         assert!(a.set("o", "f", b"2".to_vec()).version > first.version);
+    }
+
+    #[test]
+    fn an_observed_clock_is_never_reused() {
+        let mut a = Replica::new("dev");
+        assert_eq!(a.lamport(), 0);
+        a.observe(41);
+        a.observe(7); // never lowers it
+        assert_eq!(a.lamport(), 41);
+        assert_eq!(a.set("o", "f", b"1".to_vec()).version.lamport, 42);
     }
 
     #[test]

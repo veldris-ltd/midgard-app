@@ -34,7 +34,14 @@ fn marking(level: ClassificationLevel, comps: &[&str]) -> Marking {
 fn open_store(clearance: Clearance) -> LocalStore<SoftwareKeystore> {
     let provider = fips_provider();
     let ks = SoftwareKeystore::generate(&provider, "device-root", &mut SeedRng(1)).unwrap();
-    LocalStore::open(provider, ks, clearance, SecurityFloor::NonExtractable).unwrap()
+    LocalStore::open_scoped(
+        provider,
+        ks,
+        clearance,
+        SecurityFloor::NonExtractable,
+        "test",
+    )
+    .unwrap()
 }
 
 #[test]
@@ -135,11 +142,12 @@ fn a_too_weak_floor_fails_closed() {
     // A web-app-class key …
     let ks = SoftwareKeystore::generate(&provider, "web-root", &mut SeedRng(2)).unwrap();
     // … cannot back a store that demands hardware custody.
-    let err = LocalStore::open(
+    let err = LocalStore::open_scoped(
         provider,
         ks,
         clearance(ClassificationLevel::UNCLASSIFIED, &[]),
         SecurityFloor::HardwareBacked,
+        "test",
     )
     .err()
     .expect("must reject a too-weak floor");
@@ -155,7 +163,7 @@ fn brokered_custody_holds_no_local_key() {
     let bk = BrokeredKeystore::new("enclosure");
     assert!(!bk.holds_key());
     assert_eq!(bk.floor(), SecurityFloor::Brokered);
-    let _ = &bk; // LocalStore::open(_, bk, ..) would not compile: bk is not a TrustRoot.
+    let _ = &bk; // LocalStore::open_scoped(_, bk, ..) would not compile: bk is not a TrustRoot.
 }
 
 /// The software keystore holds its secret in process memory, so it reports the
@@ -168,11 +176,12 @@ fn the_software_keystore_cannot_claim_a_hardware_floor() {
     let ks = SoftwareKeystore::generate(&provider, "device-root", &mut SeedRng(3)).unwrap();
     assert_eq!(ks.floor(), SecurityFloor::NonExtractable);
 
-    let err = LocalStore::open(
+    let err = LocalStore::open_scoped(
         provider,
         ks,
         clearance(ClassificationLevel::UNCLASSIFIED, &[]),
         SecurityFloor::HardwareBacked,
+        "test",
     )
     .err()
     .expect("the software floor must not satisfy a hardware requirement");
@@ -193,11 +202,12 @@ fn the_software_keystore_cannot_claim_a_hardware_floor() {
         &mut SeedRng(4),
     )
     .unwrap();
-    assert!(LocalStore::open(
+    assert!(LocalStore::open_scoped(
         provider,
         hw,
         clearance(ClassificationLevel::UNCLASSIFIED, &[]),
         SecurityFloor::HardwareBacked,
+        "test",
     )
     .is_ok());
 }

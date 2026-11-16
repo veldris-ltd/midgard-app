@@ -33,6 +33,8 @@ use crate::{Keystore, KeystoreError, SecurityFloor};
 pub const MAGIC: &[u8; 8] = b"MGSROOT1";
 /// The length of the data key the platform side seals.
 pub const DATA_KEY_LEN: usize = 32;
+/// The shortest sealed data key accepted: the key and a 16-byte AEAD tag.
+pub const MIN_SEALED_LEN: usize = DATA_KEY_LEN + 16;
 const KEK_SALT: &[u8] = b"midgard-client/sealed-root";
 const KEK_INFO: &[u8] = b"midgard-client/sealed-root/v1/root-secret";
 
@@ -101,6 +103,8 @@ impl<'a> Cursor<'a> {
 impl SealedRootKeystore {
     /// Generate a root and seal it. Returns the keystore and the blob to store (it
     /// holds no secret in the clear). Asks the platform side to seal once.
+    /// `key_id` is stored, and appears in every sealed file, in the clear: use a
+    /// constant such as `device-root`, never a device or persona name.
     pub fn create(
         provider: &CryptoProvider,
         key_id: &str,
@@ -117,8 +121,11 @@ impl SealedRootKeystore {
         rng.fill(&mut raw[..]);
         let data_key = SecretBytes::new(raw.to_vec());
         let sealed_key = sealer.seal(&data_key)?;
-        // A platform side that hands the key back in the clear has not sealed it.
-        if sealed_key.len() < DATA_KEY_LEN
+        // A guard, not a proof: a sealed key is at least the key plus a 16-byte AEAD
+        // tag (the Enclave's ECIES output is 113 bytes), and must not hold the key
+        // in the clear. It catches a platform side that did not seal; it cannot
+        // show that one did.
+        if sealed_key.len() < MIN_SEALED_LEN
             || sealed_key
                 .windows(DATA_KEY_LEN)
                 .any(|w| w == data_key.expose())

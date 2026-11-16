@@ -35,7 +35,7 @@ use sync::{Replica, SyncOp};
 
 mod cache;
 mod error;
-pub use cache::PENDING_OBJECT;
+pub use cache::{ExportedState, ImportReport, CLOCK_OBJECT, PENDING_OBJECT};
 pub use error::CoreError;
 pub mod consoles;
 pub mod demo;
@@ -59,23 +59,17 @@ pub const CORE_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub struct ClientCore<K: Keystore + TrustRoot> {
     store: LocalStore<K>,
     replica: Replica,
+    /// The next action number; persisted in the state file.
+    next_action: u64,
+    /// A random number drawn at the first action id of this launch.
+    action_nonce: Option<u64>,
 }
 
 impl<K: Keystore + TrustRoot> ClientCore<K> {
-    /// Open a core over a device keystore and a session clearance. Fails closed if
-    /// custody is below `min_floor`.
-    pub fn open(
-        provider: CryptoProvider,
-        keystore: K,
-        clearance: Clearance,
-        min_floor: SecurityFloor,
-        replica_id: impl Into<String>,
-    ) -> Result<Self, CoreError> {
-        Self::open_scoped(provider, keystore, clearance, min_floor, replica_id, "")
-    }
-
-    /// [`open`](Self::open) for one persona (`scope`): the cache, in memory and in
-    /// the state file, is that persona's alone. `[AC-C-13]`
+    /// Open a core over a device keystore, for one persona (`scope`) at a session
+    /// clearance. Fails closed if custody is below `min_floor`. The cache, in memory
+    /// and in the state file, is that persona's alone; there is no unscoped core.
+    /// `[FR-C-2]` `[AC-C-13]`
     pub fn open_scoped(
         provider: CryptoProvider,
         keystore: K,
@@ -88,6 +82,8 @@ impl<K: Keystore + TrustRoot> ClientCore<K> {
         Ok(Self {
             store,
             replica: Replica::new(replica_id),
+            next_action: 1,
+            action_nonce: None,
         })
     }
 
@@ -101,27 +97,67 @@ impl<K: Keystore + TrustRoot> ClientCore<K> {
         self.store.scope()
     }
 
-    /// Re-scope to another persona or clearance (a persona switch). Refused while
-    /// ops are pending for a change of persona, and nothing changes. To another
+    /// Re-scope to another persona or clearance (a persona switch). To another
     /// persona, everything cached and the CRDT view are dropped, whatever the new
-    /// clearance; to the same persona, rows the new clearance does not dominate are
-    /// dropped. Returns the core and how many cached rows were dropped. `[AC-C-13]`
+    /// clearance. To the same persona at a clearance that does not dominate the old
+    /// one, rows it does not dominate and the CRDT view are dropped (the view may
+    /// hold fields of rows now above it); at one that does, nothing is dropped.
+    /// Refused, with nothing changed, while ops are pending and the view would be
+    /// dropped. Returns the core and how many cached rows were dropped. The clock
+    /// and the action counter are kept. `[AC-C-13]`
     pub fn rescope(
         self,
         scope: &str,
         clearance: Clearance,
     ) -> Result<(Self, usize), (Self, CoreError)> {
-        let other = scope != self.store.scope();
-        if other && self.replica.has_pending() {
+        let old = self.store.clearance();
+        let old = Marking {
+            level: old.level,
+            compartments: old.compartments.clone(),
+        };
+        let forget = scope != self.store.scope() || !dominates(&clearance, &old);
+        if forget && self.replica.has_pending() {
             let n = self.replica.pending().len();
             return Err((self, CoreError::PendingOps(n)));
         }
-        let Self { store, mut replica } = self;
-        if other {
+        let Self {
+            store,
+            mut replica,
+            next_action,
+            action_nonce,
+        } = self;
+        if forget {
             replica.forget();
         }
         let (store, dropped) = store.rescope(scope, clearance);
-        Ok((Self { store, replica }, dropped))
+        let core = Self {
+            store,
+            replica,
+            next_action,
+            action_nonce,
+        };
+        Ok((core, dropped))
+    }
+
+    /// A new action object id, `action:<replica>-<nonce>-<n>`: `n` counts up and is
+    /// persisted in the state file; `nonce` is a random 64-bit number drawn once per
+    /// launch. The counter alone would repeat after a state file is discarded
+    /// (tampered, rolled back, reset), and a source answers a reused id with the
+    /// decision it already made; the nonce makes that repetition negligible. The id
+    /// is not a secret: a source keys decisions by persona as well. `[FR-C-4]`
+    pub fn new_action_id(&mut self, rng: &mut dyn Rng) -> String {
+        let nonce = *self.action_nonce.get_or_insert_with(|| {
+            let mut b = [0u8; 8];
+            rng.fill(&mut b);
+            u64::from_le_bytes(b)
+        });
+        let n = self.next_action;
+        self.next_action += 1;
+        format!(
+            "{}{}-{nonce:016x}-{n}",
+            source::action::PREFIX,
+            self.replica.id()
+        )
     }
 
     /// Edit a field of an object. Works offline: the edit becomes a queued CRDT op
@@ -136,6 +172,10 @@ impl<K: Keystore + TrustRoot> ClientCore<K> {
         marking: Marking,
         rng: &mut dyn Rng,
     ) -> Result<SyncOp, CoreError> {
+        // The core's own objects are not edited from outside.
+        if object.starts_with(store::RESERVED_PREFIX) {
+            return Err(CoreError::Reserved(object.escape_debug().to_string()));
+        }
         // Pre-check clearance so a refusal leaves the CRDT untouched.
         if !dominates(self.store.clearance(), &marking) {
             return Err(CoreError::from(store::StoreError::AboveClearance));
