@@ -17,6 +17,15 @@ pub enum KeystoreError {
     AuthDenied,
     /// No signature backend is available to authenticate.
     AuthBackendUnavailable,
+    /// The user cancelled the platform prompt (Face ID / Touch ID / passcode).
+    UserCancelled,
+    /// The platform key root is unavailable (no Secure Enclave, key deleted, not
+    /// enrolled) or did not seal what it was given.
+    PlatformUnavailable(String),
+    /// A sealed root blob is malformed (structure, magic or format version).
+    Malformed(String),
+    /// The sealed root did not open: another platform key, or tampered.
+    Unseal,
 }
 
 impl fmt::Display for KeystoreError {
@@ -32,6 +41,10 @@ impl fmt::Display for KeystoreError {
             KeystoreError::AuthBackendUnavailable => {
                 write!(f, "no signature backend available to authenticate")
             }
+            KeystoreError::UserCancelled => write!(f, "the user cancelled authentication"),
+            KeystoreError::PlatformUnavailable(d) => write!(f, "platform key unavailable: {d}"),
+            KeystoreError::Malformed(d) => write!(f, "sealed root malformed: {d}"),
+            KeystoreError::Unseal => write!(f, "sealed root did not open"),
         }
     }
 }

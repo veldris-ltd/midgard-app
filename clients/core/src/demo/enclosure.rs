@@ -83,7 +83,10 @@ impl DemoState {
 
     /// Append an audit row marked `marking` to `<console>.audit` (or `midgard.audit`
     /// when the console keeps no `AuditRecord` collection) and return its id. It is
-    /// unsigned: the device key signs run-time audit rows (Tasks A9/A10).
+    /// unsigned (status `none`): no device signing key exists yet. The sealed root
+    /// of Task A9 is an ML-KEM encryption root, not a signing key; a device-audit
+    /// key under its own domain, and [`SignatureStatus::Device`] set only after that
+    /// signature verifies, are left to the session (Task A10).
     pub fn audit(
         &mut self,
         console: &str,

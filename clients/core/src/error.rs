@@ -13,6 +13,11 @@ pub enum CoreError {
     /// A remote op blob handed across the binding did not decode — rejected,
     /// never applied to the CRDT. [RT-58]
     MalformedOp(String),
+    /// A persona switch with unsent ops: push them (or drop them) first. `[FR-C-4]`
+    PendingOps(usize),
+    /// Cached state opened but did not parse (a collection index or the pending
+    /// queue). Nothing of it was loaded.
+    Malformed(String),
 }
 
 impl fmt::Display for CoreError {
@@ -20,6 +25,8 @@ impl fmt::Display for CoreError {
         match self {
             CoreError::Store(e) => write!(f, "{e}"),
             CoreError::MalformedOp(d) => write!(f, "malformed sync op: {d}"),
+            CoreError::PendingOps(n) => write!(f, "{n} unsent op(s); sync first"),
+            CoreError::Malformed(d) => write!(f, "cached state malformed: {d}"),
         }
     }
 }

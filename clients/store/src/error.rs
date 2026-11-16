@@ -23,6 +23,9 @@ pub enum StoreError {
     NotFound,
     /// An at-rest seal/unseal failed (tamper, wrong root, suite mismatch).
     Kms(kms::KmsError),
+    /// An exported cache file opened but its contents are malformed (structure or
+    /// format version). Nothing was loaded.
+    Malformed(String),
 }
 
 impl fmt::Display for StoreError {
@@ -38,6 +41,7 @@ impl fmt::Display for StoreError {
             }
             StoreError::NotFound => write!(f, "object not cached"),
             StoreError::Kms(e) => write!(f, "at-rest seal/unseal failed: {e}"),
+            StoreError::Malformed(d) => write!(f, "cache file malformed: {d}"),
         }
     }
 }

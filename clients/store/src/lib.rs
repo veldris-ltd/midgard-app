@@ -17,6 +17,13 @@
 //!    above-clearance data is neither cached nor rendered client-side. Marking
 //!    enforcement remains authoritative in the enclosure; this is the client-side
 //!    floor. `[AC-C-13]` `[NFR-SEC-2]`
+//! 3. **Persisted whole and sealed.** [`export_sealed`](LocalStore::export_sealed)
+//!    writes the cache as one blob sealed again under the same root, so ids,
+//!    markings and the scope (the signed-in persona) are not readable at rest
+//!    either; [`import_sealed`](LocalStore::import_sealed) loads it all or nothing.
+//!    A store is bound to one scope: a file written for another scope does not
+//!    open, and [`rescope`](LocalStore::rescope) to another scope drops every row.
+//!    `[AC-C-2]` `[AC-C-13]`
 
 #![forbid(unsafe_code)]
 
@@ -46,8 +53,15 @@ struct CachedObject {
 pub struct LocalStore<R: TrustRoot + Keystore> {
     kms: Kms<R>,
     clearance: Clearance,
+    /// Whose cache this is (a persona id); bound into the exported file's seal.
+    scope: String,
     objects: BTreeMap<String, CachedObject>,
 }
+
+/// File magic and format version of an exported cache (inside the outer seal).
+pub const CACHE_MAGIC: &[u8; 8] = b"MGCACHE1";
+/// AAD binding the outer seal to its purpose; the scope is appended.
+const CACHE_FILE_AAD: &[u8] = b"midgard-client/cache-file/v1";
 
 impl<R: TrustRoot + Keystore> LocalStore<R> {
     /// Open a store over `keystore`, requiring it to hold a key and meet
@@ -58,6 +72,18 @@ impl<R: TrustRoot + Keystore> LocalStore<R> {
         keystore: R,
         clearance: Clearance,
         min_floor: SecurityFloor,
+    ) -> Result<Self, StoreError> {
+        Self::open_scoped(provider, keystore, clearance, min_floor, "")
+    }
+
+    /// [`open`](Self::open) for one scope (the signed-in persona): its exported file
+    /// opens only for the same scope. `[AC-C-13]`
+    pub fn open_scoped(
+        provider: CryptoProvider,
+        keystore: R,
+        clearance: Clearance,
+        min_floor: SecurityFloor,
+        scope: &str,
     ) -> Result<Self, StoreError> {
         if !keystore.holds_key() {
             return Err(StoreError::NoLocalKey);
@@ -71,6 +97,7 @@ impl<R: TrustRoot + Keystore> LocalStore<R> {
         Ok(Self {
             kms: Kms::new(provider, keystore),
             clearance,
+            scope: scope.to_string(),
             objects: BTreeMap::new(),
         })
     }
@@ -139,6 +166,149 @@ impl<R: TrustRoot + Keystore> LocalStore<R> {
     /// The clearance this store is scoped to.
     pub fn clearance(&self) -> &Clearance {
         &self.clearance
+    }
+
+    /// The scope (persona) this store is bound to.
+    pub fn scope(&self) -> &str {
+        &self.scope
+    }
+
+    /// The whole cache as one sealed blob: entries (id, marking, sealed object)
+    /// inside an outer seal under the same root, bound to this store's scope, so
+    /// neither ids, markings nor the scope are readable at rest. `[AC-C-2]`
+    pub fn export_sealed(&self, rng: &mut dyn Rng) -> Result<Vec<u8>, StoreError> {
+        let mut inner = CACHE_MAGIC.to_vec();
+        inner.extend_from_slice(&(self.objects.len() as u32).to_le_bytes());
+        for (id, obj) in &self.objects {
+            put(&mut inner, id.as_bytes());
+            inner.push(obj.marking.level.0);
+            inner.extend_from_slice(&(obj.marking.compartments.len() as u32).to_le_bytes());
+            for c in &obj.marking.compartments {
+                put(&mut inner, c.0.as_bytes());
+            }
+            put(&mut inner, &obj.sealed.encode());
+        }
+        let file = self.kms.seal(&self.file_aad(), &inner, rng)?.encode();
+        Ok(file)
+    }
+
+    /// Load an exported cache, replacing what is cached. All or nothing: a file that
+    /// does not open (another root or scope, any changed or missing byte) or does
+    /// not parse (structure, format version) is refused and the store is left as it
+    /// was — the caller discards the file and refetches. Rows the current clearance
+    /// does not dominate are dropped, never stored. Returns `(kept, dropped)`.
+    /// `[AC-C-13]` `[AC-C-2]`
+    pub fn import_sealed(&mut self, file: &[u8]) -> Result<(usize, usize), StoreError> {
+        let outer = SealedBlob::decode(file)?;
+        let inner = self.kms.unseal(&self.file_aad(), &outer)?;
+        let bad = |d: &str| StoreError::Malformed(d.to_string());
+        let mut c = Cursor { b: &inner, at: 0 };
+        let magic = c.take(CACHE_MAGIC.len()).ok_or_else(|| bad("truncated"))?;
+        if magic[..7] != CACHE_MAGIC[..7] {
+            return Err(bad("not a cache file"));
+        }
+        if magic != CACHE_MAGIC {
+            return Err(bad("unsupported cache format version"));
+        }
+        let count = c.u32().ok_or_else(|| bad("count"))? as usize;
+        let mut objects = BTreeMap::new();
+        let mut seen = std::collections::BTreeSet::new();
+        let mut dropped = 0;
+        for _ in 0..count {
+            let id = String::from_utf8(c.field().ok_or_else(|| bad("id"))?.to_vec())
+                .map_err(|_| bad("id"))?;
+            let level = policy::ClassificationLevel(c.take(1).ok_or_else(|| bad("level"))?[0]);
+            let nc = c.u32().ok_or_else(|| bad("compartments"))? as usize;
+            let mut compartments = std::collections::BTreeSet::new();
+            for _ in 0..nc {
+                let name = c.field().ok_or_else(|| bad("compartment"))?;
+                let name = String::from_utf8(name.to_vec()).map_err(|_| bad("compartment"))?;
+                compartments.insert(policy::Compartment(name));
+            }
+            let sealed = SealedBlob::decode(c.field().ok_or_else(|| bad("object"))?)?;
+            if sealed.root_key_id != self.kms.root_key_id() {
+                return Err(StoreError::Kms(kms::KmsError::WrongTrustRoot));
+            }
+            let marking = Marking {
+                level,
+                compartments,
+            };
+            if !seen.insert(id.clone()) {
+                return Err(bad("an id twice"));
+            }
+            if dominates(&self.clearance, &marking) {
+                objects.insert(id, CachedObject { marking, sealed });
+            } else {
+                dropped += 1;
+            }
+        }
+        if c.at != inner.len() {
+            return Err(bad("trailing bytes"));
+        }
+        let kept = objects.len();
+        self.objects = objects;
+        Ok((kept, dropped))
+    }
+
+    /// Re-scope the store (a persona switch). To another scope, every row is
+    /// dropped, whatever the new clearance: one persona never reads another's
+    /// cache. To the same scope, rows `clearance` does not dominate are dropped.
+    /// Returns the store and how many rows were dropped. `[AC-C-13]`
+    pub fn rescope(mut self, scope: &str, clearance: Clearance) -> (Self, usize) {
+        let before = self.objects.len();
+        if scope != self.scope {
+            self.objects.clear();
+            self.scope = scope.to_string();
+        } else {
+            self.objects
+                .retain(|_, o| dominates(&clearance, &o.marking));
+        }
+        self.clearance = clearance;
+        let dropped = before - self.objects.len();
+        (self, dropped)
+    }
+
+    /// Remove one cached object.
+    pub fn remove(&mut self, id: &str) {
+        self.objects.remove(id);
+    }
+
+    /// Remove every cached object ("Reset demo", or a cache that failed to load).
+    pub fn clear(&mut self) {
+        self.objects.clear();
+    }
+
+    fn file_aad(&self) -> Vec<u8> {
+        let mut aad = CACHE_FILE_AAD.to_vec();
+        put(&mut aad, self.scope.as_bytes());
+        aad
+    }
+}
+
+fn put(o: &mut Vec<u8>, b: &[u8]) {
+    o.extend_from_slice(&(b.len() as u32).to_le_bytes());
+    o.extend_from_slice(b);
+}
+
+/// A bounds-checked reader: `None` on any short read, never a panic.
+struct Cursor<'a> {
+    b: &'a [u8],
+    at: usize,
+}
+
+impl<'a> Cursor<'a> {
+    fn take(&mut self, n: usize) -> Option<&'a [u8]> {
+        let end = self.at.checked_add(n).filter(|e| *e <= self.b.len())?;
+        let s = &self.b[self.at..end];
+        self.at = end;
+        Some(s)
+    }
+    fn u32(&mut self) -> Option<u32> {
+        Some(u32::from_le_bytes(self.take(4)?.try_into().ok()?))
+    }
+    fn field(&mut self) -> Option<&'a [u8]> {
+        let n = self.u32()? as usize;
+        self.take(n)
     }
 }
 
@@ -215,6 +385,69 @@ mod tests {
             s.kms.unseal(&aad, &blob).is_err(),
             "tamper must fail closed"
         );
+    }
+
+    /// A file that opens under this root and scope, holding `inner`.
+    fn file_holding(s: &LocalStore<SoftwareKeystore>, inner: &[u8]) -> Vec<u8> {
+        s.kms
+            .seal(&s.file_aad(), inner, &mut SeedRng(5))
+            .unwrap()
+            .encode()
+    }
+
+    #[test]
+    fn another_cache_format_version_is_refused_and_nothing_is_loaded() {
+        let mut s = store(1, unclassified());
+        s.put("kept", marking_unclassified(), b"x", &mut SeedRng(9))
+            .unwrap();
+        let mut inner = b"MGCACHE2".to_vec();
+        inner.extend_from_slice(&0u32.to_le_bytes());
+        let file = file_holding(&s, &inner);
+        assert!(matches!(
+            s.import_sealed(&file),
+            Err(StoreError::Malformed(d)) if d.contains("version")
+        ));
+        assert!(s.contains("kept"));
+    }
+
+    #[test]
+    fn a_cache_file_with_a_bad_inside_is_refused_and_nothing_is_loaded() {
+        let mut s = store(1, unclassified());
+        s.put("a", marking_unclassified(), b"x", &mut SeedRng(9))
+            .unwrap();
+        let good = s.export_sealed(&mut SeedRng(3)).unwrap();
+        let inner = s
+            .kms
+            .unseal(&s.file_aad(), &SealedBlob::decode(&good).unwrap())
+            .unwrap();
+        // The one entry twice (count 2), trailing bytes, a count larger than the
+        // entries, and an entry cut short.
+        let entry = &inner[12..];
+        let mut twice = CACHE_MAGIC.to_vec();
+        twice.extend_from_slice(&2u32.to_le_bytes());
+        twice.extend_from_slice(entry);
+        twice.extend_from_slice(entry);
+        let mut trailing = inner.clone();
+        trailing.push(0);
+        let mut more = inner.clone();
+        more[8] = 3;
+        let short = inner[..inner.len() - 1].to_vec();
+        for (what, bad) in [
+            ("twice", twice),
+            ("trailing", trailing),
+            ("count", more),
+            ("short", short),
+        ] {
+            s.clear();
+            s.put("b", marking_unclassified(), b"y", &mut SeedRng(9))
+                .unwrap();
+            let file = file_holding(&s, &bad);
+            assert!(
+                matches!(s.import_sealed(&file), Err(StoreError::Malformed(_))),
+                "{what}"
+            );
+            assert!(s.contains("b") && s.len() == 1, "{what}: store changed");
+        }
     }
 
     #[test]

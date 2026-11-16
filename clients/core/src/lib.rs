@@ -33,7 +33,9 @@ use pqc_agility::{CryptoProvider, Rng};
 use store::LocalStore;
 use sync::{Replica, SyncOp};
 
+mod cache;
 mod error;
+pub use cache::PENDING_OBJECT;
 pub use error::CoreError;
 pub mod consoles;
 pub mod demo;
@@ -69,11 +71,57 @@ impl<K: Keystore + TrustRoot> ClientCore<K> {
         min_floor: SecurityFloor,
         replica_id: impl Into<String>,
     ) -> Result<Self, CoreError> {
-        let store = LocalStore::open(provider, keystore, clearance, min_floor)?;
+        Self::open_scoped(provider, keystore, clearance, min_floor, replica_id, "")
+    }
+
+    /// [`open`](Self::open) for one persona (`scope`): the cache, in memory and in
+    /// the state file, is that persona's alone. `[AC-C-13]`
+    pub fn open_scoped(
+        provider: CryptoProvider,
+        keystore: K,
+        clearance: Clearance,
+        min_floor: SecurityFloor,
+        replica_id: impl Into<String>,
+        scope: &str,
+    ) -> Result<Self, CoreError> {
+        let store = LocalStore::open_scoped(provider, keystore, clearance, min_floor, scope)?;
         Ok(Self {
             store,
             replica: Replica::new(replica_id),
         })
+    }
+
+    /// The replica id (stable per device).
+    pub fn replica_id(&self) -> &str {
+        self.replica.id()
+    }
+
+    /// The persona this core's cache belongs to.
+    pub fn scope(&self) -> &str {
+        self.store.scope()
+    }
+
+    /// Re-scope to another persona or clearance (a persona switch). Refused while
+    /// ops are pending for a change of persona, and nothing changes. To another
+    /// persona, everything cached and the CRDT view are dropped, whatever the new
+    /// clearance; to the same persona, rows the new clearance does not dominate are
+    /// dropped. Returns the core and how many cached rows were dropped. `[AC-C-13]`
+    pub fn rescope(
+        self,
+        scope: &str,
+        clearance: Clearance,
+    ) -> Result<(Self, usize), (Self, CoreError)> {
+        let other = scope != self.store.scope();
+        if other && self.replica.has_pending() {
+            let n = self.replica.pending().len();
+            return Err((self, CoreError::PendingOps(n)));
+        }
+        let Self { store, mut replica } = self;
+        if other {
+            replica.forget();
+        }
+        let (store, dropped) = store.rescope(scope, clearance);
+        Ok((Self { store, replica }, dropped))
     }
 
     /// Edit a field of an object. Works offline: the edit becomes a queued CRDT op

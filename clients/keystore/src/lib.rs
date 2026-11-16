@@ -39,6 +39,8 @@ use pqc_agility::{Ciphertext, CryptoProvider, Kem, KemPublicKey, Rng, SharedSecr
 
 pub mod auth;
 mod error;
+#[cfg(feature = "backend-fips")]
+pub mod sealed_root;
 pub use auth::{
     verify_assertion, AuthAssertion, AuthChallenge, AuthMechanism, PlatformAuthenticator,
     RegisteredCredential, SoftwareAuthenticator,
