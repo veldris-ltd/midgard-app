@@ -15,6 +15,14 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 failures=0
 
+# sed_i SCRIPT FILE...: edit files in place with GNU and BSD sed alike. BSD sed (macOS)
+# reads the word after `-i` as a backup suffix, so `sed -i EXPR FILE` fails there.
+sed_i() {
+    local expr="$1" f
+    shift
+    for f in "$@"; do sed "$expr" "$f" > "$f.sed-i" && mv "$f.sed-i" "$f" || return 1; done
+}
+
 pass() { echo "ok    $1"; }
 fail() {
     echo "FAIL  $1"
@@ -169,13 +177,13 @@ record --check --release >/dev/null 2>&1 && pass "a release one records-only com
     || fail "a release one records-only commit after the gated commit is covered: $(record --check --release 2>&1)"
 
 # --- the record matches the log (AC-RF-CA-5b) ---------------------------------------------
-sed -i 's/3 of 3 acceptance criteria pass/4 of 4 acceptance criteria pass/' "$rec"
+sed_i 's/3 of 3 acceptance criteria pass/4 of 4 acceptance criteria pass/' "$rec"
 record --check >/dev/null 2>&1 && fail "a record edited by hand fails the check" || pass "a record edited by hand fails the check"
 g checkout -q -- .
 echo "an extra line" >> "$repo/$RECORDS/$commit/test.log"
 record --check >/dev/null 2>&1 && fail "a log that no longer matches its digest fails the check" || pass "a log that no longer matches its digest fails the check"
 g checkout -q -- .
-sed -i 's|3 / 3 pass|72 / 72 pass|' "$repo/README.md"
+sed_i 's|3 / 3 pass|72 / 72 pass|' "$repo/README.md"
 if out="$(record --check 2>&1)"; then
     fail "a status table edited by hand fails the check"
 else
@@ -193,7 +201,7 @@ good_run "$fresh"
 meta "$fresh" acceptance 0 seconds=999 image_id=sha256:other
 record --compare "$fresh" >/dev/null 2>&1 && pass "a fresh run with the same results reproduces the record, timings aside" \
     || fail "a fresh run with the same results reproduces the record: $(record --compare "$fresh" 2>&1)"
-sed -i 's/  >>> AC-Y-1: PASS/  >>> AC-Y-1: FAIL (exit 101)/; s/FULL SUITE PASSED/FULL SUITE FAILED/' "$fresh/acceptance.log"
+sed_i 's/  >>> AC-Y-1: PASS/  >>> AC-Y-1: FAIL (exit 101)/; s/FULL SUITE PASSED/FULL SUITE FAILED/' "$fresh/acceptance.log"
 meta "$fresh" acceptance 1
 if out="$(record --compare "$fresh" 2>&1)"; then
     fail "a fresh run in which a criterion differs does not reproduce it"
@@ -218,19 +226,19 @@ new_repo refuse
 kept=""
 run="$work/run-missing"
 good_run "$run"
-sed -i '/^AC-Y-1 — /,/>>> AC-Y-1: PASS/d' "$run/acceptance.log"
+sed_i '/^AC-Y-1 — /,/>>> AC-Y-1: PASS/d' "$run/acceptance.log"
 refused "a log from which one criterion is absent is refused" 'no verdict for: AC-Y-1' "$run"
 [ ! -e "$repo/$RECORDS" ] && pass "and no record, log or pointer is written" || fail "and no record, log or pointer is written: $(ls -R "$repo/$RECORDS")"
 grep -q stale "$repo/README.md" && pass "and the status tables are left alone" || fail "and the status tables are left alone"
 
 run="$work/run-unknown"
 good_run "$run"
-sed -i 's/>>> EV-A1: PASS/>>> AC-X-3: PASS/' "$run/acceptance.log"
+sed_i 's/>>> EV-A1: PASS/>>> AC-X-3: PASS/' "$run/acceptance.log"
 refused "a verdict for a criterion the spec does not define is refused" 'does not define: AC-X-3' "$run"
 
 run="$work/run-cut"
 good_run "$run"
-sed -i '/FULL SUITE/d' "$run/acceptance.log"
+sed_i '/FULL SUITE/d' "$run/acceptance.log"
 refused "a log cut short is refused" "no closing" "$run"
 
 run="$work/run-dirty"
@@ -261,12 +269,12 @@ refused "a log that says PASSED beside a non-zero exit is refused" 'exit status 
 
 run="$work/run-other-recipe"
 good_run "$run"
-sed -i 's/cargo test -p beta --features backend-fips/cargo test -p gamma/' "$run/test.log"
+sed_i 's/cargo test -p beta --features backend-fips/cargo test -p gamma/' "$run/test.log"
 refused "a test log that is not of the justfile's recipe is refused" "not the justfile's test recipe" "$run"
 
 run="$work/run-short"
 good_run "$run"
-sed -i '/cargo test -p beta/,$d' "$run/test.log"
+sed_i '/cargo test -p beta/,$d' "$run/test.log"
 refused "a test run that exited 0 without running every invocation is refused" '1 of 2 invocations' "$run"
 
 run="$work/run-half"

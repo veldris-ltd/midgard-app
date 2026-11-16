@@ -32,11 +32,12 @@ mkdir -p "$bin"
 cat > "$bin/just" <<'EOF'
 #!/usr/bin/env bash
 echo "just $*" >> "$STUB_LOG"
+# (sed to a new file and mv: BSD sed on macOS has no suffix-less `sed -i`.)
 case "$1" in
     advisory-db-refresh)
-        [ "${STUB_REFRESH:-none}" = none ] || sed -i 's/^date = .*/date = "2026-11-02"/' vendor/advisory-db/snapshot.toml ;;
+        [ "${STUB_REFRESH:-none}" = none ] || { f=vendor/advisory-db/snapshot.toml; sed 's/^date = .*/date = "2026-11-02"/' $f > $f.new && mv $f.new $f; } ;;
     advisory-db-npm-refresh)
-        [ "${STUB_REFRESH:-none}" = both ] && sed -i 's/^advisory_count = .*/advisory_count = 93/' vendor/advisory-db-npm/snapshot.toml ;;
+        [ "${STUB_REFRESH:-none}" = both ] && { f=vendor/advisory-db-npm/snapshot.toml; sed 's/^advisory_count = .*/advisory_count = 93/' $f > $f.new && mv $f.new $f; } ;;
     sbom) ;;
     scan-advisory)
         if grep -q 2026-11-02 vendor/advisory-db/snapshot.toml; then

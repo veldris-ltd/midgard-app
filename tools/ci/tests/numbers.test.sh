@@ -16,6 +16,14 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 failures=0
 
+# sed_i SCRIPT FILE...: edit files in place with GNU and BSD sed alike. BSD sed (macOS)
+# reads the word after `-i` as a backup suffix, so `sed -i EXPR FILE` fails there.
+sed_i() {
+    local expr="$1" f
+    shift
+    for f in "$@"; do sed "$expr" "$f" > "$f.sed-i" && mv "$f.sed-i" "$f" || return 1; done
+}
+
 pass() { echo "ok    $1"; }
 fail() {
     echo "FAIL  $1"
@@ -87,7 +95,7 @@ fi
 g checkout -q -- .
 
 # --- drift fails (AC-RF-CA-2b) -------------------------------------------------------------------
-sed -i 's/A 2-crate workspace/A 3-crate workspace/' "$repo/README.md"
+sed_i 's/A 2-crate workspace/A 3-crate workspace/' "$repo/README.md"
 if out="$(numbers --check 2>&1)"; then
     fail "a document quoting a different crate count fails"
 else
@@ -136,7 +144,7 @@ done
 printf 'x\n<!-- gate-record:begin -->\n<!-- gate-record:end -->\n' >> "$repo/README.md"
 g commit -q -am "status block"
 gated="$(g rev-parse HEAD)"
-sed -i "s/^commit=.*/commit=$gated/" "$run/acceptance.meta" "$run/test.meta"
+sed_i "s/^commit=.*/commit=$gated/" "$run/acceptance.meta" "$run/test.meta"
 GATE_RECORD_ROOT="$repo" bash "$here/../gate-record.sh" --from "$run" >/dev/null 2>&1 || fail "set-up: the gate record is written"
 numbers --write >/dev/null 2>&1
 if grep -q '| Tests passed, `just test` | \*\*123\*\* |' "$repo/docs/compliance/NUMBERS.md" &&
