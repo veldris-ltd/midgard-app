@@ -6418,3 +6418,20 @@ The inference-tier chip matters here: offline, the tier shows on-device (demo fl
 | Q10 | The web consoles show a demonstration banner in mock mode. Should the apps show one, given that the design wants the apps unaware the data is demo data? | No banner; the persona screen says "Demo personas". |
 | Q11 | Show the mocks' `ML-DSA ✓` labels as the web does, or have the demo enclosure actually sign its audit rows with the demo key so the mark is true? | Show as the web does, in Phase C; revisit. |
 | Q12 | The design's screen total (42) versus its table (45). | Build all 45. |
+
+## Owner decisions (16 Nov 2026)
+
+The owner accepted the recommended answer to every open question:
+
+1. **UniFFI licence:** approve time-limited MPL-2.0 exceptions for the eight UniFFI crates in `supply-chain/licences.toml`, with the repository owner as `owner`.
+2. **Demo signing key:** created on the development Mac in `~/.midgard/demo-keys`, separate from every real key; only the public key is committed (`clients/demo/trust/`).
+3. **Heimdall hour:** the labelled synthetic hour; no recording of live feeds.
+4. **Release audit record:** written from a merge of `clients_mac` and `clients_iphone` before a release.
+5. **Key custody:** accept `NonExtractable` for the Apple key root and record the reason; no new custody level.
+6. **Offline AI:** show "AI off" when offline; no simulated on-device tier.
+7. **Map:** online MapKit tiles, with a plain bundled coastline when offline.
+8. **Projects:** bundle IDs `io.veldris.midgard.mac` and `io.veldris.midgard.ios`; XcodeGen from Homebrew; the owner enters the team ID.
+9. **Personas:** keep the four from the release's demo fixtures.
+10. **Demo banner:** yes, as in the web consoles.
+11. **Audit rows:** the demo enclosure signs its audit rows with the demo key, so the check mark is real.
+12. **Screens:** build all 45.
