@@ -74,6 +74,11 @@ pub const DEMO_DATASET: Domain = Domain::new(b"midgard-demo-dataset-v1");
 /// never the dataset key), so a row's check mark rests on a check of that row and an
 /// audit-row signature can never stand for a dataset or a release. [NFR-PQ-3] [AC-C-13]
 pub const DEMO_AUDIT: Domain = Domain::new(b"midgard-demo-audit-v1");
+/// One audit row made at run time for an action of this device, signed by the
+/// device's own audit key (sealed under the device's key root, never exported), so a
+/// device-signed row can never stand for a built-in demo-audit row, a dataset or a
+/// release, nor the other way round. [NFR-PQ-3] [AC-C-13]
+pub const DEVICE_AUDIT: Domain = Domain::new(b"midgard-device-audit-v1");
 
 /// Build the canonical preimage for `body` in `domain`.
 pub fn preimage(domain: &Domain, body: &[u8]) -> Vec<u8> {
@@ -297,9 +302,26 @@ mod tests {
             MIMIR_MODEL,
             MIMIR_MODEL_FILE,
             DEMO_AUDIT,
+            DEVICE_AUDIT,
         ] {
             assert_ne!(DEMO_DATASET.label(), other.label());
             assert_ne!(preimage(&DEMO_DATASET, b"x"), preimage(&other, b"x"));
+        }
+    }
+
+    #[test]
+    fn the_device_audit_domain_is_its_own() {
+        for other in [
+            RELEASE_ARTEFACT,
+            BIFROST_ARTEFACT,
+            BIFROST_BUNDLE,
+            MIMIR_MODEL,
+            MIMIR_MODEL_FILE,
+            DEMO_DATASET,
+            DEMO_AUDIT,
+        ] {
+            assert_ne!(DEVICE_AUDIT.label(), other.label());
+            assert_ne!(preimage(&DEVICE_AUDIT, b"x"), preimage(&other, b"x"));
         }
     }
 
@@ -313,6 +335,7 @@ mod tests {
             MIMIR_MODEL_FILE,
             DEMO_DATASET,
             DEMO_AUDIT,
+            DEVICE_AUDIT,
         ];
         for (i, a) in all.iter().enumerate() {
             for b in &all[i + 1..] {

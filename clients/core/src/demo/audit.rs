@@ -13,9 +13,11 @@
 //!   otherwise the whole dataset is refused. A row without one is
 //!   [`SignatureStatus::Unsigned`].
 //! - **Rows the enclosure appends at run time** (one per action) are
-//!   [`SignatureStatus::Unsigned`] when made. The device key signs them later (sealed
-//!   keystore and session, Tasks A9/A10; Secure Enclave root, A13), and only a check
-//!   under that key makes one [`SignatureStatus::Device`].
+//!   [`SignatureStatus::Unsigned`] when made. The session that made the action signs
+//!   such a row with this device's audit key ([`crate::device_audit`], under its own
+//!   domain [`attest::accept::DEVICE_AUDIT`], the key sealed to the device's key
+//!   root), and only a check under that key, on every read, makes one
+//!   [`SignatureStatus::Device`] ([`crate::session`]).
 //!
 //! Nothing here marks a row verified without an [`attest::accept::accept`] check, and
 //! the mock's `pqSignature` text (`ML-DSA ✓`) is never passed on: the enclosure
@@ -42,8 +44,9 @@ pub const AUDIT_TYPE: &str = "AuditRecord";
 pub enum SignatureStatus {
     /// Its build-time signature verified under a pinned demo-audit anchor.
     Verified,
-    /// Signed by this device's key and verified under it (set by the session once
-    /// the device key exists; the demo enclosure never sets it).
+    /// Signed by this device's audit key and verified under it (set only by the
+    /// session, after the check; a source's claim of it is not believed, and the
+    /// demo enclosure never sets it).
     Device,
     /// No signature has been checked: show no check mark.
     Unsigned,

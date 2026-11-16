@@ -35,11 +35,13 @@ use sync::{Replica, SyncOp};
 
 mod cache;
 mod error;
-pub use cache::{ExportedState, ImportReport, CLOCK_OBJECT, PENDING_OBJECT};
+pub use cache::{ExportedState, ImportReport, CLOCK_OBJECT, DEVICE_AUDIT_OBJECT, PENDING_OBJECT};
 pub use error::CoreError;
 pub mod consoles;
 pub mod demo;
+pub mod device_audit;
 pub mod marking;
+pub mod session;
 pub mod source;
 
 /// The version of the shared core every shell links. All client sub-crates share

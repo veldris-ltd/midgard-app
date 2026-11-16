@@ -1,0 +1,8 @@
+{"collections":{
+  "midgard.audit":{"type":"AuditRecord","rows":[
+    {"id":"AUD-1","marking":{"level":"internal","compartments":[]},"item":{"id":"AUD-1","actor":"k.rao","action":"Query","resource":"r","ts":"14:00:00","pqSignature":"ML-DSA ✓"}},
+    {"id":"AUD-2","marking":{"level":"confidential","compartments":["OPS-N"]},"item":{"id":"AUD-2","actor":"x","action":"y","resource":"z","ts":"14:00:01","pqSignature":"ML-DSA ✓"}}]}},
+ "personas":[
+  {"id":"k.rao","display":"K. Rao","role":"analyst","clearance":"restricted","compartments":[],"roles":["analyst"]},
+  {"id":"k.osei","display":"K. Osei","role":"approver","clearance":"confidential","compartments":["OPS-N","SIG"],"roles":["approver"]}],
+ "format":"midgard-demo-dataset","version":1,"release":"test","inputs":{}}

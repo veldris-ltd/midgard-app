@@ -38,6 +38,11 @@ pub const PENDING_OBJECT: &str = "\0sys/pending";
 /// marking (two counters, nothing secret), so a lower clearance still restores them
 /// and no version or action number is ever reused.
 pub const CLOCK_OBJECT: &str = "\0sys/clock";
+/// The cache object holding the session's device-audit signatures for this persona
+/// (`crate::session`), at the session's own clearance. It stays in the cache, so it
+/// goes into every state file and is dropped with everything else on a persona
+/// switch.
+pub const DEVICE_AUDIT_OBJECT: &str = "\0sys/device-audit";
 
 /// A state file to write, and its generation (for the shell to keep outside the
 /// file, in a this-device-only keychain item, and pass back on import).
@@ -291,7 +296,7 @@ impl<K: Keystore + TrustRoot> ClientCore<K> {
                 return Err(e);
             }
         };
-        let sys = [PENDING_OBJECT, CLOCK_OBJECT]
+        let sys = [PENDING_OBJECT, CLOCK_OBJECT, DEVICE_AUDIT_OBJECT]
             .iter()
             .filter(|k| self.store.contains(k))
             .count();
@@ -312,6 +317,25 @@ impl<K: Keystore + TrustRoot> ClientCore<K> {
                 .any(|k| k == PENDING_OBJECT),
             generation: imported.generation,
         })
+    }
+
+    /// The session's device-audit record, if one is cached. `[NFR-PQ-3]`
+    pub(crate) fn device_audit_record(&self) -> Result<Option<Vec<u8>>, CoreError> {
+        match self.store.get(DEVICE_AUDIT_OBJECT) {
+            Ok(b) => Ok(Some(b)),
+            Err(StoreError::NotFound) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Seal the session's device-audit record at the session's own clearance.
+    pub(crate) fn set_device_audit_record(
+        &mut self,
+        bytes: &[u8],
+        rng: &mut dyn Rng,
+    ) -> Result<(), CoreError> {
+        let own = self.own_marking();
+        Ok(self.store.put(DEVICE_AUDIT_OBJECT, own, bytes, rng)?)
     }
 
     fn clock_in_store(&self) -> Result<Option<(u64, u64)>, CoreError> {

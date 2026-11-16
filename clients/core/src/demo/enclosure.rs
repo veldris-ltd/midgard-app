@@ -83,10 +83,10 @@ impl DemoState {
 
     /// Append an audit row marked `marking` to `<console>.audit` (or `midgard.audit`
     /// when the console keeps no `AuditRecord` collection) and return its id. It is
-    /// unsigned (status `none`): no device signing key exists yet. The sealed root
-    /// of Task A9 is an ML-KEM encryption root, not a signing key; a device-audit
-    /// key under its own domain, and [`SignatureStatus::Device`] set only after that
-    /// signature verifies, are left to the session (Task A10).
+    /// delivered unsigned (status `none`). The session that made the action signs it
+    /// with the device-audit key (`crate::device_audit`, its own domain) and shows it
+    /// as [`SignatureStatus::Device`] only while it verifies under that key
+    /// (`crate::session`); the enclosure never sets that status.
     pub fn audit(
         &mut self,
         console: &str,
