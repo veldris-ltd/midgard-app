@@ -6,9 +6,10 @@
 #
 #   bash tools/ci/tests/demo-fixtures.test.sh
 #
-# Runs in the js-build CI job (tools/ci/run.sh), which has node. Without node it
-# skips, so the selftest job, which has none, still passes. The read-model check
-# also needs the pinned rustfmt on PATH; without one that check skips.
+# Runs in the js-build CI job (tools/ci/run.sh) and in GitHub's selftest, which
+# install node 22. Without node it skips (GitLab's selftest image has none); with a
+# node older than 22.6 it fails. The read-model check also needs the pinned rustfmt
+# on PATH; without one that check skips.
 set -uo pipefail
 cd "$(dirname "$0")/../../.." || exit 2
 failures=0
@@ -18,6 +19,20 @@ fail() { echo "FAIL  $1"; failures=$((failures + 1)); }
 if ! command -v node >/dev/null 2>&1; then
     echo "skip  demo-fixtures: node is not on PATH"
     exit 0
+fi
+# The scripts run TypeScript with --experimental-strip-types (node 22.6 or later; the
+# workspace needs 22.12, package.json engines). An older node fails with a clear
+# message here rather than "bad option" from node, and never skips.
+node_version="$(node -p 'process.versions.node' 2>/dev/null || echo unknown)"
+node_major="${node_version%%.*}"
+node_minor="${node_version#*.}"
+node_minor="${node_minor%%.*}"
+case "$node_major$node_minor" in
+    *[!0-9]*|'') node_major=0 node_minor=0 ;;
+esac
+if [ "$node_major" -lt 22 ] || { [ "$node_major" -eq 22 ] && [ "$node_minor" -lt 6 ]; }; then
+    echo "FAIL  demo-fixtures: node $node_version is too old; it needs node 22.6 or later (package.json engines: >=22.12)"
+    exit 1
 fi
 
 release="$(bash tools/ci/release-artefacts.sh --version)"

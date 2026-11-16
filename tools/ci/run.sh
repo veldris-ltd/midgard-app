@@ -493,7 +493,8 @@ job_js_build() {
     # an http build of the midgard console holds no mock fixture. [AC-25.2]
     bash tools/ci/tests/js-mock-bundle.test.sh
     # The client demo fixtures and read models come from the SDK's TypeScript through
-    # node scripts; selftest skips their tests for want of node, so they run here.
+    # node scripts; a selftest without node (GitLab's) skips their tests, so they also
+    # run here.
     # [AC-C-13] [FR-C-1]
     bash tools/ci/tests/demo-fixtures.test.sh
     bash tools/ci/tests/gen-read-models.test.sh

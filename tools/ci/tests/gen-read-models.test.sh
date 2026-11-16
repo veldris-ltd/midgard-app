@@ -7,9 +7,9 @@
 #
 # Each case copies the contract (sdk/ts/src/types.ts and the five product files)
 # into a scratch tree, appends one declaration to one file, and runs the generator
-# over that tree with --src-root. Without node it skips, so the selftest job, which
-# has no node, still passes. The positive control also needs the pinned rustfmt on
-# PATH; without it that one case skips.
+# over that tree with --src-root. Without node it skips (GitLab's selftest image has
+# none); with a node older than 22.6 it fails. The positive control also needs the
+# pinned rustfmt on PATH; without it that one case skips.
 set -uo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -26,6 +26,20 @@ fail() {
 if ! command -v node >/dev/null 2>&1; then
     echo "skip  gen-read-models: node is not on PATH"
     exit 0
+fi
+# The scripts run TypeScript with --experimental-strip-types (node 22.6 or later; the
+# workspace needs 22.12, package.json engines). An older node fails with a clear
+# message here rather than "bad option" from node, and never skips.
+node_version="$(node -p 'process.versions.node' 2>/dev/null || echo unknown)"
+node_major="${node_version%%.*}"
+node_minor="${node_version#*.}"
+node_minor="${node_minor%%.*}"
+case "$node_major$node_minor" in
+    *[!0-9]*|'') node_major=0 node_minor=0 ;;
+esac
+if [ "$node_major" -lt 22 ] || { [ "$node_major" -eq 22 ] && [ "$node_minor" -lt 6 ]; }; then
+    echo "FAIL  gen-read-models: node $node_version is too old; it needs node 22.6 or later (package.json engines: >=22.12)"
+    exit 1
 fi
 
 tmp="$(mktemp -d)"
