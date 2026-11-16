@@ -15,7 +15,7 @@ Counted from tracked files. `vendor/` is other people's code and is not counted.
 |---|---|---|---|
 | Workspace crates | **71** | members of `[workspace]` in the root `Cargo.toml` | `cargo metadata --no-deps --offline --format-version 1` lists the same packages |
 | Rust source files | **703** | tracked `*.rs` outside `vendor/` | `git ls-files '*.rs' ':(exclude)vendor' \| wc -l` |
-| Rust lines, raw | **173,971** | every line of those files | `git ls-files -z '*.rs' ':(exclude)vendor' \| xargs -0 cat \| wc -l` |
+| Rust lines, raw | **173,974** | every line of those files | `git ls-files -z '*.rs' ':(exclude)vendor' \| xargs -0 cat \| wc -l` |
 | Rust lines, code | **135,508** | lines that are neither blank nor begin with `//` (so doc comments are excluded and block comments are not) | `git ls-files -z '*.rs' ':(exclude)vendor' \| xargs -0 cat \| grep -vcE '^\s*(//.*)?\r?$'` |
 | Test functions | **1,681** | `#[test]` attributes in those files. A count of functions written, not of tests run | `git ls-files -z '*.rs' ':(exclude)vendor' \| xargs -0 cat \| grep -cE '^\s*#\[test\]'` |
 | …of which ignored | **2** | `#[ignore]` attributes in those files | `git ls-files -z '*.rs' ':(exclude)vendor' \| xargs -0 cat \| grep -cE '^\s*#\[ignore'` |

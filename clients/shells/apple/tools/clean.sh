@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Delete every local Apple-client build output. [DD-6]
+#
+#   bash clients/shells/apple/tools/clean.sh [--target]
+#
+# Removes ~/Library/Caches/midgard-build/clients-* outputs and what
+# build-xcframework.sh linked into the Swift package; --target also removes the cargo
+# target directory (~/Library/Caches/midgard-build/target-clients).
+set -euo pipefail
+cache="${MIDGARD_BUILD_CACHE:-$HOME/Library/Caches/midgard-build}"
+case "${1:-}" in
+    '') ;;
+    --target) rm -rf "$cache/target-clients" ;;
+    *)
+        echo "usage: clean.sh [--target]" >&2
+        exit 2
+        ;;
+esac
+rm -rf "$cache/clients-xcframework" "$cache/clients-derived" "$cache/clients-archive"
+cd "$(dirname "$0")/.."
+rm -rf Frameworks Sources/MidgardCore/midgard_client_ffi.swift .build
+echo "clean: done"

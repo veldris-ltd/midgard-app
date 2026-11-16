@@ -4,7 +4,10 @@
 //!   cargo run -p midgard-client-ffi --example uniffi-bindgen -- --library <lib.a> --out <dir>
 //!
 //! Writes midgard_client_ffi.swift, midgard_client_ffiFFI.h and module.modulemap
-//! (module `midgard_client_ffiFFI`, XCFramework form). Built without UniFFI's
+//! (module `midgard_client_ffiFFI`). The module map is a plain `module`, not UniFFI's
+//! `framework module` form: the XCFramework carries a static library with a Headers
+//! directory (clients/shells/apple/tools/build-xcframework.sh), and Clang cannot
+//! resolve a framework module's header there. Built without UniFFI's
 //! `cargo-metadata` feature: no `uniffi.toml` is read, so the defaults apply.
 
 use camino::Utf8PathBuf;
@@ -28,7 +31,7 @@ fn main() {
         generate_modulemap: true,
         library_path: Utf8PathBuf::from(get("--library")),
         out_dir: Utf8PathBuf::from(get("--out")),
-        xcframework: true,
+        xcframework: false,
         module_name: Some("midgard_client_ffiFFI".into()),
         modulemap_filename: Some("module.modulemap".into()),
         metadata_no_deps: true,
