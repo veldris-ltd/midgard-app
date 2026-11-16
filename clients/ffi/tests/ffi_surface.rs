@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock, Weak};
 
 use midgard_client_ffi::*;
 use pqc_agility::{Aes256GcmAead, OsRng, Rng, GCM_NONCE_LEN};
@@ -18,6 +18,10 @@ enum Mode {
     Plaintext,
     /// Unseals to a different 32-byte key (another platform key).
     WrongKey,
+    /// `unseal` reports the sealed bytes malformed.
+    UnsealMalformed,
+    /// `unseal` reports the platform key unavailable.
+    UnsealUnavailable,
 }
 
 /// A software platform key: AES-256-GCM under a fixed key, like the Enclave's ECIES
@@ -26,7 +30,13 @@ struct TestKeyRoot {
     key: [u8; 32],
     mode: Mode,
     cancel: AtomicBool,
+    /// `unseal` panics (a platform side that crashes mid-prompt).
+    panic: AtomicBool,
     prompts: AtomicUsize,
+    /// When set, `unseal` calls back into this client (as a careless shell might)
+    /// and records what it saw.
+    reenter: OnceLock<Weak<MidgardClient>>,
+    saw_locked: AtomicBool,
 }
 
 impl TestKeyRoot {
@@ -35,7 +45,10 @@ impl TestKeyRoot {
             key: [7; 32],
             mode,
             cancel: AtomicBool::new(false),
+            panic: AtomicBool::new(false),
             prompts: AtomicUsize::new(0),
+            reenter: OnceLock::new(),
+            saw_locked: AtomicBool::new(false),
         })
     }
 }
@@ -57,6 +70,15 @@ impl KeyRoot for TestKeyRoot {
 
     fn unseal(&self, sealed: Vec<u8>) -> Result<Vec<u8>, KeyRootError> {
         self.prompts.fetch_add(1, Ordering::SeqCst);
+        if let Some(c) = self.reenter.get().and_then(Weak::upgrade) {
+            let locked = c.is_locked()
+                && c.personas().len() == 4
+                && matches!(c.status_chips(), Err(ClientError::Locked));
+            self.saw_locked.store(locked, Ordering::SeqCst);
+        }
+        if self.panic.load(Ordering::SeqCst) {
+            panic!("platform side crashed");
+        }
         if self.cancel.load(Ordering::SeqCst) {
             return Err(KeyRootError::UserCancelled);
         }
@@ -65,8 +87,19 @@ impl KeyRoot for TestKeyRoot {
                 detail: "short".into(),
             });
         }
-        if self.mode == Mode::WrongKey {
-            return Ok(vec![9; 32]);
+        match self.mode {
+            Mode::WrongKey => return Ok(vec![9; 32]),
+            Mode::UnsealMalformed => {
+                return Err(KeyRootError::Malformed {
+                    detail: "not ours".into(),
+                })
+            }
+            Mode::UnsealUnavailable => {
+                return Err(KeyRootError::PlatformUnavailable {
+                    detail: "key deleted".into(),
+                })
+            }
+            _ => {}
         }
         let (nonce, ct) = sealed.split_at(GCM_NONCE_LEN);
         Aes256GcmAead::new(&self.key)
@@ -454,4 +487,87 @@ fn reset_demo_locks_and_reloads_the_dataset() {
         c.collection_rows("midgard.audit".into()).unwrap().len(),
         rows_before
     );
+}
+
+#[test]
+fn the_key_root_may_read_the_client_during_the_prompt_and_sees_it_locked() {
+    let root = TestKeyRoot::new(Mode::Honest);
+    let c = client(root.clone());
+    let keys = c.enrol().unwrap();
+    root.reenter.set(Arc::downgrade(&c)).unwrap();
+    // Would deadlock if unlock held the client's lock across the prompt.
+    c.unlock(keys.clone(), "k.rao".into()).unwrap();
+    assert!(root.saw_locked.load(Ordering::SeqCst));
+    assert!(!c.is_locked());
+}
+
+#[test]
+fn unseal_failures_from_the_platform_map_through_unlock() {
+    let keys = client(TestKeyRoot::new(Mode::Honest)).enrol().unwrap();
+    let c = client(TestKeyRoot::new(Mode::UnsealMalformed));
+    assert!(matches!(
+        c.unlock(keys.clone(), "k.rao".into()),
+        Err(ClientError::SealedRootMalformed { detail }) if detail == "not ours"
+    ));
+    assert!(c.is_locked());
+    let c = client(TestKeyRoot::new(Mode::UnsealUnavailable));
+    assert!(matches!(
+        c.unlock(keys.clone(), "k.rao".into()),
+        Err(ClientError::KeyRootUnavailable { detail }) if detail == "key deleted"
+    ));
+    assert!(c.is_locked());
+}
+
+#[test]
+fn a_platform_side_that_panics_mid_prompt_leaves_a_client_that_recovers() {
+    let root = TestKeyRoot::new(Mode::Honest);
+    let c = client(root.clone());
+    let keys = c.enrol().unwrap();
+    root.panic.store(true, Ordering::SeqCst);
+    let c2 = c.clone();
+    let k2 = keys.clone();
+    let crashed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        c2.unlock(k2, "k.rao".into())
+    }));
+    assert!(crashed.is_err());
+    assert!(c.is_locked());
+    assert_eq!(c.personas().len(), 4);
+    root.panic.store(false, Ordering::SeqCst);
+    // The source went with the crashed unlock: the next unlock reloads it.
+    c.unlock(keys, "k.rao".into()).unwrap();
+    assert!(!c
+        .collection_rows("midgard.objectTypes".into())
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+fn a_reset_during_the_prompt_wins() {
+    let root = TestKeyRoot::new(Mode::Honest);
+    let c = client(root.clone());
+    let keys = c.enrol().unwrap();
+    struct Resetter(Arc<TestKeyRoot>, OnceLock<Weak<MidgardClient>>);
+    impl KeyRoot for Resetter {
+        fn seal(&self, k: Vec<u8>) -> Result<Vec<u8>, KeyRootError> {
+            self.0.seal(k)
+        }
+        fn unseal(&self, s: Vec<u8>) -> Result<Vec<u8>, KeyRootError> {
+            if let Some(c) = self.1.get().and_then(Weak::upgrade) {
+                c.reset_demo().unwrap();
+            }
+            self.0.unseal(s)
+        }
+        fn hardware_backed(&self) -> bool {
+            false
+        }
+    }
+    let r = Arc::new(Resetter(root, OnceLock::new()));
+    let c2 = MidgardClient::new(config(&dataset()), r.clone()).unwrap();
+    r.1.set(Arc::downgrade(&c2)).unwrap();
+    assert!(matches!(
+        c2.unlock(keys.clone(), "k.rao".into()),
+        Err(ClientError::Locked)
+    ));
+    assert!(c2.is_locked());
+    drop(c);
 }

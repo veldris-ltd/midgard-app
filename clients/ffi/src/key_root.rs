@@ -58,6 +58,11 @@ impl From<uniffi::UnexpectedUniFFICallbackError> for KeyRootError {
 /// `seal` is given the data key to seal (it needs no user presence: the Enclave's
 /// public half encrypts) and creates the platform key first if there is none;
 /// `unseal` gives it back (it prompts). Neither is ever given anything else.
+///
+/// Never call the `MidgardClient` from inside these methods, and call
+/// `MidgardClient::unlock` (which waits on `unseal`'s prompt) off the main thread.
+/// The client does not hold its lock while it waits, so such a call would see a
+/// locked client rather than deadlock, but it is still a bug in the shell.
 #[uniffi::export(with_foreign)]
 pub trait KeyRoot: Send + Sync {
     /// Seal `data_key` (32 bytes) to the platform key.

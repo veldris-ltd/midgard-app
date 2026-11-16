@@ -70,6 +70,8 @@ pub enum ClientError {
     Locked,
     /// Already unlocked: lock (or switch persona) first.
     AlreadyUnlocked,
+    /// Another unlock is waiting on the platform prompt.
+    UnlockInProgress,
     /// No such persona.
     UnknownPersona {
         /// The persona id given.
@@ -87,8 +89,8 @@ pub enum ClientError {
         /// The platform's message.
         detail: String,
     },
-    /// The sealed root blob is malformed (structure or format version); the
-    /// platform side was not asked.
+    /// Malformed: the sealed root blob's structure or format version, or the
+    /// platform side found the sealed data key so.
     SealedRootMalformed {
         /// What.
         detail: String,

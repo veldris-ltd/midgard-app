@@ -272,10 +272,32 @@ struct Open {
 
 enum State {
     Locked(Box<DemoEnclosure>),
+    /// An unlock is waiting on the platform prompt, with the client's lock released:
+    /// every other call sees a locked client (never a blocked one).
+    Unlocking,
     Open(Box<Open>),
     /// While a transition holds the lock, or after one could not reload the dataset
-    /// (reads as locked; `unlock` and `reset_demo` reload it).
+    /// or was cut short by a panic in the platform side (reads as locked; `unlock`
+    /// and `reset_demo` reload it).
     Gone,
+}
+
+/// Marks the client `Gone` if an unlock is unwound (a panic in the platform side)
+/// while it waits on the prompt, so the client is never stuck `Unlocking`.
+struct UnlockGuard<'a> {
+    state: &'a Mutex<State>,
+    armed: bool,
+}
+
+impl Drop for UnlockGuard<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            let mut st = self.state.lock().unwrap_or_else(|p| p.into_inner());
+            if matches!(&*st, State::Unlocking) {
+                *st = State::Gone;
+            }
+        }
+    }
 }
 
 /// The client a shell holds: locked or signed in.
@@ -283,6 +305,10 @@ enum State {
 pub struct MidgardClient {
     config: ClientConfig,
     key_root: Arc<dyn KeyRoot>,
+    /// The dataset's personas and collections, read once: they do not change, and
+    /// the sign-in screen needs them whatever the state.
+    personas: Vec<Persona>,
+    collections: Vec<(String, String)>,
     state: Mutex<State>,
 }
 
@@ -392,34 +418,25 @@ impl MidgardClient {
         Ok(Arc::new(Self {
             config,
             key_root,
+            personas: source.personas(),
+            collections: source.collections(),
             state: Mutex::new(State::Locked(Box::new(source))),
         }))
     }
 
     /// The personas the sign-in screen lists.
     pub fn personas(&self) -> Vec<PersonaInfo> {
-        match self.state().as_deref() {
-            Ok(State::Locked(src)) => src.personas().iter().map(persona_info).collect(),
-            Ok(State::Open(o)) => o
-                .session
-                .source()
-                .personas()
-                .iter()
-                .map(persona_info)
-                .collect(),
-            _ => Vec::new(),
-        }
+        self.personas.iter().map(persona_info).collect()
     }
 
     /// The collections the source serves, with their read-model types.
     pub fn collections(&self) -> Vec<CollectionInfo> {
-        let list = match self.state().as_deref() {
-            Ok(State::Locked(src)) => src.collections(),
-            Ok(State::Open(o)) => o.session.source().collections(),
-            _ => Vec::new(),
-        };
-        list.into_iter()
-            .map(|(name, row_type)| CollectionInfo { name, row_type })
+        self.collections
+            .iter()
+            .map(|(name, row_type)| CollectionInfo {
+                name: name.clone(),
+                row_type: row_type.clone(),
+            })
             .collect()
     }
 
@@ -437,26 +454,56 @@ impl MidgardClient {
     /// `persona_id` in. The cache is empty: load the persona's state file with
     /// [`import_state`](Self::import_state). An unknown persona is refused before
     /// the prompt; on any error the client stays locked.
+    ///
+    /// The client's lock is not held while the platform side prompts: other calls
+    /// meanwhile see a locked client. A `reset_demo` during the prompt wins (this
+    /// unlock then returns `Locked`); a `lock` during it does nothing. Call this off
+    /// the main thread, and never call the client from inside the [`KeyRoot`].
     pub fn unlock(&self, keys: SealedKeys, persona_id: String) -> Result<SessionInfo, ClientError> {
+        let src = {
+            let mut st = self.state()?;
+            match &*st {
+                State::Locked(_) => {}
+                State::Gone => *st = State::Locked(Box::new(load_source(&self.config)?)),
+                State::Unlocking => return Err(ClientError::UnlockInProgress),
+                State::Open(_) => return Err(ClientError::AlreadyUnlocked),
+            }
+            if let State::Locked(src) = &*st {
+                src.grant(&persona_id)?;
+            }
+            let State::Locked(src) = std::mem::replace(&mut *st, State::Unlocking) else {
+                unreachable!("made Locked above, under the same lock")
+            };
+            src
+        };
+
+        // The prompt, with the client's lock released.
+        let mut guard = UnlockGuard {
+            state: &self.state,
+            armed: true,
+        };
+        let opened = (|| -> Result<_, ClientError> {
+            let ks = SealedRootKeystore::open(&keys.root, &Sealer(self.key_root.clone()))?;
+            let device = DeviceAuditKey::open(&ks, &keys.device_audit)?;
+            let custody = CustodyChip {
+                floor: format!("{:?}", ks.floor()),
+                hardware_wrapped: ks.hardware_wrapped(),
+            };
+            Ok((ks, device, custody))
+        })();
+        guard.armed = false;
+
         let mut st = self.state()?;
-        if matches!(&*st, State::Gone) {
-            // A transition that failed part way (the dataset could not be reloaded):
-            // try again.
-            *st = State::Locked(Box::new(load_source(&self.config)?));
+        if !matches!(&*st, State::Unlocking) {
+            // Reset while the prompt was up: that state stands; drop this one.
+            return Err(ClientError::Locked);
         }
-        let src = match &*st {
-            State::Locked(src) => src,
-            _ => return Err(ClientError::AlreadyUnlocked),
-        };
-        src.grant(&persona_id)?;
-        let ks = SealedRootKeystore::open(&keys.root, &Sealer(self.key_root.clone()))?;
-        let device = DeviceAuditKey::open(&ks, &keys.device_audit)?;
-        let custody = CustodyChip {
-            floor: format!("{:?}", ks.floor()),
-            hardware_wrapped: ks.hardware_wrapped(),
-        };
-        let State::Locked(src) = std::mem::replace(&mut *st, State::Gone) else {
-            unreachable!("checked above, under the same lock")
+        let (ks, device, custody) = match opened {
+            Ok(o) => o,
+            Err(e) => {
+                *st = State::Locked(src);
+                return Err(e);
+            }
         };
         match Session::open(ks, device, *src, &persona_id, &self.config.replica_id) {
             Ok(session) => {
@@ -467,9 +514,12 @@ impl MidgardClient {
             }
             Err(e) => {
                 // The source moved into the failed session: load it again so the
-                // client stays usable, locked. (The persona was granted above, so
-                // this is a custody or core failure.)
-                *st = State::Locked(Box::new(load_source(&self.config)?));
+                // client stays usable, locked. If that fails too, the original
+                // error is the one reported (the next unlock retries the load).
+                *st = match load_source(&self.config) {
+                    Ok(src) => State::Locked(Box::new(src)),
+                    Err(_) => State::Gone,
+                };
                 Err(e.into())
             }
         }
@@ -636,10 +686,118 @@ impl MidgardClient {
     /// "Reset demo": lock and reload the dataset, so the demo's own state (actions
     /// applied, audit rows appended) starts again. The shell deletes its files and
     /// its platform key itself.
+    ///
+    /// Also the way back from a client whose lock was poisoned by a panic: the
+    /// poison is cleared and a fresh locked state installed.
     pub fn reset_demo(&self) -> Result<(), ClientError> {
         let source = load_source(&self.config)?;
-        let mut st = self.state()?;
+        let mut st = self.state.lock().unwrap_or_else(|p| {
+            self.state.clear_poison();
+            p.into_inner()
+        });
         *st = State::Locked(Box::new(source));
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::key_root::KeyRootError;
+    use attest::TrustAnchors;
+
+    const BODY: &str = include_str!("../../core/tests/fixtures/session_body.json");
+
+    struct Plain;
+    impl KeyRoot for Plain {
+        fn seal(&self, k: Vec<u8>) -> Result<Vec<u8>, KeyRootError> {
+            // Not a seal, but not the key in the clear either: enough for the guard.
+            Ok(k.iter().map(|b| b ^ 0x5a).chain([0u8; 16]).collect())
+        }
+        fn unseal(&self, s: Vec<u8>) -> Result<Vec<u8>, KeyRootError> {
+            Ok(s[..32].iter().map(|b| b ^ 0x5a).collect())
+        }
+        fn hardware_backed(&self) -> bool {
+            false
+        }
+    }
+
+    fn config() -> ClientConfig {
+        ClientConfig {
+            dataset_path: "unused".into(),
+            replica_id: "unit".into(),
+            device: DeviceInfo {
+                ram_mb: 8192,
+                has_accelerator: false,
+            },
+        }
+    }
+
+    fn client_over(body: &str) -> MidgardClient {
+        let json = attest::json::parse(body).unwrap();
+        let e = DemoEnclosure::from_body("test", &json, &TrustAnchors::new()).unwrap();
+        MidgardClient {
+            config: config(),
+            key_root: Arc::new(Plain),
+            personas: e.personas(),
+            collections: e.collections(),
+            state: Mutex::new(State::Locked(Box::new(e))),
+        }
+    }
+
+    #[test]
+    fn unsent_actions_lost_on_import_reach_the_shell() {
+        let a = client_over(BODY);
+        let keys = a.enrol().unwrap();
+        a.unlock(keys.clone(), "k.osei".into()).unwrap();
+        a.collection_rows("midgard.audit".into()).unwrap();
+        a.set_offline(true).unwrap();
+        a.request_action(ActionInput {
+            verb: "demo.ping".into(),
+            target: "midgard.audit/AUD-1".into(),
+            params: vec![],
+        })
+        .unwrap();
+        let saved = a.export_state().unwrap();
+
+        // The same persona, now at a lower clearance: the queue cannot be read.
+        let lower = BODY.replace(
+            r#""clearance":"confidential","compartments":["OPS-N","SIG"]"#,
+            r#""clearance":"restricted","compartments":[]"#,
+        );
+        assert_ne!(lower, BODY);
+        let b = client_over(&lower);
+        b.unlock(keys, "k.osei".into()).unwrap();
+        let report = b.import_state(saved.file, saved.generation).unwrap();
+        assert!(report.pending_dropped);
+        assert_eq!(b.status_chips().unwrap().sync.pending, 0);
+    }
+
+    #[test]
+    fn reset_demo_recovers_a_poisoned_client() {
+        let c = Arc::new(client_over(BODY));
+        let c2 = c.clone();
+        let _ = std::thread::spawn(move || {
+            let _held = c2.state.lock().unwrap();
+            panic!("poison the client's lock");
+        })
+        .join();
+        assert!(c.state.is_poisoned());
+        assert!(matches!(
+            c.status_chips(),
+            Err(ClientError::Internal { .. })
+        ));
+        // reset_demo reloads the dataset from `dataset_path`: point it at a real one.
+        let mut c = Arc::try_unwrap(c).ok().unwrap();
+        c.config.dataset_path = format!(
+            "{}/../demo/datasets/{}.mgdemo",
+            env!("CARGO_MANIFEST_DIR"),
+            midgard_client_core::CORE_VERSION
+        );
+        c.reset_demo().unwrap();
+        assert!(!c.state.is_poisoned());
+        assert!(c.is_locked());
+        let keys = c.enrol().unwrap();
+        c.unlock(keys, "k.rao".into()).unwrap();
     }
 }
