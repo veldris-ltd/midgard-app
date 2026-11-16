@@ -143,6 +143,7 @@ lint:
     cargo clippy -p heimdall-picture -p heimdall-classify -p heimdall-decision-support -p heimdall-feed-gateway -p heimdall-feed-server -p heimdall-fusion -p heimdall-picture-sync -p heimdall-workflow --features backend-fips --all-targets -- -D warnings
     cargo clippy -p admin-identity -p admin-privilege -p admin-sim -p admin-config -p admin-breakglass -p admin-audit -p admin-ai-assist -p admin-service-identity --features backend-fips --all-targets -- -D warnings
     cargo clippy -p midgard-client-sync -p midgard-client-keystore -p midgard-client-store -p midgard-client-broker -p midgard-client-delivery -p midgard-client-core --features backend-fips --all-targets -- -D warnings
+    cargo clippy -p midgard-client-ffi --features backend-fips --all-targets -- -D warnings
     cargo clippy -p midgard-client-enclosure -p midgard-client-inference --features test-backend --all-targets -- -D warnings
     cargo clippy -p telemetry --all-targets -- -D warnings
     cargo clippy -p heimdall-store -p mimir-bridge -p admin-orchestrator -p mg-model --features backend-fips --all-targets -- -D warnings
@@ -263,6 +264,7 @@ test:
     cargo test -p midgard-client-broker
     cargo test -p midgard-client-delivery --features backend-fips
     cargo test -p midgard-client-core --features backend-fips
+    cargo test -p midgard-client-ffi --features backend-fips
     cargo test -p attest
     cargo test -p attest --no-default-features --features backend-fips
     cargo test -p mg-sign -p mg-sbom -p mg-scan -p mg-verify -p mg-repro

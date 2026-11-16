@@ -54,11 +54,12 @@ refused() {
     fi
 }
 
-# Positive control: the unchanged contract passes --check (the cases above fail for
-# their own reason, not because the scratch tree is unreadable).
+# Positive control: the unchanged contract passes --check, the UniFFI mirrors
+# included (the cases above fail for their own reason, not because the scratch tree
+# is unreadable).
 if command -v rustfmt >/dev/null 2>&1; then
     fresh
-    if out="$(node "$gen" --check --src-root "$tmp/case" 2>&1)"; then
+    if out="$(node "$gen" --check --ffi-out clients/ffi/src/generated --src-root "$tmp/case" 2>&1)"; then
         pass "the unchanged contract is up to date"
     else
         fail "the unchanged contract: $out"

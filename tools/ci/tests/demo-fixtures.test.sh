@@ -140,10 +140,10 @@ if [ "$n" = 30 ]; then pass "a.holt sees all 30 Bifrost rows"; else fail "a.holt
 
 if ! command -v rustfmt >/dev/null 2>&1; then
     echo "skip  read models: rustfmt is not on PATH"
-elif node clients/demo/tools/gen-read-models.mjs --check >/dev/null 2>&1; then
+elif node clients/demo/tools/gen-read-models.mjs --check --ffi-out clients/ffi/src/generated >/dev/null 2>&1; then
     pass "the console read models match sdk/ts/src"
 else
-    fail "stale read models: node clients/demo/tools/gen-read-models.mjs --write"
+    fail "stale read models: node clients/demo/tools/gen-read-models.mjs --write --ffi-out clients/ffi/src/generated"
 fi
 
 [ "$failures" -eq 0 ] || { echo "$failures failure(s)"; exit 1; }

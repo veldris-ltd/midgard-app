@@ -314,9 +314,7 @@ ${d.fields.map((f) => `            ${f.rs}: ${conv(f.ty, `x.${f.rs}`)},`).join('
 //! midgard_client_core::consoles::${mod}. Do not edit. [FR-C-1] [DD-6]
 #![allow(clippy::all)]
 
-#[allow(unused_imports)]
-use super::common::*;
-#[allow(unused_imports)]
+${mod === 'common' ? '' : '#[allow(unused_imports)]\nuse super::common::*;\n'}#[allow(unused_imports)]
 use super::KeyValue;
 use midgard_client_core::consoles::${mod} as core;
 `;

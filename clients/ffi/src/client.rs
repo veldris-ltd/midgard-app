@@ -1,0 +1,645 @@
+//! `MidgardClient`: the one object a shell holds. `[FR-C-1]` `[AC-C-13]` `[FR-C-4]`
+//! `[NFR-PQ-3]`
+//!
+//! The shell keeps every file: the sealed root and the sealed device-audit key from
+//! [`MidgardClient::enrol`] ([`SealedKeys`]), and each persona's state file from
+//! [`MidgardClient::export_state`] with its generation. It hands them back as bytes;
+//! all of them are sealed, and this crate opens them only in the core. The one file
+//! this crate reads itself is the bundled dataset, verified under the anchors
+//! compiled into the core (`DemoEnclosure::open_pinned`).
+
+use std::sync::{Arc, Mutex, MutexGuard};
+
+use midgard_client_core::demo::enclosure::DemoEnclosure;
+use midgard_client_core::device_audit::DeviceAuditKey;
+use midgard_client_core::keystore::sealed_root::SealedRootKeystore;
+use midgard_client_core::keystore::Keystore;
+use midgard_client_core::marking::RowMarking;
+use midgard_client_core::session::{self, Session};
+use midgard_client_core::source::{DataSource, Persona};
+use midgard_client_inference::tier::{
+    guard, heuristic, Connectivity, DeviceCapability, Heuristic, PrivacyPreference, TaskComplexity,
+    Tier, TierContext,
+};
+use pqc_agility::backend::fips::provider;
+use pqc_agility::OsRng;
+
+use crate::key_root::{KeyRoot, Sealer};
+use crate::rows::{typed_rows, ConsoleRow};
+use crate::{ClientError, KeyValue};
+
+/// The key id of every device root: a constant, so no device or persona name is in
+/// the sealed blob.
+const ROOT_KEY_ID: &str = "device-root";
+
+/// How the shell configures the client.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct ClientConfig {
+    /// Path of the bundled `<release>.mgdemo`.
+    pub dataset_path: String,
+    /// Stable per install.
+    pub replica_id: String,
+    /// The device, for the inference tier.
+    pub device: DeviceInfo,
+}
+
+/// Device capability as the shell measures it.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct DeviceInfo {
+    /// Physical memory, MiB.
+    pub ram_mb: u32,
+    /// A Neural Engine / GPU is present.
+    pub has_accelerator: bool,
+}
+
+/// What enrolment makes, for the shell to store: both sealed, neither readable
+/// without the platform key.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct SealedKeys {
+    /// The sealed device root (ML-KEM-1024, sealed under the data key the platform
+    /// key root seals).
+    pub root: Vec<u8>,
+    /// The device-audit signing key, sealed to that root.
+    pub device_audit: Vec<u8>,
+}
+
+/// A sealed state file and its generation. Write the file first, then keep the
+/// generation for this persona.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ExportedState {
+    /// The sealed file.
+    pub file: Vec<u8>,
+    /// Its generation.
+    pub generation: u64,
+}
+
+/// What a state import loaded.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ImportReport {
+    /// Cached rows and indexes loaded.
+    pub kept: u32,
+    /// Cached rows and indexes dropped (above the current clearance).
+    pub dropped: u32,
+    /// The file held unsent actions this clearance may not read: they are lost.
+    /// Tell the user.
+    pub pending_dropped: bool,
+    /// The file's generation.
+    pub generation: u64,
+}
+
+/// A persona the sign-in screen lists.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct PersonaInfo {
+    /// Id.
+    pub id: String,
+    /// Display name.
+    pub display: String,
+    /// Role word.
+    pub role: String,
+    /// `CONFIDENTIAL // OPS-N, SIG`.
+    pub clearance_label: String,
+    /// Policy roles.
+    pub roles: Vec<String>,
+}
+
+/// A collection the source serves.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct CollectionInfo {
+    /// `<console>.<name>`.
+    pub name: String,
+    /// The read-model type ([`crate::RowItem`] variant).
+    pub row_type: String,
+}
+
+/// Marking level for chips.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum MarkingLevelChip {
+    /// open
+    Open,
+    /// internal
+    Internal,
+    /// restricted
+    Restricted,
+    /// confidential
+    Confidential,
+}
+
+/// A row's marking chip.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct MarkingChip {
+    /// Level (fixed colour).
+    pub level: MarkingLevelChip,
+    /// Full label.
+    pub label: String,
+}
+
+/// Sync phase for the chip.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum SyncPhase {
+    /// Nothing pending.
+    Synced,
+    /// Pending and reachable.
+    Syncing,
+    /// Unreachable.
+    Offline,
+    /// Last sync had a conflict.
+    Conflict,
+}
+
+/// The sync chip.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct SyncChip {
+    /// Phase.
+    pub phase: SyncPhase,
+    /// Ops queued.
+    pub pending: u32,
+    /// Unix seconds of the last sync in this session.
+    pub last_sync: Option<u64>,
+}
+
+/// Inference tier for the chip (`clients/inference/src/tier.rs` `Tier`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum InferenceTier {
+    /// Tier 1.
+    OnDevice,
+    /// Tier 2.
+    Remote,
+    /// Tier 3.
+    Hybrid,
+    /// Off.
+    Disabled,
+}
+
+/// The inference-tier chip.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct TierChip {
+    /// Tier.
+    pub tier: InferenceTier,
+    /// Why, in a phrase.
+    pub reason: String,
+}
+
+/// The custody chip.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct CustodyChip {
+    /// The keystore's honest floor (`SecurityFloor` name): `NonExtractable` for the
+    /// sealed root (owner decision 5).
+    pub floor: String,
+    /// Whether the root is sealed by a hardware-held platform key.
+    pub hardware_wrapped: bool,
+}
+
+/// All chips a screen header shows.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct StatusChips {
+    /// Sync.
+    pub sync: SyncChip,
+    /// Inference tier.
+    pub tier: TierChip,
+    /// Custody.
+    pub custody: CustodyChip,
+}
+
+/// After unlock or switch.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct SessionInfo {
+    /// Who.
+    pub persona: PersonaInfo,
+    /// Chips.
+    pub chips: StatusChips,
+}
+
+/// An action to queue.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct ActionInput {
+    /// `<console>.<verb>`.
+    pub verb: String,
+    /// `<collection>/<row id>`.
+    pub target: String,
+    /// String parameters.
+    pub params: Vec<KeyValue>,
+}
+
+/// An action's state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum ActionState {
+    /// Queued or in flight.
+    Queued,
+    /// Applied.
+    Applied,
+    /// Refused.
+    Refused,
+    /// Conflict.
+    Conflict,
+    /// Unknown here.
+    Unknown,
+}
+
+/// An action's status for the screen.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ActionStatus {
+    /// Id.
+    pub action_id: String,
+    /// State.
+    pub state: ActionState,
+    /// Reason when refused or in conflict.
+    pub reason: Option<String>,
+    /// Audit id when applied.
+    pub audit_id: Option<String>,
+    /// Canonical JSON result when applied.
+    pub result: Option<String>,
+}
+
+/// A sync's report.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct SyncReport {
+    /// Ops pushed.
+    pub pushed: u32,
+    /// Ops merged.
+    pub merged: u32,
+    /// Chips after.
+    pub chips: StatusChips,
+}
+
+type Live = Session<SealedRootKeystore, DemoEnclosure>;
+
+/// A signed-in session and the custody facts read from its keystore before it moved
+/// into the session (the keystore's internals are not reachable after that).
+struct Open {
+    session: Live,
+    custody: CustodyChip,
+}
+
+enum State {
+    Locked(Box<DemoEnclosure>),
+    Open(Box<Open>),
+    /// While a transition holds the lock, or after one could not reload the dataset
+    /// (reads as locked; `unlock` and `reset_demo` reload it).
+    Gone,
+}
+
+/// The client a shell holds: locked or signed in.
+#[derive(uniffi::Object)]
+pub struct MidgardClient {
+    config: ClientConfig,
+    key_root: Arc<dyn KeyRoot>,
+    state: Mutex<State>,
+}
+
+fn count(n: usize) -> u32 {
+    u32::try_from(n).unwrap_or(u32::MAX)
+}
+
+fn persona_info(p: &Persona) -> PersonaInfo {
+    PersonaInfo {
+        id: p.id.clone(),
+        display: p.display.clone(),
+        role: p.role.clone(),
+        clearance_label: RowMarking::new(p.clearance, p.compartments.iter().cloned()).label(),
+        roles: p.roles.clone(),
+    }
+}
+
+/// Read and verify the bundled dataset against the anchors compiled into the core.
+fn load_source(config: &ClientConfig) -> Result<DemoEnclosure, ClientError> {
+    let file = std::fs::read(&config.dataset_path).map_err(|e| ClientError::NotFound {
+        what: format!("dataset {}: {e}", config.dataset_path),
+    })?;
+    Ok(DemoEnclosure::open_pinned(&file)?)
+}
+
+impl MidgardClient {
+    fn state(&self) -> Result<MutexGuard<'_, State>, ClientError> {
+        self.state.lock().map_err(|_| ClientError::Internal {
+            detail: "client state poisoned".into(),
+        })
+    }
+
+    fn chips(&self, open: &Open) -> StatusChips {
+        let s = &open.session;
+        let st = s.sync_status();
+        let online = s.source().online();
+        // Owner decision 6: no on-device model ships, so offline is "AI off".
+        let ctx = TierContext {
+            capability: DeviceCapability {
+                ram_mb: self.config.device.ram_mb,
+                has_accelerator: self.config.device.has_accelerator,
+                on_device_model: false,
+            },
+            connectivity: if online {
+                Connectivity::Online
+            } else {
+                Connectivity::Offline
+            },
+            allow_egress: true,
+            privacy: PrivacyPreference::Standard,
+            complexity: TaskComplexity::Light,
+        };
+        let proposed = match heuristic(&ctx) {
+            Heuristic::Decided(t) => t,
+            Heuristic::Ambiguous => Tier::Remote,
+        };
+        let (tier, reason) = match guard(proposed, &ctx) {
+            Tier::OnDevice => (InferenceTier::OnDevice, "on-device"),
+            Tier::Remote => (InferenceTier::Remote, "enclosure models"),
+            Tier::Hybrid => (InferenceTier::Hybrid, "on-device draft, enclosure check"),
+            Tier::Disable => (InferenceTier::Disabled, "AI off"),
+        };
+        StatusChips {
+            sync: SyncChip {
+                phase: match st.phase {
+                    session::SyncPhase::Synced => SyncPhase::Synced,
+                    session::SyncPhase::Syncing => SyncPhase::Syncing,
+                    session::SyncPhase::Offline => SyncPhase::Offline,
+                    session::SyncPhase::Conflict => SyncPhase::Conflict,
+                },
+                pending: count(st.pending),
+                last_sync: st.last_sync,
+            },
+            tier: TierChip {
+                tier,
+                reason: reason.to_string(),
+            },
+            custody: open.custody.clone(),
+        }
+    }
+
+    fn info(&self, open: &Open) -> SessionInfo {
+        SessionInfo {
+            persona: persona_info(open.session.grant().persona()),
+            chips: self.chips(open),
+        }
+    }
+
+    fn with_open<T>(
+        &self,
+        f: impl FnOnce(&mut Open) -> Result<T, ClientError>,
+    ) -> Result<T, ClientError> {
+        let mut st = self.state()?;
+        match &mut *st {
+            State::Open(o) => f(o),
+            _ => Err(ClientError::Locked),
+        }
+    }
+}
+
+#[uniffi::export]
+impl MidgardClient {
+    /// Verify the bundled dataset against the pinned anchors and start locked.
+    #[uniffi::constructor]
+    pub fn new(config: ClientConfig, key_root: Arc<dyn KeyRoot>) -> Result<Arc<Self>, ClientError> {
+        let source = load_source(&config)?;
+        Ok(Arc::new(Self {
+            config,
+            key_root,
+            state: Mutex::new(State::Locked(Box::new(source))),
+        }))
+    }
+
+    /// The personas the sign-in screen lists.
+    pub fn personas(&self) -> Vec<PersonaInfo> {
+        match self.state().as_deref() {
+            Ok(State::Locked(src)) => src.personas().iter().map(persona_info).collect(),
+            Ok(State::Open(o)) => o
+                .session
+                .source()
+                .personas()
+                .iter()
+                .map(persona_info)
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// The collections the source serves, with their read-model types.
+    pub fn collections(&self) -> Vec<CollectionInfo> {
+        let list = match self.state().as_deref() {
+            Ok(State::Locked(src)) => src.collections(),
+            Ok(State::Open(o)) => o.session.source().collections(),
+            _ => Vec::new(),
+        };
+        list.into_iter()
+            .map(|(name, row_type)| CollectionInfo { name, row_type })
+            .collect()
+    }
+
+    /// First use: make the device root, sealed through the platform key root (no
+    /// prompt), and the device-audit key sealed to it. Store both; neither is
+    /// readable without the platform key.
+    pub fn enrol(&self) -> Result<SealedKeys, ClientError> {
+        let sealer = Sealer(self.key_root.clone());
+        let (ks, root) = SealedRootKeystore::create(&provider(), ROOT_KEY_ID, &sealer, &mut OsRng)?;
+        let (_device, device_audit) = DeviceAuditKey::create(&ks, &mut OsRng)?;
+        Ok(SealedKeys { root, device_audit })
+    }
+
+    /// Unlock with the stored keys (one prompt, through the key root) and sign
+    /// `persona_id` in. The cache is empty: load the persona's state file with
+    /// [`import_state`](Self::import_state). An unknown persona is refused before
+    /// the prompt; on any error the client stays locked.
+    pub fn unlock(&self, keys: SealedKeys, persona_id: String) -> Result<SessionInfo, ClientError> {
+        let mut st = self.state()?;
+        if matches!(&*st, State::Gone) {
+            // A transition that failed part way (the dataset could not be reloaded):
+            // try again.
+            *st = State::Locked(Box::new(load_source(&self.config)?));
+        }
+        let src = match &*st {
+            State::Locked(src) => src,
+            _ => return Err(ClientError::AlreadyUnlocked),
+        };
+        src.grant(&persona_id)?;
+        let ks = SealedRootKeystore::open(&keys.root, &Sealer(self.key_root.clone()))?;
+        let device = DeviceAuditKey::open(&ks, &keys.device_audit)?;
+        let custody = CustodyChip {
+            floor: format!("{:?}", ks.floor()),
+            hardware_wrapped: ks.hardware_wrapped(),
+        };
+        let State::Locked(src) = std::mem::replace(&mut *st, State::Gone) else {
+            unreachable!("checked above, under the same lock")
+        };
+        match Session::open(ks, device, *src, &persona_id, &self.config.replica_id) {
+            Ok(session) => {
+                let open = Open { session, custody };
+                let info = self.info(&open);
+                *st = State::Open(Box::new(open));
+                Ok(info)
+            }
+            Err(e) => {
+                // The source moved into the failed session: load it again so the
+                // client stays usable, locked. (The persona was granted above, so
+                // this is a custody or core failure.)
+                *st = State::Locked(Box::new(load_source(&self.config)?));
+                Err(e.into())
+            }
+        }
+    }
+
+    /// Switch persona without a prompt. Refused while actions are unsent (sync
+    /// first) and for an unknown persona; either way the session is unchanged.
+    /// Nothing of the previous persona is kept: export its state first.
+    pub fn switch_persona(&self, persona_id: String) -> Result<SessionInfo, ClientError> {
+        let mut st = self.state()?;
+        if !matches!(&*st, State::Open(_)) {
+            return Err(ClientError::Locked);
+        }
+        let State::Open(open) = std::mem::replace(&mut *st, State::Gone) else {
+            unreachable!("checked above, under the same lock")
+        };
+        let Open { session, custody } = *open;
+        let (open, result) = match session.switch_persona(&persona_id) {
+            Ok(session) => (Open { session, custody }, Ok(())),
+            Err((session, e)) => (Open { session, custody }, Err(e)),
+        };
+        let info = self.info(&open);
+        *st = State::Open(Box::new(open));
+        result.map(|()| info).map_err(Into::into)
+    }
+
+    /// The persona signed in.
+    pub fn session_persona(&self) -> Result<PersonaInfo, ClientError> {
+        self.with_open(|o| Ok(persona_info(o.session.grant().persona())))
+    }
+
+    /// Lock: drop the session and with it the unlocked root and device key. Export
+    /// the state first to keep it.
+    pub fn lock(&self) -> Result<(), ClientError> {
+        let mut st = self.state()?;
+        if matches!(&*st, State::Open(_)) {
+            let State::Open(open) = std::mem::replace(&mut *st, State::Gone) else {
+                unreachable!("checked above, under the same lock")
+            };
+            *st = State::Locked(Box::new(open.session.into_source()));
+        }
+        Ok(())
+    }
+
+    /// Whether locked.
+    pub fn is_locked(&self) -> bool {
+        !matches!(self.state().as_deref(), Ok(State::Open(_)))
+    }
+
+    /// The header chips.
+    pub fn status_chips(&self) -> Result<StatusChips, ClientError> {
+        self.with_open(|o| Ok(self.chips(o)))
+    }
+
+    /// Simulate going offline (or back online).
+    pub fn set_offline(&self, offline: bool) -> Result<StatusChips, ClientError> {
+        self.with_open(|o| {
+            o.session.set_online(!offline);
+            Ok(self.chips(o))
+        })
+    }
+
+    /// Push queued actions and merge the answer. Export the state afterwards.
+    pub fn sync_now(&self) -> Result<SyncReport, ClientError> {
+        self.with_open(|o| {
+            let r = o.session.sync()?;
+            Ok(SyncReport {
+                pushed: count(r.pushed),
+                merged: count(r.merged),
+                chips: self.chips(o),
+            })
+        })
+    }
+
+    /// A collection's rows: shown rows typed, withheld rows by level only. Online
+    /// they are fetched and cached; offline they come from the sealed cache.
+    pub fn collection_rows(&self, collection: String) -> Result<Vec<ConsoleRow>, ClientError> {
+        self.with_open(|o| {
+            let row_type = o
+                .session
+                .source()
+                .collections()
+                .into_iter()
+                .find(|(name, _)| *name == collection)
+                .map(|(_, t)| t)
+                .ok_or_else(|| ClientError::UnknownCollection {
+                    collection: collection.clone(),
+                })?;
+            typed_rows(&mut o.session, &row_type, &collection)
+        })
+    }
+
+    /// Queue an action on a row this persona has read. Its marking comes from the
+    /// persona's cached delivery, never from the shell.
+    pub fn request_action(&self, action: ActionInput) -> Result<String, ClientError> {
+        self.with_open(|o| {
+            let params: Vec<(String, String)> = action
+                .params
+                .into_iter()
+                .map(|kv| (kv.key, kv.value))
+                .collect();
+            Ok(o.session
+                .request_action(&action.verb, &action.target, &params)?)
+        })
+    }
+
+    /// An action's state.
+    pub fn action_status(&self, action_id: String) -> Result<ActionStatus, ClientError> {
+        self.with_open(|o| {
+            let (state, reason, audit_id, result) = match o.session.action_state(&action_id) {
+                session::ActionState::Queued => (ActionState::Queued, None, None, None),
+                session::ActionState::Applied { audit, result } => {
+                    (ActionState::Applied, None, Some(audit), Some(result))
+                }
+                session::ActionState::Refused { reason } => {
+                    (ActionState::Refused, Some(reason), None, None)
+                }
+                session::ActionState::Conflict { reason } => {
+                    (ActionState::Conflict, Some(reason), None, None)
+                }
+                session::ActionState::Unknown => (ActionState::Unknown, None, None, None),
+            };
+            Ok(ActionStatus {
+                action_id,
+                state,
+                reason,
+                audit_id,
+                result,
+            })
+        })
+    }
+
+    /// The persona's state as a sealed file. Write it (atomically), then keep its
+    /// generation for this persona.
+    pub fn export_state(&self) -> Result<ExportedState, ClientError> {
+        self.with_open(|o| {
+            let e = o.session.export_state()?;
+            Ok(ExportedState {
+                file: e.file,
+                generation: e.generation,
+            })
+        })
+    }
+
+    /// Load the persona's state file. `min_generation` is the generation kept for
+    /// this persona. On any error the cache is empty: discard the file; the next
+    /// read refetches. `Stale` is a rollback.
+    pub fn import_state(
+        &self,
+        file: Vec<u8>,
+        min_generation: u64,
+    ) -> Result<ImportReport, ClientError> {
+        self.with_open(|o| {
+            let r = o.session.import_state(&file, min_generation)?;
+            Ok(ImportReport {
+                kept: count(r.kept),
+                dropped: count(r.dropped),
+                pending_dropped: r.pending_dropped,
+                generation: r.generation,
+            })
+        })
+    }
+
+    /// "Reset demo": lock and reload the dataset, so the demo's own state (actions
+    /// applied, audit rows appended) starts again. The shell deletes its files and
+    /// its platform key itself.
+    pub fn reset_demo(&self) -> Result<(), ClientError> {
+        let source = load_source(&self.config)?;
+        let mut st = self.state()?;
+        *st = State::Locked(Box::new(source));
+        Ok(())
+    }
+}
