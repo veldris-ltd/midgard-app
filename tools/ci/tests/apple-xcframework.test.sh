@@ -12,6 +12,7 @@ c=clients/shells/apple/tools/clean.sh
 v=clients/shells/apple/tools/verify-xcframework.sh
 g=clients/shells/apple/.gitignore
 k=clients/shells/apple/tools/check-contract.sh
+y=clients/shells/apple/tools/typecheck-ios.sh
 failures=0
 check() { if eval "$2"; then echo "ok    $1"; else echo "FAIL  $1"; failures=$((failures + 1)); fi; }
 check "script exists" "[ -f $f ]"
@@ -24,7 +25,7 @@ check "outputs under clients-*" "grep -q 'midgard-build/clients-' $f"
 check "stops on the first failing step" "grep -qx 'set -euo pipefail' $f"
 check "sets the deployment targets" "grep -q 'MACOSX_DEPLOYMENT_TARGET=14.0' $f && grep -q 'IPHONEOS_DEPLOYMENT_TARGET=17.0' $f"
 check "verifies its output" "grep -q 'verify-xcframework.sh' $f"
-for s in $f $c $v $k; do
+for s in $f $c $v $k $y; do
     check "$s: no bash-4 builtins" "[ -f $s ] && ! grep -Eq 'mapfile|readarray|declare -A|\\\$\\{[A-Za-z_]+,,\\}' $s"
     check "$s: no in-place sed" "[ -f $s ] && ! grep -Eq 'sed -i( |\$)' $s"
     check "$s: parses under /bin/bash" "[ -f $s ] && /bin/bash -n $s"
