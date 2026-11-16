@@ -2,7 +2,7 @@
 //! release it names; any tamper is refused. [NFR-PQ-3] [AC-C-13]
 
 use attest::accept::{preimage, AcceptError, BIFROST_ARTEFACT, DEMO_DATASET, RELEASE_ARTEFACT};
-use attest::envelope::SigEnvelope;
+use attest::envelope::{self, SigEnvelope};
 use attest::{SignError, SigningBackend, TrustAnchors};
 use midgard_client_core::demo::dataset::{self, DatasetError};
 use pqc_agility::backend::fips::provider;
@@ -122,8 +122,21 @@ fn any_flipped_byte_is_refused() {
 fn a_flipped_byte_anywhere_in_the_signed_part_or_envelope_header_is_refused() {
     let s = TestSigner::new("demo-test");
     let file = dataset::sign(RELEASE, BODY, &s).unwrap();
-    // Every byte of magic, version, release, body and the envelope's own header.
-    let header_end = envelope_at() + 6 + 1 + 1 + 4 + DEMO_DATASET.label().len() + 4 + 9 + 4;
+    // Every byte of magic, version, release, body and the envelope's own header:
+    // MGSIG1 magic, version, algorithm tag, then length-prefixed domain and key id,
+    // then the signature's length prefix (the signature itself is checked elsewhere).
+    const ENV_VERSION: usize = 1;
+    const ENV_ALG_TAG: usize = 1;
+    const LEN_PREFIX: usize = 4;
+    let header_end = envelope_at()
+        + envelope::MAGIC.len()
+        + ENV_VERSION
+        + ENV_ALG_TAG
+        + LEN_PREFIX
+        + DEMO_DATASET.label().len()
+        + LEN_PREFIX
+        + s.key_id().len()
+        + LEN_PREFIX;
     for i in 0..header_end {
         let mut bad = file.clone();
         bad[i] ^= 0x01;
@@ -327,4 +340,30 @@ fn a_body_that_is_not_canonical_json_is_refused_even_when_signed() {
             "accepted {body:?}"
         );
     }
+}
+
+#[test]
+fn an_unpinned_key_id_is_echoed_only_as_a_bounded_prefix() {
+    let long = "k".repeat(10_000);
+    let s = TestSigner::new(&long);
+    let file = dataset::sign(RELEASE, BODY, &s).unwrap();
+    let err = dataset::verify(&file, &TrustAnchors::new(), RELEASE).unwrap_err();
+    assert!(matches!(err, DatasetError::UnknownKey(_)));
+    let shown = err.to_string();
+    assert!(
+        shown.contains(&"k".repeat(dataset::KEY_ID_SHOWN)),
+        "{shown}"
+    );
+    assert!(
+        !shown.contains(&"k".repeat(dataset::KEY_ID_SHOWN + 1)),
+        "the message echoes more than {} characters of the key id",
+        dataset::KEY_ID_SHOWN
+    );
+    // A short id is shown whole, with no ellipsis.
+    let short = TestSigner::new("demo-other");
+    let file = dataset::sign(RELEASE, BODY, &short).unwrap();
+    let shown = dataset::verify(&file, &TrustAnchors::new(), RELEASE)
+        .unwrap_err()
+        .to_string();
+    assert_eq!(shown, "signing key \"demo-other\" is not pinned");
 }

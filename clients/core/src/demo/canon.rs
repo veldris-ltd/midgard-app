@@ -1,6 +1,14 @@
 //! Canonical JSON: object keys sorted by byte order, no whitespace, numbers as their
 //! validated source text, strings escaped minimally (RFC 8259). Two parses of equal
-//! data encode to equal bytes. `[NFR-PQ-3]`
+//! text encode to equal bytes. `[NFR-PQ-3]`
+//!
+//! "Canonical" here is textual, not numeric: a number keeps its source text, so `1E2`,
+//! `1e2` and `100` give three different bodies (and three different signatures) although
+//! they denote the same value. Nothing here normalises numbers; a producer that wants
+//! one body per dataset must emit the same number text every time (the demo dataset
+//! builder copies number text unchanged from the committed fixture files, which
+//! `extract-fixtures.mjs` writes with `JSON.stringify`, so each number has one
+//! spelling).
 
 use attest::json::Json;
 

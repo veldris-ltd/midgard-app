@@ -35,6 +35,9 @@ pub const VERSION: u8 = 1;
 /// `attest::APPROVED_RELEASE_ALGS`, so a ceremony key can re-sign it later).
 pub const APPROVED: [SigId; 2] = [SigId::MlDsa65, SigId::MlDsa87];
 
+/// How many characters of an unpinned key id an error message echoes.
+pub const KEY_ID_SHOWN: usize = 64;
+
 /// Why a dataset was refused.
 #[derive(Debug)]
 pub enum DatasetError {
@@ -64,7 +67,16 @@ impl std::fmt::Display for DatasetError {
         match self {
             DatasetError::Malformed(d) => write!(f, "malformed demo dataset: {d}"),
             DatasetError::WrongDomain => write!(f, "not signed as a demo dataset"),
-            DatasetError::UnknownKey(k) => write!(f, "signing key {k:?} is not pinned"),
+            DatasetError::UnknownKey(k) => {
+                // The id comes from an unverified file: echo a bounded prefix only.
+                let shown: String = k.chars().take(KEY_ID_SHOWN).collect();
+                let more = if k.chars().count() > KEY_ID_SHOWN {
+                    "…"
+                } else {
+                    ""
+                };
+                write!(f, "signing key {shown:?}{more} is not pinned")
+            }
             DatasetError::Signature(e) => write!(f, "demo dataset signature refused: {e}"),
             DatasetError::WrongRelease { found, expected } => {
                 write!(f, "demo dataset is for {found}, this build is {expected}")
