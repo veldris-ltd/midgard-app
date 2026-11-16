@@ -13,6 +13,7 @@ backend-fips = [
     "midgard-client-keystore/backend-fips",
     "midgard-client-enclosure/backend-fips",
     "pqc-agility/backend-fips",
+    "attest/backend-fips",
 ]
 
 [dependencies]
@@ -24,6 +25,10 @@ midgard-client-keystore = { path = "../keystore" }
 midgard-client-enclosure = { path = "../enclosure", default-features = false }
 policy = { path = "../../crypto/policy" }
 pqc-agility = { path = "../../crypto/pqc-agility", default-features = false }
+# The strict JSON reader for console read models and the demo dataset, and the one
+# signature-acceptance decision (`attest::accept`). Verifier only: no key custody.
+# [NFR-PQ-3] [AC-C-13]
+attest = { path = "../../crypto/attest", default-features = false, features = ["backend-fips"] }
 
 [dev-dependencies]
 # A test platform keystore declares its floor by wrapping a test-floor software

@@ -35,6 +35,7 @@ use sync::{Replica, SyncOp};
 
 mod error;
 pub use error::CoreError;
+pub mod consoles;
 pub mod marking;
 
 /// The version of the shared core every shell links. All client sub-crates share
