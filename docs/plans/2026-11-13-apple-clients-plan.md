@@ -2230,6 +2230,8 @@ At the tag, `clients/enclosure` (`EnclosureClient::connect`) is a PQ-mTLS **tran
 
 **Actions travel as CRDT edits.** An action is an object `action:<replica>-<n>` whose fields `verb`, `target`, `params` (canonical JSON), `by` are set with `ClientCore::edit_field`, so it queues offline like any edit. On exchange the enclosure merges the ops, runs the handler registered for `verb` once (an action that already has a `status` is skipped, so a re-push is idempotent), appends an audit row, and answers with ops that set `status` (`applied` | `refused` | `conflict`), `reason`, `audit` and `result`. The client merges them. Phase A registers one handler, `demo.ping`; each console phase registers its own.
 
+**Review amendments (16 Nov).** Decisions are kept per `(persona, action id)` and a re-push answers with the stored ops again; another persona reusing an action id gets `conflict` and nothing of the first persona's result. The audit row names the signed-in persona (a different claimed `by` goes into the action text) and goes to the registered handler's console (unknown verbs to `midgard.audit`). An audit row for an action whose target the actor may not see — hidden or missing alike — is marked at the actor's own level (at least `restricted`) with no compartment. Unchecked signature claims outside audit rows are delivered as "not checked (demo)". `open`/`from_body` are behind the non-default `demo-unpinned` feature; production code opens with `open_pinned`.
+
 **Files:**
 - Create: `clients/core/src/source.rs`, `clients/core/src/demo/enclosure.rs`
 - Modify: `clients/core/src/lib.rs` (`pub mod source;`), `clients/core/src/demo/mod.rs` (`pub mod enclosure;`)
@@ -2304,8 +2306,11 @@ fn an_action_runs_once_and_is_audited() {
     client.merge_all(back.iter());
     assert_eq!(client.get("action:dev-1-1", action::STATUS), Some(&b"applied"[..]));
     assert!(client.get("action:dev-1-1", action::AUDIT).is_some());
-    // The same ops again: decided already, nothing new.
-    assert!(e.exchange(&g, &ops).unwrap().is_empty());
+    // The same ops again: decided already. The stored decision comes back (same
+    // versions, so a client that lost the reply gets it; merging it twice changes
+    // nothing) and nothing runs twice. (Amended at review: the first draft required
+    // an empty answer, which left a client that lost the reply without its status.)
+    assert_eq!(e.exchange(&g, &ops).unwrap(), back);
     let audited = e.fetch(&e.grant("k.osei").unwrap(), "midgard.audit").unwrap().len();
     assert_eq!(audited, 3);
 }

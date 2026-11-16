@@ -136,5 +136,6 @@ the trust boundaries, with each threat mapped to the implemented, tested control
 | Best-effort secret zeroization; process-wide mlockall needs an unlimited `RLIMIT_MEMLOCK` (no guard pages) | Tracked | RT-39, VLD-ANB-MIDGARD-0036 |
 | No deployment-tier (real cluster/HSM/GPU) acceptance yet | Tracked | RT-40 |
 | Product-console HTTP transports (non-Midgard) not built | Tracked | RT-37/45 |
+| Demo clients: collection names, and the number and levels of withheld rows, are visible to every persona (a withheld row carries no id, body or compartment) | Accepted (demo, as the web consoles) | `clients/core/src/source.rs` |
 
 Review this document each release and whenever a trust boundary changes.

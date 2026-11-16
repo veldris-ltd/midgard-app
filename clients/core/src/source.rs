@@ -7,6 +7,10 @@
 //! delivered withheld, without id, body or compartments, mirroring "marking
 //! enforcement remains authoritative in the enclosure" (`clients/store`). The store's
 //! own refusal (`StoreError::AboveClearance`) stays as the client-side floor.
+//!
+//! What a source does not hide: the names of its collections, and how many rows of
+//! a collection are withheld and at what level, are visible to every persona (as in
+//! the web consoles). See `docs/security/THREAT_MODEL.md`, residual risks.
 
 use std::fmt;
 
@@ -142,6 +146,11 @@ pub trait DataSource {
     /// The collections served, as `(name, read-model type)`, in name order.
     fn collections(&self) -> Vec<(String, String)>;
     /// Sign `persona_id` in: the clearance and roles it is granted.
+    ///
+    /// Not an authentication step. The demo enclosure grants any of its personas to
+    /// whoever asks (the persona picker), because the demo has no users; a gateway
+    /// source must authenticate the caller (PQ-mTLS identity, platform assertion)
+    /// before it grants anything, and grant only the persona that identity holds.
     fn grant(&self, persona_id: &str) -> Result<Grant, SourceError>;
     /// The rows of `collection`, clearance-filtered for `grant`.
     fn fetch(&self, grant: &Grant, collection: &str) -> Result<Vec<Delivered>, SourceError>;

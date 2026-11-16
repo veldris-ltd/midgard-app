@@ -25,6 +25,10 @@ use crate::CORE_VERSION;
 
 /// The demo-dataset anchor compiled into the core (`clients/demo/trust/demo-dataset.pub`),
 /// so an app cannot be pointed at another key.
+///
+/// The path reaches outside the crate directory, so `cargo package` of this crate
+/// alone would not include the file; the crate is built only inside the workspace
+/// (`publish` is off).
 pub const PINNED_DATASET_ANCHOR: &str = include_str!("../../../demo/trust/demo-dataset.pub");
 
 /// The dataset `format` this enclosure reads.
@@ -72,12 +76,17 @@ impl DemoState {
             .map(|r| &r.marking)
     }
 
-    /// Append an audit row to `<console>.audit` (or `midgard.audit` when the console
-    /// keeps no `AuditRecord` collection) and return its id. The row is marked at
-    /// least `restricted`, and at least as high as the row it is about, so it never
-    /// shows a reader the id of a row that reader may not see. It is unsigned: the
-    /// device key signs run-time audit rows (Tasks A9/A10).
-    pub fn audit(&mut self, console: &str, actor: &str, what: &str, resource: &str) -> String {
+    /// Append an audit row marked `marking` to `<console>.audit` (or `midgard.audit`
+    /// when the console keeps no `AuditRecord` collection) and return its id. It is
+    /// unsigned: the device key signs run-time audit rows (Tasks A9/A10).
+    pub fn audit(
+        &mut self,
+        console: &str,
+        actor: &str,
+        what: &str,
+        resource: &str,
+        marking: RowMarking,
+    ) -> String {
         self.audit_seq += 1;
         let id = format!("AUD-D{:04}", self.audit_seq);
         let secs = 15 * 3600 + self.audit_seq;
@@ -87,13 +96,6 @@ impl DemoState {
             secs / 60 % 60,
             secs % 60
         );
-        let marking = match self.marking_of(resource) {
-            Some(m) => RowMarking::new(
-                m.level().max(MarkingLevel::Restricted),
-                m.compartments().to_vec(),
-            ),
-            None => RowMarking::new(MarkingLevel::Restricted, Vec::<String>::new()),
-        };
         let name = format!("{console}.audit");
         let key = match self.collections.get(&name) {
             Some(c) if c.type_name == audit::AUDIT_TYPE => name,
@@ -154,14 +156,30 @@ pub enum Outcome {
 /// An action handler.
 pub type Handler = fn(&mut DemoState, &Grant, &ActionRequest) -> Outcome;
 
+/// The longest `verb`, `target` or `by` an action may carry, in bytes.
+pub const MAX_ACTION_FIELD: usize = 256;
+
+/// A registered handler and the console whose audit collection records it.
+#[derive(Clone, Copy)]
+struct Registered {
+    console: &'static str,
+    handler: Handler,
+}
+
 /// The demo enclosure.
 pub struct DemoEnclosure {
     release: String,
     personas: Vec<Persona>,
     state: DemoState,
-    replica: Replica,
+    /// One replica per persona: action objects are that persona's, so another
+    /// persona reusing an action id never reads its fields.
+    replicas: BTreeMap<String, Replica>,
+    /// The ops that decided `(persona, action id)`, kept to answer a re-push.
+    decisions: BTreeMap<(String, String), Vec<Vec<u8>>>,
+    /// The persona that first decided each action id.
+    owners: BTreeMap<String, String>,
     online: bool,
-    handlers: BTreeMap<&'static str, Handler>,
+    handlers: BTreeMap<&'static str, Registered>,
 }
 
 fn bad(what: impl std::fmt::Display) -> SourceError {
@@ -282,6 +300,11 @@ fn collection_of(
             let marking = marking_of(r.get("marking").expect("required"), &what)?;
             let item = r.get("item").expect("required").clone();
             check_item(&type_name, &item, &format!("{what}.item")).map_err(bad)?;
+            if let Some(at) = audit::unlisted_claim(&type_name, &item) {
+                return Err(bad(format!(
+                    "{what}.item: an unchecked signature claim at {at}"
+                )));
+            }
             let signature = match (is_audit, r.get(audit::ROW_SIG_FIELD)) {
                 (false, _) => None,
                 (true, None) => Some(SignatureStatus::Unsigned),
@@ -304,6 +327,45 @@ fn collection_of(
         })
         .collect::<Result<Vec<_>, SourceError>>()?;
     Ok(Collection { type_name, rows })
+}
+
+/// The action `id` as `replica` holds it: `Ok(None)` while a field is missing, `Err`
+/// when one is malformed (not UTF-8, longer than [`MAX_ACTION_FIELD`], or `params`
+/// not a canonical JSON object of strings).
+fn request(replica: &Replica, id: &str) -> Result<Option<ActionRequest>, String> {
+    let mut fields = Vec::with_capacity(action::CLIENT_FIELDS.len());
+    for f in action::CLIENT_FIELDS {
+        let Some(bytes) = replica.get(id, f) else {
+            return Ok(None);
+        };
+        let text = std::str::from_utf8(bytes).map_err(|_| format!("{f} is not UTF-8"))?;
+        if f != action::PARAMS && text.len() > MAX_ACTION_FIELD {
+            return Err(format!("{f} is longer than {MAX_ACTION_FIELD} bytes"));
+        }
+        fields.push(text.to_string());
+    }
+    let [verb, target, params, by] = <[String; 4]>::try_from(fields).expect("four fields");
+    let parsed = parse(&params).map_err(|_| "params is not JSON".to_string())?;
+    if canon::encode(&parsed) != params {
+        return Err("params is not canonical JSON".into());
+    }
+    let Json::Obj(pairs) = parsed else {
+        return Err("params is not an object".into());
+    };
+    let params = pairs
+        .into_iter()
+        .map(|(k, v)| match v {
+            Json::Str(s) => Ok((k, s)),
+            _ => Err(format!("params.{k} is not a string")),
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok(Some(ActionRequest {
+        id: id.to_string(),
+        verb,
+        target,
+        params,
+        by,
+    }))
 }
 
 impl DemoEnclosure {
@@ -391,7 +453,9 @@ impl DemoEnclosure {
             release: release.to_string(),
             personas,
             state,
-            replica: Replica::new("enclosure"),
+            replicas: BTreeMap::new(),
+            decisions: BTreeMap::new(),
+            owners: BTreeMap::new(),
             online: true,
             handlers: BTreeMap::new(),
         };
@@ -404,37 +468,17 @@ impl DemoEnclosure {
         Ok(e)
     }
 
-    /// Register (or replace) the handler for `verb`.
+    /// Register (or replace) the handler for `verb` (`<console>.<name>`). Its audit
+    /// rows go to `<console>.audit`; an unregistered verb is audited in
+    /// `midgard.audit`, whatever console it names.
     pub fn register(&mut self, verb: &'static str, handler: Handler) {
-        self.handlers.insert(verb, handler);
+        let console = verb.split('.').next().unwrap_or("midgard");
+        self.handlers.insert(verb, Registered { console, handler });
     }
 
     /// The release the dataset is for.
     pub fn release(&self) -> &str {
         &self.release
-    }
-
-    fn request(&self, id: &str) -> Option<ActionRequest> {
-        let field = |f: &str| {
-            self.replica
-                .get(id, f)
-                .and_then(|b| std::str::from_utf8(b).ok())
-                .map(str::to_string)
-        };
-        let params = match parse(&field(action::PARAMS)?).ok()? {
-            Json::Obj(pairs) => pairs
-                .into_iter()
-                .filter_map(|(k, v)| v.as_str().map(|s| (k, s.to_string())))
-                .collect(),
-            _ => return None,
-        };
-        Some(ActionRequest {
-            id: id.to_string(),
-            verb: field(action::VERB)?,
-            target: field(action::TARGET)?,
-            params,
-            by: field(action::BY)?,
-        })
     }
 
     /// Decide one complete action for `grant`.
@@ -449,8 +493,28 @@ impl DemoEnclosure {
             _ => return Outcome::Refused("no such target".into()),
         }
         match self.handlers.get(req.verb.as_str()) {
-            Some(h) => h(&mut self.state, grant, req),
+            Some(r) => (r.handler)(&mut self.state, grant, req),
             None => Outcome::Refused(format!("no such action: {}", req.verb)),
+        }
+    }
+}
+
+impl DemoEnclosure {
+    /// The marking of the audit row for an action by `grant` on `target`. When the
+    /// grant may see the target: the target's marking, at least `restricted`.
+    /// Otherwise — hidden or missing alike — the actor's own level (at least
+    /// `restricted`) with no compartment, so the row delivered to the actor is the
+    /// same whether a hidden row exists or not.
+    fn audit_marking(&self, grant: &Grant, target: &str) -> RowMarking {
+        match self.state.marking_of(target) {
+            Some(m) if may_see(grant.clearance(), m) => RowMarking::new(
+                m.level().max(MarkingLevel::Restricted),
+                m.compartments().to_vec(),
+            ),
+            _ => RowMarking::new(
+                grant.persona().clearance.max(MarkingLevel::Restricted),
+                Vec::<String>::new(),
+            ),
         }
     }
 }
@@ -502,7 +566,7 @@ impl DataSource for DemoEnclosure {
                 }
                 let body = match r.signature {
                     Some(status) => canon::encode(&audit::with_status(&r.item, status)),
-                    None => canon::encode(&r.item),
+                    None => canon::encode(&audit::without_claims(&c.type_name, &r.item)),
                 };
                 Delivered::Row {
                     id: r.id.clone(),
@@ -533,41 +597,66 @@ impl DataSource for DemoEnclosure {
                     && action::CLIENT_FIELDS.contains(&o.field.as_str())
             })
             .collect();
-        self.replica.merge_all(taken.iter().copied());
+        let persona = grant.persona().id.clone();
+        self.replicas
+            .entry(persona.clone())
+            .or_insert_with(|| Replica::new("enclosure"))
+            .merge_all(taken.iter().copied());
         let mut ids: Vec<String> = taken.iter().map(|o| o.object.clone()).collect();
         ids.sort_unstable();
         ids.dedup();
+        let mut out = Vec::new();
         for id in ids {
-            if self.replica.get(&id, action::STATUS).is_some() {
-                continue; // decided already: a re-push changes nothing
+            let key = (persona.clone(), id.clone());
+            if let Some(ops) = self.decisions.get(&key) {
+                // Decided already: answer with the same ops (same versions), so a
+                // client that lost the reply gets it, and nothing runs twice.
+                out.extend(ops.iter().cloned());
+                continue;
             }
-            let Some(req) = self.request(&id) else {
-                continue; // incomplete: wait for its other fields
+            let replica = &self.replicas[&persona];
+            let (outcome, req) = match request(replica, &id) {
+                Ok(None) => continue, // incomplete: wait for its other fields
+                Err(why) => (Outcome::Refused(format!("malformed action: {why}")), None),
+                Ok(Some(req)) => {
+                    let outcome = match self.owners.get(&id) {
+                        Some(owner) if *owner != persona => {
+                            Outcome::Conflict("this action id is already in use".into())
+                        }
+                        _ => self.decide(&grant, &req),
+                    };
+                    (outcome, Some(req))
+                }
             };
-            let (status, reason, result) = match self.decide(&grant, &req) {
+            self.owners
+                .entry(id.clone())
+                .or_insert_with(|| persona.clone());
+            let (status, reason, result) = match outcome {
                 Outcome::Applied(r) => ("applied", String::new(), canon::encode(&r)),
                 Outcome::Refused(why) => ("refused", why, "{}".into()),
                 Outcome::Conflict(why) => ("conflict", why, "{}".into()),
             };
-            let console = req.verb.split('.').next().unwrap_or("midgard").to_string();
-            let audit = self.state.audit(
-                &console,
-                &req.by,
-                &format!("{} · {}", status, req.verb),
-                &req.target,
-            );
-            self.replica
-                .set(&id, action::STATUS, status.as_bytes().to_vec());
-            self.replica.set(&id, action::REASON, reason.into_bytes());
-            self.replica.set(&id, action::AUDIT, audit.into_bytes());
-            self.replica.set(&id, action::RESULT, result.into_bytes());
+            let (verb, target, claimed) = match &req {
+                Some(r) => (r.verb.as_str(), r.target.as_str(), r.by.as_str()),
+                None => ("(malformed)", "(malformed)", persona.as_str()),
+            };
+            let console = self.handlers.get(verb).map_or("midgard", |r| r.console);
+            let mut what = format!("{status} · {verb}");
+            if claimed != persona {
+                what.push_str(&format!(" (claimed by {claimed})"));
+            }
+            let marking = self.audit_marking(&grant, target);
+            let audit = self.state.audit(console, &persona, &what, target, marking);
+            let replica = self.replicas.get_mut(&persona).expect("merged above");
+            replica.set(&id, action::STATUS, status.as_bytes().to_vec());
+            replica.set(&id, action::REASON, reason.into_bytes());
+            replica.set(&id, action::AUDIT, audit.into_bytes());
+            replica.set(&id, action::RESULT, result.into_bytes());
+            let ops: Vec<Vec<u8>> = replica.drain_pending().iter().map(SyncOp::encode).collect();
+            out.extend(ops.iter().cloned());
+            self.decisions.insert(key, ops);
         }
-        Ok(self
-            .replica
-            .drain_pending()
-            .iter()
-            .map(SyncOp::encode)
-            .collect())
+        Ok(out)
     }
 
     fn online(&self) -> bool {

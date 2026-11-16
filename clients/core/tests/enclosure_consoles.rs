@@ -292,3 +292,28 @@ fn bifrost_rows_are_withheld_below_internal() {
     ))
     .is_empty());
 }
+
+#[test]
+fn no_delivered_row_of_any_console_claims_an_unchecked_signature() {
+    let e = committed();
+    let g = e.grant("k.osei").unwrap();
+    let mut replaced = 0;
+    for (name, _) in e.collections() {
+        for d in e.fetch(&g, &name).unwrap() {
+            let Delivered::Row { body, .. } = d else {
+                panic!("k.osei is refused a {name} row")
+            };
+            let text = String::from_utf8(body).unwrap();
+            assert!(!text.contains('\u{2713}'), "{name}: {text}");
+            assert!(
+                !text.contains(r#""stateLabel":"Verified""#),
+                "{name}: {text}"
+            );
+            replaced += text
+                .matches(midgard_client_core::demo::audit::NOT_CHECKED)
+                .count();
+        }
+    }
+    // 4 artefact signatures, 2 artefact "Verified" labels, 4 fleet agents, 3 decisions.
+    assert_eq!(replaced, 13);
+}

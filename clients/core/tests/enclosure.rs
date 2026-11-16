@@ -9,8 +9,9 @@ use std::path::PathBuf;
 use attest::json::{parse, Json};
 use attest::TrustAnchors;
 use midgard_client_core::demo::audit::SignatureStatus;
+use midgard_client_core::demo::canon;
 use midgard_client_core::demo::dataset::DatasetError;
-use midgard_client_core::demo::enclosure::DemoEnclosure;
+use midgard_client_core::demo::enclosure::{DemoEnclosure, Outcome};
 use midgard_client_core::marking::MarkingLevel;
 use midgard_client_core::source::{action, DataSource, Delivered, SourceError};
 use midgard_client_core::sync::{Replica, SyncOp};
@@ -126,8 +127,9 @@ fn an_action_runs_once_and_is_audited() {
         .get("action:dev-1-1", action::AUDIT)
         .unwrap()
         .to_vec();
-    // The same ops again: decided already, nothing new.
-    assert!(e.exchange(&g, &ops).unwrap().is_empty());
+    // The same ops again: decided already. The same decision comes back (same
+    // versions, so merging it again changes nothing) and nothing runs twice.
+    assert_eq!(e.exchange(&g, &ops).unwrap(), back);
     let osei = e.grant("k.osei").unwrap();
     let audited = e.fetch(&osei, "midgard.audit").unwrap();
     assert_eq!(audited.len(), 3);
@@ -390,29 +392,237 @@ fn a_dataset_that_does_not_verify_is_refused_with_no_fallback() {
     ));
 }
 
+/// Run one ping by `who` on `target` in a fresh enclosure; return the client's
+/// status and reason, and the audit row as `who` fetches it (resource field blanked:
+/// it is the target the actor typed, so it differs by construction).
+fn ping_on(who: &str, target: &[u8]) -> (Vec<u8>, Vec<u8>, Delivered) {
+    let mut e = enclosure();
+    let g = e.grant(who).unwrap();
+    let mut client = Replica::new("dev-1");
+    let mut ops = ping(&mut client, "action:dev-1-1", who);
+    client.set("action:dev-1-1", action::TARGET, target.to_vec());
+    ops.extend(client.drain_pending().iter().map(SyncOp::encode));
+    merge(&mut client, &e.exchange(&g, &ops).unwrap());
+    let row = match e.fetch(&g, "midgard.audit").unwrap().remove(0) {
+        Delivered::Row {
+            id,
+            marking,
+            body,
+            signature,
+        } => {
+            let Json::Obj(pairs) = parse(std::str::from_utf8(&body).unwrap()).unwrap() else {
+                panic!("not an object")
+            };
+            let pairs = pairs
+                .into_iter()
+                .map(|(k, v)| {
+                    if k == "resource" {
+                        (k, Json::Str(String::new()))
+                    } else {
+                        (k, v)
+                    }
+                })
+                .collect();
+            Delivered::Row {
+                id,
+                marking,
+                body: canon::encode(&Json::Obj(pairs)).into_bytes(),
+                signature,
+            }
+        }
+        withheld => withheld,
+    };
+    (
+        client
+            .get("action:dev-1-1", action::STATUS)
+            .unwrap()
+            .to_vec(),
+        client
+            .get("action:dev-1-1", action::REASON)
+            .unwrap()
+            .to_vec(),
+        row,
+    )
+}
+
 #[test]
-fn an_action_on_a_hidden_row_is_refused_as_if_the_row_were_missing() {
-    let reason = |target: &[u8]| {
+fn an_action_on_a_hidden_row_is_refused_and_audited_as_if_the_row_were_missing() {
+    for who in ["k.rao", "k.osei"] {
+        let hidden = ping_on(who, b"midgard.audit/AUD-2");
+        let missing = ping_on(who, b"midgard.audit/AUD-9");
+        if who == "k.rao" {
+            assert_eq!(hidden.0, b"refused");
+            assert!(matches!(hidden.2, Delivered::Row { .. }), "{:?}", hidden.2);
+            assert_eq!(hidden, missing, "the hidden row shows through");
+            assert_eq!(hidden, ping_on(who, b"nothing"));
+        } else {
+            // k.osei may see AUD-2: the action applies, audited at its marking.
+            assert_eq!(hidden.0, b"applied");
+            assert_eq!(missing.0, b"refused");
+        }
+    }
+}
+
+#[test]
+fn the_audit_row_names_the_signed_in_persona_not_the_claimed_one() {
+    let mut e = enclosure();
+    let g = e.grant("k.rao").unwrap();
+    let mut client = Replica::new("dev-1");
+    e.exchange(&g, &ping(&mut client, "action:dev-1-1", "k.osei"))
+        .unwrap();
+    let osei = e.grant("k.osei").unwrap();
+    let Delivered::Row { body, .. } = &e.fetch(&osei, "midgard.audit").unwrap()[0] else {
+        panic!("withheld")
+    };
+    let item = parse(std::str::from_utf8(body).unwrap()).unwrap();
+    assert_eq!(item.get("actor").and_then(Json::as_str), Some("k.rao"));
+    assert_eq!(
+        item.get("action").and_then(Json::as_str),
+        Some("refused · demo.ping (claimed by k.osei)")
+    );
+}
+
+fn with_heimdall_audit() -> DemoEnclosure {
+    let body = BODY.replace(
+        r#""midgard.audit":{"#,
+        r#""heimdall.audit":{"type":"AuditRecord","rows":[]},"midgard.audit":{"#,
+    );
+    from(&body).unwrap()
+}
+
+fn audit_counts(e: &DemoEnclosure) -> (usize, usize) {
+    let g = e.grant("k.osei").unwrap();
+    (
+        e.fetch(&g, "heimdall.audit").unwrap().len(),
+        e.fetch(&g, "midgard.audit").unwrap().len(),
+    )
+}
+
+#[test]
+fn the_audit_collection_is_the_registered_handlers_console() {
+    let mut e = with_heimdall_audit();
+    e.register("heimdall.noop", |_, _, _| {
+        Outcome::Applied(Json::Obj(vec![]))
+    });
+    let g = e.grant("k.rao").unwrap();
+    let mut client = Replica::new("dev-1");
+    // An unregistered verb that names Heimdall is audited in midgard.audit.
+    let mut ops = ping(&mut client, "action:dev-1-1", "k.rao");
+    client.set("action:dev-1-1", action::VERB, b"heimdall.bogus".to_vec());
+    ops.extend(client.drain_pending().iter().map(SyncOp::encode));
+    e.exchange(&g, &ops).unwrap();
+    assert_eq!(audit_counts(&e), (0, 3));
+    let mut ops = ping(&mut client, "action:dev-1-2", "k.rao");
+    client.set("action:dev-1-2", action::VERB, b"heimdall.noop".to_vec());
+    ops.extend(client.drain_pending().iter().map(SyncOp::encode));
+    let back = e.exchange(&g, &ops).unwrap();
+    merge(&mut client, &back);
+    assert_eq!(
+        client.get("action:dev-1-2", action::STATUS),
+        Some(&b"applied"[..])
+    );
+    assert_eq!(audit_counts(&e), (1, 3));
+}
+
+#[test]
+fn a_lost_reply_is_answered_again_on_re_push() {
+    let mut e = with_heimdall_audit();
+    let g = e.grant("k.rao").unwrap();
+    let mut client = Replica::new("dev-1");
+    let ops = ping(&mut client, "action:dev-1-1", "k.rao");
+    let _lost = e.exchange(&g, &ops).unwrap();
+    let before = audit_counts(&e);
+    let back = e.exchange(&g, &ops).unwrap();
+    merge(&mut client, &back);
+    assert_eq!(
+        client.get("action:dev-1-1", action::STATUS),
+        Some(&b"applied"[..])
+    );
+    assert_eq!(audit_counts(&e), before);
+    // Merging the same answer again changes nothing.
+    let snapshot = client.snapshot();
+    merge(&mut client, &e.exchange(&g, &ops).unwrap());
+    assert_eq!(client.snapshot(), snapshot);
+}
+
+#[test]
+fn another_persona_reusing_an_action_id_gets_a_conflict_and_nothing_of_the_first() {
+    let mut e = enclosure();
+    let rao = e.grant("k.rao").unwrap();
+    let osei = e.grant("k.osei").unwrap();
+    let mut first = Replica::new("dev-1");
+    let back = e
+        .exchange(&rao, &ping(&mut first, "action:dev-1-1", "k.rao"))
+        .unwrap();
+    merge(&mut first, &back);
+    let mut second = Replica::new("dev-2");
+    let back = e
+        .exchange(&osei, &ping(&mut second, "action:dev-1-1", "k.osei"))
+        .unwrap();
+    merge(&mut second, &back);
+    assert_eq!(
+        second.get("action:dev-1-1", action::STATUS),
+        Some(&b"conflict"[..])
+    );
+    for f in [action::AUDIT, action::RESULT, action::REASON] {
+        assert_ne!(
+            second.get("action:dev-1-1", f),
+            first.get("action:dev-1-1", f),
+            "{f} leaked across personas"
+        );
+    }
+    assert_eq!(
+        second.get("action:dev-1-1", action::RESULT),
+        Some(&b"{}"[..])
+    );
+    // Each persona's re-push still gets its own answer.
+    let again = e
+        .exchange(
+            &rao,
+            &ping(&mut Replica::new("dev-1"), "action:dev-1-1", "k.rao"),
+        )
+        .unwrap();
+    let mut check = Replica::new("dev-1");
+    merge(&mut check, &again);
+    assert_eq!(
+        check.get("action:dev-1-1", action::STATUS),
+        Some(&b"applied"[..])
+    );
+}
+
+#[test]
+fn a_malformed_action_is_refused_as_malformed() {
+    let long = "x".repeat(257);
+    for (field, value) in [
+        (action::PARAMS, r#"{"a":1}"#),
+        (action::PARAMS, r#"{"b":"1","a":"2"}"#),
+        (action::PARAMS, r#"{ "a":"1"}"#),
+        (action::PARAMS, r#"["a"]"#),
+        (action::PARAMS, "not json"),
+        (action::VERB, long.as_str()),
+        (action::TARGET, long.as_str()),
+        (action::BY, long.as_str()),
+    ] {
         let mut e = enclosure();
         let g = e.grant("k.rao").unwrap();
         let mut client = Replica::new("dev-1");
         let mut ops = ping(&mut client, "action:dev-1-1", "k.rao");
-        client.set("action:dev-1-1", action::TARGET, target.to_vec());
+        client.set("action:dev-1-1", field, value.as_bytes().to_vec());
         ops.extend(client.drain_pending().iter().map(SyncOp::encode));
         merge(&mut client, &e.exchange(&g, &ops).unwrap());
-        (
-            client
-                .get("action:dev-1-1", action::STATUS)
-                .unwrap()
-                .to_vec(),
-            client
-                .get("action:dev-1-1", action::REASON)
-                .unwrap()
-                .to_vec(),
-        )
-    };
-    let hidden = reason(b"midgard.audit/AUD-2");
-    assert_eq!(hidden.0, b"refused");
-    assert_eq!(hidden, reason(b"midgard.audit/AUD-9"));
-    assert_eq!(hidden, reason(b"nothing"));
+        assert_eq!(
+            client.get("action:dev-1-1", action::STATUS),
+            Some(&b"refused"[..]),
+            "{field}={value}"
+        );
+        assert!(client
+            .get("action:dev-1-1", action::REASON)
+            .is_some_and(|r| r.starts_with(b"malformed action")));
+    }
+}
+
+#[test]
+fn a_check_mark_in_a_field_delivery_does_not_replace_refuses_the_dataset() {
+    let body = BODY.replace(r#""action":"Query""#, r#""action":"Query ✓""#);
+    assert!(matches!(from(&body), Err(SourceError::Malformed(_))));
 }

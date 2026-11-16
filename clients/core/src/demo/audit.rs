@@ -139,6 +139,72 @@ pub fn with_status(item: &Json, status: SignatureStatus) -> Json {
     }
 }
 
+/// The word that replaces an unchecked signature or verification claim.
+pub const NOT_CHECKED: &str = "not checked (demo)";
+
+/// Fields outside audit rows whose fixture text claims a signature or a verification
+/// (`ML-DSA ✓`, `Verified`) that nothing in the demo checks: `(read-model type, field)`.
+/// [`without_claims`] replaces a claim in one of these with [`NOT_CHECKED`] at
+/// delivery; a check mark anywhere else refuses the dataset ([`unlisted_claim`]).
+pub const CLAIM_FIELDS: &[(&str, &str)] = &[
+    ("BifrostArtefact", "signature"),
+    ("BifrostArtefact", "stateLabel"),
+    ("BifrostFleetNode", "agent"),
+    ("HeimdallDecision", "signature"),
+];
+
+/// Whether `text` claims a signature or a verification.
+pub fn claims(text: &str) -> bool {
+    text.contains('\u{2713}') || text.to_lowercase().contains("verified")
+}
+
+/// `item` (of `type_name`) with each claim in a [`CLAIM_FIELDS`] field replaced by
+/// [`NOT_CHECKED`].
+pub fn without_claims(type_name: &str, item: &Json) -> Json {
+    let listed = |k: &str| CLAIM_FIELDS.iter().any(|(t, f)| *t == type_name && *f == k);
+    match item {
+        Json::Obj(pairs) => Json::Obj(
+            pairs
+                .iter()
+                .map(|(k, v)| match v {
+                    Json::Str(text) if listed(k) && claims(text) => {
+                        (k.clone(), Json::Str(NOT_CHECKED.into()))
+                    }
+                    _ => (k.clone(), v.clone()),
+                })
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
+/// The path of a check mark in `item` (of `type_name`) that delivery would not
+/// replace, if any: not an audit row's `pqSignature`, not a [`CLAIM_FIELDS`] field.
+pub fn unlisted_claim(type_name: &str, item: &Json) -> Option<String> {
+    fn walk(v: &Json, path: &str, top: bool, skip: &dyn Fn(&str) -> bool) -> Option<String> {
+        match v {
+            Json::Str(s) if s.contains('\u{2713}') => Some(path.to_string()),
+            Json::Arr(items) => items
+                .iter()
+                .enumerate()
+                .find_map(|(i, x)| walk(x, &format!("{path}[{i}]"), false, skip)),
+            Json::Obj(pairs) => pairs.iter().find_map(|(k, x)| {
+                if top && skip(k) {
+                    None
+                } else {
+                    walk(x, &format!("{path}.{k}"), false, skip)
+                }
+            }),
+            _ => None,
+        }
+    }
+    let skip = |k: &str| {
+        (type_name == AUDIT_TYPE && k == "pqSignature")
+            || CLAIM_FIELDS.iter().any(|(t, f)| *t == type_name && *f == k)
+    };
+    walk(item, "$", true, &skip)
+}
+
 /// The whole message an audit-row signature is made over, so a build step that signs
 /// rows (and the tests) make exactly what [`verify_row`] checks.
 pub fn row_preimage(collection: &str, id: &str, marking: &RowMarking, item: &Json) -> Vec<u8> {
