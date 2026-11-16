@@ -212,9 +212,9 @@ impl Keystore for SealedRootKeystore {
     /// Owner decision 5 (16 Nov 2026, `docs/plans/2026-11-13-apple-clients-plan.md`):
     /// accept `NonExtractable` for the Apple key root, with no new custody level. The
     /// reason: the Secure Enclave cannot hold or decapsulate ML-KEM-1024, so while
-    /// the app is unlocked the root secret is in (mlocked) process memory, exactly as
-    /// [`SoftwareKeystore`](crate::SoftwareKeystore)'s is; the Enclave binds it only
-    /// at rest. Claiming [`SecurityFloor::HardwareBacked`] would overstate custody,
+    /// the app is unlocked the root secret is in process memory (mlocked where the OS
+    /// allows), exactly as [`SoftwareKeystore`](crate::SoftwareKeystore)'s is; the
+    /// Enclave binds it only at rest. Claiming [`SecurityFloor::HardwareBacked`] would overstate custody,
     /// so this root does not meet `PlatformProfile::Apple.floor()` and the Apple apps
     /// open their store at `NonExtractable` (a recorded deviation from SAD_06 §11.2).
     /// "The floor is honest." `[VLD-ANB-MIDGARD-0056]`

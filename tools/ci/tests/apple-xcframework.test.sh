@@ -94,6 +94,11 @@ check "check-bindings.sh warns within 60 days of the exceptions' expiry" "[ -f $
 today=2027-05-14
 check "check-bindings.sh fails once the exceptions have expired" "[ -f $b ] && ! out=\$(cb) && grep -q 'expired on 2027-05-13' <<<\"\$out\""
 today=
+cp "$r/supply-chain/licences.toml" "$tmp/lic"
+printf '\n[exceptions."uniffi_meta"]\nexpires = "2027-5-13"\n' >>"$r/supply-chain/licences.toml"
+check "check-bindings.sh fails on an expiry that is not YYYY-MM-DD" "[ -f $b ] && ! out=\$(cb) && grep -q 'not YYYY-MM-DD: 2027-5-13' <<<\"\$out\""
+mv "$tmp/lic" "$r/supply-chain/licences.toml"
+check "verify-xcframework.sh looks for test-only symbols with nm" "grep -q '^[^#]*nm -A' $v && grep -q 'from_body|_for_tests' $v"
 grep -v 'uniffi' "$a/Sources/MidgardKit/Presentation/Notices.swift" >"$tmp/n" && mv "$tmp/n" "$a/Sources/MidgardKit/Presentation/Notices.swift"
 check "check-bindings.sh fails without the UniFFI acknowledgement" "[ -f $b ] && ! out=\$(cb) && grep -q 'acknowledgement' <<<\"\$out\""
 rm -f "$tmp/bcache/target-clients/aarch64-apple-darwin/release/libmidgard_client_ffi.a"

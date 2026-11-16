@@ -463,6 +463,25 @@ fn a_tampered_dataset_is_refused_at_open() {
     ));
 }
 
+/// The error names the file, never the directory it was looked for in (the app's
+/// container path, the user name). [FR-C-9]
+#[test]
+fn a_missing_dataset_is_named_by_file_name_only() {
+    let dir = std::env::temp_dir().join(format!("midgard-ffi-path-{}", std::process::id()));
+    match MidgardClient::new(
+        config(&dir.join("absent.mgdemo")),
+        TestKeyRoot::new(Mode::Honest),
+    ) {
+        Err(ClientError::NotFound { what }) => {
+            assert!(what.contains("absent.mgdemo"), "{what}");
+            assert!(!what.contains(&*dir.to_string_lossy()), "{what}");
+            assert!(!what.contains('/'), "{what}");
+        }
+        Err(other) => panic!("expected NotFound, got {other:?}"),
+        Ok(_) => panic!("expected NotFound, got a client"),
+    }
+}
+
 #[test]
 fn reset_demo_locks_and_reloads_the_dataset() {
     let (c, _root, keys) = signed_in("k.rao");

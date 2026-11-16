@@ -13,9 +13,11 @@ import Security
 /// bytes; `unseal` decrypts inside the Enclave (one prompt). It implements the core's
 /// `KeyRoot` callback and nothing else: the core's ML-KEM root never enters Swift.
 ///
-/// On macOS the Enclave key needs the data-protection keychain and a signed build with
-/// `keychain-access-groups`; `KeyRootFactory` checks that and otherwise uses the
-/// software root, so `hardwareBacked()` is true only when this type is in use.
+/// The Enclave key needs the data-protection keychain and a signed build with
+/// `keychain-access-groups`: `KeyRootFactory` refuses an unsigned build with
+/// `.unsignedBuild` (it never falls back to software there), and uses the labelled
+/// software root only on the simulator or a Mac without a Secure Enclave, so
+/// `hardwareBacked()` is true only when this type is in use.
 /// [FR-C-2] [FR-C-9] [DD-6]
 public final class SecureEnclaveKeyRoot: PlatformKeyRoot {
     public static let keyId = deviceRootKeyId

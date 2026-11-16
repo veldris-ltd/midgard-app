@@ -113,6 +113,18 @@ setup() {
     echo "$root"
 }
 
+# forge_env FORGE: the variables a runner on FORGE sets. A function rather than a
+# `case` inside `$(...)`: bash 3.2 (macOS /bin/bash) misreads a case pattern's `)`
+# there as the end of the command substitution.
+forge_env() {
+    case "$1" in
+        github) echo GITHUB_ACTIONS=true GITHUB_REPOSITORY=veldris/midgard GITHUB_REF_NAME=dev GH_TOKEN=gh-test-token ;;
+        gitlab) echo GITLAB_CI=true CI_SERVER_URL=https://git.example.invalid CI_PROJECT_PATH=veldris/midgard \
+                     CI_API_V4_URL=https://git.example.invalid/api/v4 CI_PROJECT_ID=7 CI_COMMIT_BRANCH=dev \
+                     MIDGARD_MR_TOKEN=mr-test-token ;;
+    esac
+}
+
 # run FORGE REFRESH: the job, in a fresh repository, on FORGE (github, gitlab, none)
 # with the stubbed refresh moving REFRESH (none, rustsec, both). Sets $out and $code.
 run() {
@@ -122,12 +134,7 @@ run() {
     rm -f "$tmp/body"
     out="$(cd "$root" && env -i PATH="$bin:$PATH" HOME="$tmp" STUB_LOG="$tmp/log" STUB_BODY="$tmp/body" \
         STUB_REFRESH="$2" TOOLCHAIN_IMAGE=stub-toolchain \
-        $(case "$1" in
-            github) echo GITHUB_ACTIONS=true GITHUB_REPOSITORY=veldris/midgard GITHUB_REF_NAME=dev GH_TOKEN=gh-test-token ;;
-            gitlab) echo GITLAB_CI=true CI_SERVER_URL=https://git.example.invalid CI_PROJECT_PATH=veldris/midgard \
-                         CI_API_V4_URL=https://git.example.invalid/api/v4 CI_PROJECT_ID=7 CI_COMMIT_BRANCH=dev \
-                         MIDGARD_MR_TOKEN=mr-test-token ;;
-        esac) \
+        $(forge_env "$1") \
         bash tools/ci/run.sh advisory-refresh 2>&1)"
     code=$?
     repo="$root"

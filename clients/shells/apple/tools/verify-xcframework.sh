@@ -16,6 +16,8 @@
 #      is Rust's own prebuilt compiler_builtins, whose panic locations name the Rust
 #      project's macOS CI runner (/Users/runner/.cargo/registry/...); it ships inside
 #      the rust-std component and cannot be remapped without rebuilding std;
+#   4b. no library carries test-only code (DemoEnclosure::from_body, *_for_tests:
+#      the `demo-unpinned` feature), by nm;
 #   5. the generated Swift typechecks against each slice's headers, and on an arm64
 #      Mac a small program linked against the macOS slice runs and calls the core
 #      (UniFFI's contract-version and checksum checks run on that first call).
@@ -117,6 +119,20 @@ while IFS='|' read -r slice archs platform minos target sdk; do
     else
         grep -v "^$upstream_ci" "$scratch/paths" | sort -u | awk 'n++ < 3' >&2
         fail "$slice: $hits string(s) with a local path (\$HOME, the repository or /Users/)"
+    fi
+
+    # 4b. No test-only code: DemoEnclosure::from_body (unsigned datasets) and the
+    # *_for_tests helpers exist only under `demo-unpinned`, which a shipped library
+    # must never be built with. nm must list the core's symbols, or the probe proves
+    # nothing.
+    nm -A "$a" 2>/dev/null >"$scratch/nm" || true
+    if ! grep -q 'midgard_client_core' "$scratch/nm"; then
+        fail "$slice: nm lists no midgard_client_core symbol, so the test-only probe cannot run"
+    elif grep -E 'from_body|_for_tests' "$scratch/nm" >"$scratch/testonly"; then
+        awk 'n++ < 3' "$scratch/testonly" >&2
+        fail "$slice: test-only symbols (from_body, *_for_tests): built with demo-unpinned?"
+    else
+        ok "$slice: no test-only symbols (from_body, *_for_tests)"
     fi
 
     # 5a. The bindings typecheck against this slice's headers.

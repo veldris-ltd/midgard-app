@@ -75,8 +75,13 @@ soon="$(date -j -v+60d -f %Y-%m-%d "$today" +%Y-%m-%d 2>/dev/null ||
     date -d "$today + 60 days" +%Y-%m-%d 2>/dev/null || echo "$today")"
 expires="$(awk '/^\[exceptions\."uniffi/ { u = 1; next } /^\[/ { u = 0 } u && /^expires/ { gsub(/[" ]/, ""); sub(/^expires=/, ""); print }' \
     supply-chain/licences.toml | sort | head -1)"
+bad_dates="$(awk '/^\[exceptions\."uniffi/ { u = 1; next } /^\[/ { u = 0 } u && /^expires/ { v = $0; gsub(/[" ]/, "", v); sub(/^expires=/, "", v); if (v !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) print v }' \
+    supply-chain/licences.toml)"
 if [ -z "$expires" ]; then
     fail "supply-chain/licences.toml has no UniFFI exception with an expiry"
+elif [ -n "$bad_dates" ]; then
+    # A malformed date would compare as a string and could pass as "not expired".
+    fail "a UniFFI exception's expiry is not YYYY-MM-DD: $(printf '%s ' $bad_dates)(supply-chain/licences.toml)"
 elif [[ "$today" > "$expires" ]]; then
     fail "the UniFFI licence exceptions expired on $expires: renew or remove them (supply-chain/licences.toml)"
 elif [[ "$soon" > "$expires" ]]; then

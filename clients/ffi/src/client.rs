@@ -327,9 +327,19 @@ fn persona_info(p: &Persona) -> PersonaInfo {
 }
 
 /// Read and verify the bundled dataset against the anchors compiled into the core.
+/// A read error names the file only: the full path holds the app's container and
+/// the user name, and error text can reach the screen or a log. [FR-C-9]
 fn load_source(config: &ClientConfig) -> Result<DemoEnclosure, ClientError> {
-    let file = std::fs::read(&config.dataset_path).map_err(|e| ClientError::NotFound {
-        what: format!("dataset {}: {e}", config.dataset_path),
+    let file = std::fs::read(&config.dataset_path).map_err(|e| {
+        let name = std::path::Path::new(&config.dataset_path)
+            .file_name()
+            .map_or_else(
+                || "(no file name)".into(),
+                |n| n.to_string_lossy().into_owned(),
+            );
+        ClientError::NotFound {
+            what: format!("dataset {name}: {}", e.kind()),
+        }
     })?;
     Ok(DemoEnclosure::open_pinned(&file)?)
 }
