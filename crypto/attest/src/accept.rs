@@ -66,6 +66,10 @@ pub const MIMIR_MODEL: Domain = Domain::new(b"midgard-mimir-model-v1");
 /// A Mimir model manifest **file**: the signature covers the file's bytes exactly as
 /// they lie on disk, so it is checked before the file is parsed. [MG-SEC-14]
 pub const MIMIR_MODEL_FILE: Domain = Domain::new(b"midgard-mimir-model-file-v2");
+/// A client demo dataset (`clients/demo/datasets/<release>.mgdemo`): the bundled data
+/// a demonstration app serves instead of a gateway. Its own domain, so a demo-dataset
+/// signature can never stand for a release artefact. [NFR-PQ-3] [AC-C-13]
+pub const DEMO_DATASET: Domain = Domain::new(b"midgard-demo-dataset-v1");
 
 /// Build the canonical preimage for `body` in `domain`.
 pub fn preimage(domain: &Domain, body: &[u8]) -> Vec<u8> {
@@ -281,6 +285,20 @@ mod tests {
     }
 
     #[test]
+    fn the_demo_dataset_domain_is_its_own() {
+        for other in [
+            RELEASE_ARTEFACT,
+            BIFROST_ARTEFACT,
+            BIFROST_BUNDLE,
+            MIMIR_MODEL,
+            MIMIR_MODEL_FILE,
+        ] {
+            assert_ne!(DEMO_DATASET.label(), other.label());
+            assert_ne!(preimage(&DEMO_DATASET, b"x"), preimage(&other, b"x"));
+        }
+    }
+
+    #[test]
     fn every_declared_domain_is_distinct() {
         let all = [
             RELEASE_ARTEFACT,
@@ -288,6 +306,7 @@ mod tests {
             BIFROST_BUNDLE,
             MIMIR_MODEL,
             MIMIR_MODEL_FILE,
+            DEMO_DATASET,
         ];
         for (i, a) in all.iter().enumerate() {
             for b in &all[i + 1..] {
