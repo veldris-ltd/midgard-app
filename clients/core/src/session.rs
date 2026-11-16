@@ -16,10 +16,10 @@
 //!   [`Seal`] only this crate can make: [`DataSource::in_core_verified`]) and the
 //!   digest matches the row exactly as delivered, so only rows an in-core source
 //!   checked (the demo enclosure, under the pinned demo-audit anchor), unchanged
-//!   since, stay `verified`; a source's `device` claim is never believed. An audit row is shown as `device` only when this
-//!   session holds a device signature for it, the row is still the one owed for the
-//!   recorded action, and the statement verifies under this device's key, checked
-//!   on every read, online or offline.
+//!   since, stay `verified`; a source's `device` claim is never believed. An audit
+//!   row is shown as `device` only when this session holds a device signature for
+//!   it, the row is still the one owed for the recorded action, and the statement
+//!   verifies under this device's key, checked on every read, online or offline.
 //! - **Device signatures.** [`Session::request_action`] records the action (id,
 //!   verb, target, SHA-256 of the parameters) in the persona's sealed record
 //!   ([`DEVICE_AUDIT_OBJECT`](crate::DEVICE_AUDIT_OBJECT)) before queueing it. When a
@@ -36,7 +36,8 @@
 //!   dropped. An action leaves the record once decided (signed, answered with no
 //!   audit row, or its row seen and not matching, or refused); a signature keeps
 //!   its own copy of the action's fields. At most [`MAX_DEVICE_SIGS`] signatures
-//!   are kept, the oldest dropped first (their rows then show `none`).
+//!   and as many owed rows are kept, the oldest dropped first (their rows then show
+//!   `none`; an owed row dropped takes its action's record with it).
 //! - **Actions** ([`Session::request_action`]): the target's marking comes from the
 //!   persona's cached delivery, never from the caller, so acting on a row that is
 //!   withheld, missing or never read is refused before anything is queued; then four
@@ -218,6 +219,7 @@ struct ActionRecord {
 struct Owed {
     action: String,
     status: String,
+    seq: u64,
 }
 
 /// A device signature over a statement about one row, with the statement's fields
@@ -232,8 +234,8 @@ struct Signed {
     seq: u64,
 }
 
-/// The most device signatures a persona's record keeps; beyond it the oldest are
-/// dropped (their rows then show `none`).
+/// The most device signatures, and the most owed rows, a persona's record keeps;
+/// beyond it the oldest are dropped (their rows then show `none`).
 pub const MAX_DEVICE_SIGS: usize = 1024;
 
 /// This persona's device-audit record, sealed in its cache: the actions this device
@@ -294,10 +296,12 @@ impl DeviceRecord {
                     .owed
                     .iter()
                     .map(|(k, o)| {
-                        (
-                            k.clone(),
-                            obj(&[("action", &o.action), ("status", &o.status)]),
-                        )
+                        let v = obj(&[
+                            ("action", &o.action),
+                            ("seq", &o.seq.to_string()),
+                            ("status", &o.status),
+                        ]);
+                        (k.clone(), v)
                     })
                     .collect()),
             ),
@@ -350,8 +354,16 @@ impl DeviceRecord {
             );
         }
         for (k, e) in entries("owed")? {
-            let [action, status] = fields(e, ["action", "status"])?;
-            r.owed.insert(k.clone(), Owed { action, status });
+            let [action, seq, status] = fields(e, ["action", "seq", "status"])?;
+            let seq: u64 = seq.parse().ok()?;
+            r.owed.insert(
+                k.clone(),
+                Owed {
+                    action,
+                    status,
+                    seq,
+                },
+            );
         }
         for (k, e) in entries("sigs")? {
             let [action, params_sha256, seq, sig, status, target, verb] = fields(
@@ -400,6 +412,34 @@ impl DeviceRecord {
                 break;
             };
             self.sigs.remove(&oldest);
+        }
+    }
+
+    /// Owe `audit_id` a signature for `action` answered with `status`, numbered
+    /// after every owed row kept so far; drop the oldest beyond [`MAX_DEVICE_SIGS`],
+    /// with its action's record (it will never be signed, so its row shows `none`).
+    fn insert_owed(&mut self, audit_id: String, action: String, status: String) {
+        let seq = self.owed.values().map(|o| o.seq + 1).max().unwrap_or(0);
+        self.owed.insert(
+            audit_id,
+            Owed {
+                action,
+                status,
+                seq,
+            },
+        );
+        while self.owed.len() > MAX_DEVICE_SIGS {
+            let Some(oldest) = self
+                .owed
+                .iter()
+                .min_by_key(|(_, o)| o.seq)
+                .map(|(k, _)| k.clone())
+            else {
+                break;
+            };
+            if let Some(o) = self.owed.remove(&oldest) {
+                self.actions.remove(&o.action);
+            }
         }
     }
 
@@ -939,13 +979,7 @@ impl<K: Keystore + TrustRoot, S: DataSource> Session<K, S> {
             };
             match claimed.get(a).and_then(|ids| ids.iter().next()) {
                 Some(audit_id) => {
-                    self.record.owed.insert(
-                        audit_id.clone(),
-                        Owed {
-                            action: a.clone(),
-                            status,
-                        },
-                    );
+                    self.record.insert_owed(audit_id.clone(), a.clone(), status);
                 }
                 // Decided with no audit row: nothing will ever be signed for it.
                 None => {
@@ -1164,13 +1198,7 @@ mod tests {
                 params_sha256: "00".into(),
             },
         );
-        r.owed.insert(
-            "AUD-1".into(),
-            Owed {
-                action: "action:a".into(),
-                status: "applied".into(),
-            },
-        );
+        r.insert_owed("AUD-1".into(), "action:a".into(), "applied".into());
         r.insert_sig("c/AUD-1".into(), dummy("action:a"));
         assert_eq!(DeviceRecord::decode(&r.encode()), Some(r));
         assert_eq!(DeviceRecord::decode(b"{}"), None);
@@ -1204,6 +1232,39 @@ mod tests {
         let mut back = DeviceRecord::decode(&r.encode()).unwrap();
         back.insert_sig("c/AUD-new".into(), dummy("action:new"));
         assert!(!back.sigs.contains_key("c/AUD-1"));
+    }
+
+    #[test]
+    fn owed_rows_are_capped_dropping_the_oldest_and_its_action() {
+        let mut r = DeviceRecord::default();
+        // Audit ids sort in the reverse of insertion order, so the cap must follow
+        // insertion, not the map's key order.
+        for i in 0..=MAX_DEVICE_SIGS {
+            let action = format!("action:{i}");
+            r.actions.insert(
+                action.clone(),
+                ActionRecord {
+                    verb: "demo.ping".into(),
+                    target: "c/r".into(),
+                    params_sha256: "00".into(),
+                },
+            );
+            r.insert_owed(format!("AUD-{:05}", 99_999 - i), action, "applied".into());
+        }
+        assert_eq!(r.owed.len(), MAX_DEVICE_SIGS);
+        assert!(!r.owed.contains_key("AUD-99999"), "the oldest is dropped");
+        assert!(!r.actions.contains_key("action:0"), "with its action");
+        assert!(r.owed.contains_key("AUD-99998"));
+        assert_eq!(r.actions.len(), MAX_DEVICE_SIGS);
+        // The order survives the sealed record.
+        let mut back = DeviceRecord::decode(&r.encode()).unwrap();
+        back.insert_owed(
+            "AUD-00000-new".into(),
+            "action:new".into(),
+            "applied".into(),
+        );
+        assert!(!back.owed.contains_key("AUD-99998"));
+        assert!(back.owed.contains_key("AUD-00000-new"));
     }
 
     #[test]
