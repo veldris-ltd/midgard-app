@@ -3,9 +3,20 @@
 //!
 //! The consoles mark rows `open`, `internal`, `restricted` or `confidential`
 //! (`sdk/ts/src/types.ts` `MarkingLevel`), ordered as `MARKING_RANK` in
-//! `sdk/ts/src/mock/clients.ts`. They map onto `policy::ClassificationLevel` 0..=3,
-//! so `policy::dominates` decides what a session sees, exactly as it decides what
-//! `midgard_client_store::LocalStore` may cache.
+//! `sdk/ts/src/mock/clients.ts`. Each maps onto one `policy::ClassificationLevel`,
+//! rank for rank:
+//!
+//! | Console level  | `policy::ClassificationLevel` |
+//! |----------------|-------------------------------|
+//! | `open`         | `UNCLASSIFIED` (0)            |
+//! | `internal`     | `CONFIDENTIAL` (1)            |
+//! | `restricted`   | `SECRET` (2)                  |
+//! | `confidential` | `TOP_SECRET` (3)              |
+//!
+//! The words differ (the consoles' `confidential` is the lattice's top), so code
+//! that crosses the boundary converts with [`MarkingLevel::classification`] and
+//! never compares names. `policy::dominates` then decides what a session sees,
+//! exactly as it decides what `midgard_client_store::LocalStore` may cache.
 
 use std::collections::BTreeSet;
 
@@ -14,14 +25,14 @@ use policy::{dominates, ClassificationLevel, Clearance, Compartment, Marking};
 /// A console marking level, weakest first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum MarkingLevel {
-    /// `open` (unclassified).
-    Open,
-    /// `internal`.
-    Internal,
-    /// `restricted`.
-    Restricted,
-    /// `confidential` (the highest the consoles use).
-    Confidential,
+    /// `open`: `ClassificationLevel::UNCLASSIFIED`.
+    Open = 0,
+    /// `internal`: `ClassificationLevel::CONFIDENTIAL`.
+    Internal = 1,
+    /// `restricted`: `ClassificationLevel::SECRET`.
+    Restricted = 2,
+    /// `confidential` (the highest the consoles use): `ClassificationLevel::TOP_SECRET`.
+    Confidential = 3,
 }
 
 impl MarkingLevel {
@@ -54,19 +65,23 @@ impl MarkingLevel {
         }
     }
 
-    /// The level on the policy lattice.
+    /// The level on the policy lattice (see the module table).
     pub fn classification(self) -> ClassificationLevel {
-        ClassificationLevel(self as u8)
+        match self {
+            Self::Open => ClassificationLevel::UNCLASSIFIED,
+            Self::Internal => ClassificationLevel::CONFIDENTIAL,
+            Self::Restricted => ClassificationLevel::SECRET,
+            Self::Confidential => ClassificationLevel::TOP_SECRET,
+        }
     }
 }
 
 /// A row's marking: a level and the compartments it requires, sorted and unique.
+/// The fields are private so every marking goes through [`RowMarking::new`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RowMarking {
-    /// The level.
-    pub level: MarkingLevel,
-    /// Required compartments, sorted, without duplicates.
-    pub compartments: Vec<String>,
+    level: MarkingLevel,
+    compartments: Vec<String>,
 }
 
 impl RowMarking {
@@ -80,6 +95,16 @@ impl RowMarking {
             level,
             compartments: set.into_iter().collect(),
         }
+    }
+
+    /// The level.
+    pub fn level(&self) -> MarkingLevel {
+        self.level
+    }
+
+    /// Required compartments, sorted, without duplicates.
+    pub fn compartments(&self) -> &[String] {
+        &self.compartments
     }
 
     /// The policy marking the lattice checks.
@@ -102,10 +127,16 @@ impl RowMarking {
 }
 
 /// A session clearance at `level` holding `compartments`.
-pub fn clearance(level: MarkingLevel, compartments: &[String]) -> Clearance {
+pub fn clearance<S: Into<String>>(
+    level: MarkingLevel,
+    compartments: impl IntoIterator<Item = S>,
+) -> Clearance {
     Clearance {
         level: level.classification(),
-        compartments: compartments.iter().cloned().map(Compartment).collect(),
+        compartments: compartments
+            .into_iter()
+            .map(|c| Compartment(c.into()))
+            .collect(),
     }
 }
 
@@ -166,7 +197,7 @@ pub fn filter_rows<T>(
                 Visible::Shown { id, marking, item }
             } else {
                 Visible::Withheld {
-                    level: marking.level,
+                    level: marking.level(),
                 }
             }
         })
