@@ -367,3 +367,29 @@ fn an_unpinned_key_id_is_echoed_only_as_a_bounded_prefix() {
         .to_string();
     assert_eq!(shown, "signing key \"demo-other\" is not pinned");
 }
+
+#[test]
+fn the_demo_only_signer_signs_demo_dataset_preimages_and_nothing_else() {
+    let s = dataset::DemoDatasetOnly::new(TestSigner::new("demo-test"));
+    let file = dataset::sign(RELEASE, BODY, &s).unwrap();
+    let anchors = {
+        let mut a = TrustAnchors::new();
+        a.insert("demo-test", s.verifying_key().clone());
+        a
+    };
+    dataset::verify(&file, &anchors, RELEASE).unwrap();
+    let signed = dataset::signed_bytes(RELEASE, BODY).unwrap();
+    for msg in [
+        b"an arbitrary message".to_vec(),
+        Vec::new(),
+        preimage(&RELEASE_ARTEFACT, &signed),
+        preimage(&BIFROST_ARTEFACT, &signed),
+        preimage(&DEMO_DATASET, b"not a dataset"),
+        signed.clone(),
+    ] {
+        assert!(
+            matches!(s.sign(&msg), Err(SignError::Custodian(_))),
+            "signed {msg:?}"
+        );
+    }
+}

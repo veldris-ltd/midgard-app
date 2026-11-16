@@ -45,6 +45,8 @@ result-*
 !/deploy/trust/release-trust.pub
 !/deploy/trust/bifrost-trust.pub
 !/deploy/trust/model-signing.pub
+# The demo-dataset anchor: a public key, trusted only for the demo dataset domain.
+!/clients/demo/trust/demo-dataset.pub
 
 # --- Secrets: never in the repo. Keys are issued at runtime by KMS/HSM. ---
 # [STD:OWASP ASVS V14.3]

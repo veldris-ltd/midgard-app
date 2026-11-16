@@ -24,3 +24,6 @@ docs/compliance/NUMBERS.md text eol=lf
 
 # Read by git and ssh-keygen to verify release tags. [AC-RF-CA-6a]
 deploy/trust/allowed_signers text eol=lf
+
+# The signed demo dataset is compared byte for byte with its signature. [AC-C-13]
+clients/demo/datasets/*.mgdemo binary

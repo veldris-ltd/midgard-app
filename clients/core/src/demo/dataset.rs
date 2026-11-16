@@ -22,8 +22,8 @@
 use attest::accept::{accept, preimage, AcceptError, DEMO_DATASET};
 use attest::envelope::SigEnvelope;
 use attest::json::{parse, Json};
-use attest::{SigningBackend, TrustAnchors};
-use pqc_agility::SigId;
+use attest::{SignError, SigningBackend, TrustAnchors};
+use pqc_agility::{SigId, Signature, VerifyingKey};
 
 use super::canon;
 
@@ -158,6 +158,45 @@ pub fn sign(
     let mut file = signed;
     put(&mut file, &env.encode(), "envelope")?;
     Ok(file)
+}
+
+/// A signer that signs demo-dataset preimages and nothing else: every message must
+/// begin `preimage(DEMO_DATASET, MAGIC ‖ VERSION …)`, the shape [`sign`] hands it.
+///
+/// The demo signing key is meant to sign through this path only. The build step
+/// wraps its unsealed key in this type and never hands it to a general signer (a
+/// KMS signing service, `mg-sign sign`), so the key cannot be made to sign an
+/// arbitrary message in any domain.
+pub struct DemoDatasetOnly<S> {
+    inner: S,
+}
+
+impl<S: SigningBackend> DemoDatasetOnly<S> {
+    /// Wrap `inner`.
+    pub fn new(inner: S) -> Self {
+        Self { inner }
+    }
+}
+
+impl<S: SigningBackend> SigningBackend for DemoDatasetOnly<S> {
+    fn key_id(&self) -> &str {
+        self.inner.key_id()
+    }
+
+    fn sign(&self, msg: &[u8]) -> Result<Signature, SignError> {
+        let mut head = MAGIC.to_vec();
+        head.push(VERSION);
+        if !msg.starts_with(&preimage(&DEMO_DATASET, &head)) {
+            return Err(SignError::Custodian(
+                "the demo key signs demo-dataset preimages only".into(),
+            ));
+        }
+        self.inner.sign(msg)
+    }
+
+    fn verifying_key(&self) -> &VerifyingKey {
+        self.inner.verifying_key()
+    }
 }
 
 /// A cursor that fails closed rather than panicking on a short read.

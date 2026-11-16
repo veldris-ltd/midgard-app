@@ -35,6 +35,11 @@ attest = { path = "../../crypto/attest", default-features = false, features = ["
 # root; its TrustRoot impl names kms types. Tests only. [VLD-ANB-MIDGARD-0056]
 midgard-client-keystore = { path = "../keystore", features = ["test-floors"] }
 kms = { path = "../../services/kms" }
+# The dataset builder example (examples/build_demo_dataset.rs) unseals the demo key
+# from an attest keystore (custody); the library itself only verifies. Examples are
+# not release binaries (tools/ci/release-artefacts.sh derives the release matrix from
+# [[bin]], src/main.rs and src/bin/ only). [NFR-PQ-3]
+attest = { path = "../../crypto/attest" }
 
 [lib]
 path = "src/lib.rs"
