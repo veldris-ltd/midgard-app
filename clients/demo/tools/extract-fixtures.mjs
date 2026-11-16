@@ -197,8 +197,11 @@ for (const { name, console_, type, rows } of read_) {
   byConsole.get(console_)[name] = { type, rows: rows.map(({ id, marking, item }) => ({ id, marking, item })) };
 }
 
-// The synthetic hour: a 60-minute closed loop per track, every 10 s.
-const box = { latN: 56.0, latS: 51.0, lonW: -10.0, lonE: -2.0 };
+// The synthetic hour: a 60-minute closed loop per track, every 10 s, over Britain and
+// the southern North Sea. The box stays east of 6 W: the demo data guard reads keyed
+// positions both ways round, and lon -10..-6 with lat 52..56 swapped is a Mauritius
+// position.
+const box = { latN: 56.0, latS: 51.0, lonW: -5.5, lonE: 2.5 };
 const round = (n) => Math.round(n * 1e5) / 1e5;
 const motion = byConsole.get('heimdall')['heimdall.tracks'].rows.map((r) => {
   const t = r.item;

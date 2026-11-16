@@ -6,7 +6,7 @@ use midgard_client_core::demo::guard::{check, normalise, GuardError};
 
 #[test]
 fn the_release_fixture_shapes_pass() {
-    let v = parse(r#"{"collections":{"heimdall.motion":{"rows":[{"item":{"samples":[{"lat":53.4,"lon":-6.2,"t":0}]}}]}},
+    let v = parse(r#"{"collections":{"heimdall.motion":{"rows":[{"item":{"samples":[{"lat":53.4,"lon":-2.2,"t":0}]}}]}},
                       "note":"NORTH-2 radar"}"#).unwrap();
     assert_eq!(check(&v), Ok(()));
 }
@@ -366,13 +366,28 @@ fn a_pair_with_a_short_label_or_an_exponent_between_is_refused() {
     assert_eq!(findings("-20.16 is far from the 57.5"), vec![]);
 }
 
-// Pending a decision: read both ways round, the synthetic Heimdall hour (lat 51 to 56,
-// lon -10 to -2, keyed lat/lon) puts lon -10..-6 / lat 52..56 inside the Mauritius
-// box, so every committed motion sample would be refused. Either the synthetic area
-// moves east of 6 W or keyed positions stay read one way round.
+// Keyed positions are read both ways round too; the synthetic Heimdall hour lies
+// east of 6 W so that, swapped, it never reads as a Mauritius position.
 #[test]
-#[ignore = "conflicts with the committed synthetic hour; see the comment above"]
 fn a_keyed_position_with_lat_and_lon_swapped_is_refused() {
     let errs = check(&parse(r#"{"lat":57.5,"lon":-20.16}"#).unwrap()).unwrap_err();
     assert!(has_area(&errs, "Mauritius EEZ"), "{errs:?}");
+}
+
+#[test]
+fn a_foreign_character_inside_a_marker_is_reported_and_the_marker_still_found() {
+    for text in [
+        "Maur\u{fe0f}itius",
+        "Mau\u{e0041}ritius",
+        "Mauri\u{180e}tius",
+        "Maur\u{1dc0}itius",
+        "seismic\u{2063}portal.eu",
+    ] {
+        let errs = findings(text);
+        assert!(has_foreign(&errs), "{text:?}: {errs:?}");
+        assert!(
+            has_marker(&errs, "mauritius") || has_marker(&errs, "seismicportal.eu"),
+            "{text:?}: {errs:?}"
+        );
+    }
 }

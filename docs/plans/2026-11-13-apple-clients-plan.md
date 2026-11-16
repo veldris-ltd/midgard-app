@@ -1216,7 +1216,7 @@ for (const [name, type, read, idOf] of C) {
 for (const r of byConsole.get('heimdall')['heimdall.tracks'].rows) if (entityMarkings.has(r.id)) r.marking = entityMarkings.get(r.id);
 
 // The synthetic hour: a 60-minute closed loop per track, every 10 s.
-const box = { latN: 56.0, latS: 51.0, lonW: -10.0, lonE: -2.0 };
+const box = { latN: 56.0, latS: 51.0, lonW: -5.5, lonE: 2.5 }; // east of 6 W: see Task A5 (the guard reads keyed positions both ways round)
 const round = (n) => Math.round(n * 1e5) / 1e5;
 const motion = byConsole.get('heimdall')['heimdall.tracks'].rows.map((r) => {
   const t = r.item;
@@ -1333,7 +1333,7 @@ use midgard_client_core::demo::guard::{check, GuardError};
 
 #[test]
 fn the_release_fixture_shapes_pass() {
-    let v = parse(r#"{"collections":{"heimdall.motion":{"rows":[{"item":{"samples":[{"lat":53.4,"lon":-6.2,"t":0}]}}]}},
+    let v = parse(r#"{"collections":{"heimdall.motion":{"rows":[{"item":{"samples":[{"lat":53.4,"lon":-2.2,"t":0}]}}]}},
                       "note":"NORTH-2 radar"}"#).unwrap();
     assert_eq!(check(&v), Ok(()));
 }

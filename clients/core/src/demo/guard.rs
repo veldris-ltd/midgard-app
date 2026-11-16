@@ -6,8 +6,8 @@
 //! [`check`] over the assembled body and refuses to sign on any finding.
 //!
 //! Text is compared after [`normalise`]: accents and full-width forms folded to
-//! ASCII, invisible format characters dropped, case folded, and runs of whitespace,
-//! `_`, `-` and `.` read as one space, so `Port_Louis`, `ＭＡＵＲＩＴＩＵＳ` and a
+//! ASCII, every character outside the allowed set dropped, case folded, and runs of
+//! whitespace, `_`, `-` and `.` read as one space, so `Port_Louis`, `ＭＡＵＲＩＴＩＵＳ` and a
 //! decomposed `Agaléga` are all found, and markers are also matched with every space
 //! removed (`PortLouis`). Characters are allow-listed: a string holding anything but
 //! ASCII, the folded Latin letters and a short list of symbols (another script, a
@@ -160,8 +160,8 @@ pub fn check(v: &Json) -> Result<(), Vec<GuardError>> {
     }
 }
 
-/// Fold `s` for marker matching: drop invisible format characters and combining
-/// marks, map full-width ASCII and Latin-1/Latin Extended-A letters to ASCII,
+/// Fold `s` for marker matching: drop every character outside the allowed set,
+/// map full-width ASCII and Latin-1/Latin Extended-A letters to ASCII,
 /// lower-case, and read each run of whitespace, `_`, `-`, `.` and the typographic
 /// dashes, dots and bullets as one space.
 pub fn normalise(s: &str) -> String {
@@ -191,12 +191,6 @@ fn is_allowed(c: char) -> bool {
 fn is_separator(c: char) -> bool {
     c.is_whitespace()
         || matches!(c, '_' | '-' | '.' | '\u{b7}' | '\u{2010}'..='\u{2015}' | '\u{2022}' | '\u{2024}'..='\u{2027}')
-}
-
-fn is_hidden(c: char) -> bool {
-    matches!(c as u32,
-        0x0300..=0x036f | 0x00ad | 0x200b..=0x200f | 0x202a..=0x202e
-        | 0x2060..=0x2064 | 0x2066..=0x2069 | 0xfeff)
 }
 
 /// Latin-1 Supplement and Latin Extended-A letters, by code-point range, folded.
@@ -260,12 +254,17 @@ const FOLD: &[(u32, u32, &str)] = &[
 fn fold(s: &str, collapse: bool) -> String {
     let mut out = String::with_capacity(s.len());
     let mut gap = false;
-    for c in s.chars().filter(|c| !is_hidden(*c)) {
+    for c in s.chars() {
         let c = match c as u32 {
             0xff01..=0xff5e => char::from_u32(c as u32 - 0xfee0).unwrap_or(c),
             0x2212 => '-',
             _ => c,
         };
+        // A character [`check`] refuses is dropped here, so the marker it was
+        // hiding is reported as well.
+        if !is_allowed(c) {
+            continue;
+        }
         if collapse && is_separator(c) {
             gap = true;
             continue;
@@ -436,9 +435,8 @@ fn walk(v: &Json, path: &str, markers: &[(String, &'static str)], found: &mut Ve
             }
         }
         Json::Obj(pairs) => {
-            // Every latitude-like value against every longitude-like one. Read one
-            // way round only: swapped, the synthetic Heimdall hour (keyed, lat 51 to
-            // 56, lon -10 to -2) would fall in the Mauritius box.
+            // Every latitude-like value against every longitude-like one, either
+            // way round: a swapped pair is still a position.
             let lats = keyed(pairs, &["lat", "latitude", "latdeg", "lat_deg", "y"]);
             let lons = keyed(
                 pairs,
@@ -446,7 +444,7 @@ fn walk(v: &Json, path: &str, markers: &[(String, &'static str)], found: &mut Ve
             );
             for lat in &lats {
                 for lon in &lons {
-                    in_areas(*lat, *lon, path, found);
+                    pair_in_areas(*lat, *lon, path, found);
                 }
             }
             for (k, x) in pairs {
