@@ -47,7 +47,7 @@ export CARGO_TARGET_DIR=$HOME/Library/Caches/midgard-build/target-clients
 | `scan` / release licence gate | `mg-scan` over an SBOM made from the **whole** `Cargo.lock` | see Task A11, step "licence exceptions" |
 | static shell check | `deploy/acceptance/verify-shells-accessibility.sh`: each `manifest.toml` has `links_core = "midgard-client-core"`, each `accessibility.toml` declares the seven affordances | `bash deploy/acceptance/verify-shells-accessibility.sh` |
 
-Note: `numbers.sh --check` already fails at `c3f64f41` (the design commit), because the committed sheet describes the gated commit `5376656` and this tree is not that commit. That is expected; every commit in this plan that changes the tree ends with `bash tools/ci/numbers.sh --write` and commits `docs/compliance/NUMBERS.md` with it.
+Note: `numbers.sh --check` already fails at `c3f64f41` (the design commit), because the committed sheet describes the gated commit `5376656` and this tree is not that commit. That is expected; every commit in this plan that changes the tree ends with `bash tools/ci/numbers.sh --write` and commits `docs/compliance/NUMBERS.md` with it. Order matters: `numbers.sh` counts tracked files only, so stage the code first, then run `--write`, then stage `docs/compliance/NUMBERS.md`, then commit (`git add <code>` → `numbers.sh --write` → `git add docs/compliance/NUMBERS.md` → `git commit`). Run before the `git add`, it misses every new file.
 
 **macOS bash 3.2.** `/bin/bash` here is 3.2. Scripts written in this plan must run on it, because the GitHub `macos-15` runner and this Mac both start them with `bash`. Rules: no `mapfile`/`readarray`, no associative arrays, no `${var,,}`; under `set -u`, never expand a possibly empty array as `"${arr[@]}"` (bash 3.2 reports it unbound) — use `${arr[@]+"${arr[@]}"}`; no `sed -i` without a suffix (BSD `sed` needs `sed -i ''` or `sed -i.bak`), and prefer writing to a temp file and `mv`.
 
@@ -391,8 +391,9 @@ Expected: `test result: ok. 4 passed; 0 failed`; fmt and clippy silent.
 **Step 5: Commit.**
 
 ```bash
+git add clients/core/src/marking.rs clients/core/src/lib.rs clients/core/tests/marking.rs
 bash tools/ci/numbers.sh --write
-git add clients/core/src/marking.rs clients/core/src/lib.rs clients/core/tests/marking.rs docs/compliance/NUMBERS.md
+git add docs/compliance/NUMBERS.md
 git commit -m "clients/core: console markings on the clearance lattice, withheld rows [AC-C-13]"
 ```
 
@@ -947,9 +948,10 @@ Expected: `test result: ok. 3 passed; 0 failed`. If clippy flags the generated m
 **Step 5: Commit.**
 
 ```bash
-bash tools/ci/numbers.sh --write
 git add clients/demo/tools/gen-read-models.mjs clients/core/Cargo.toml clients/core/src/lib.rs \
-        clients/core/src/consoles clients/core/tests/read_models.rs Cargo.lock docs/compliance/NUMBERS.md
+        clients/core/src/consoles clients/core/tests/read_models.rs Cargo.lock
+bash tools/ci/numbers.sh --write
+git add docs/compliance/NUMBERS.md
 git commit -m "clients/core: console read models generated from the TypeScript contract [FR-C-1]"
 ```
 
@@ -1491,8 +1493,9 @@ Expected: `3 passed`; `fixtures clean`.
 **Step 5: Commit.**
 
 ```bash
+git add clients/core/src/demo clients/core/src/lib.rs clients/core/tests/guard.rs
 bash tools/ci/numbers.sh --write
-git add clients/core/src/demo clients/core/src/lib.rs clients/core/tests/guard.rs docs/compliance/NUMBERS.md
+git add docs/compliance/NUMBERS.md
 git commit -m "clients/core: refuse local-suite data in the demo dataset [NFR-PRV-1]"
 ```
 
@@ -1877,8 +1880,9 @@ Expected: all green (`3 passed` for `dataset`).
 **Step 5: Commit.**
 
 ```bash
+git add crypto/attest/src/accept.rs clients/core/src/demo clients/core/tests/dataset.rs
 bash tools/ci/numbers.sh --write
-git add crypto/attest/src/accept.rs clients/core/src/demo clients/core/tests/dataset.rs docs/compliance/NUMBERS.md
+git add docs/compliance/NUMBERS.md
 git commit -m "clients/core: signed demo dataset format under its own attest domain [NFR-PQ-3]"
 ```
 
@@ -2204,11 +2208,12 @@ git check-ignore -v clients/demo/trust/demo-dataset.pub || echo "anchor is track
 **Step 5: Commit.**
 
 ```bash
-bash tools/ci/numbers.sh --write
 git add clients/core/src/demo/build.rs clients/core/src/demo/mod.rs clients/core/examples/build_demo_dataset.rs \
         clients/core/Cargo.toml clients/core/tests/committed_dataset.rs clients/demo/tools/demo-key.sh \
         clients/demo/trust/demo-dataset.pub clients/demo/datasets/0.1.0-rc.3.mgdemo \
-        .gitignore .gitattributes justfile Cargo.lock docs/compliance/NUMBERS.md
+        .gitignore .gitattributes justfile Cargo.lock
+bash tools/ci/numbers.sh --write
+git add docs/compliance/NUMBERS.md
 git commit -m "clients/demo: signed demo dataset for 0.1.0-rc.3 and its build step [AC-C-13] [NFR-PQ-3]"
 ```
 
@@ -2736,8 +2741,9 @@ Expected: `5 passed`.
 **Step 5: Commit.**
 
 ```bash
+git add clients/core/src/source.rs clients/core/src/demo clients/core/src/lib.rs clients/core/tests/enclosure.rs
 bash tools/ci/numbers.sh --write
-git add clients/core/src/source.rs clients/core/src/demo clients/core/src/lib.rs clients/core/tests/enclosure.rs docs/compliance/NUMBERS.md
+git add docs/compliance/NUMBERS.md
 git commit -m "clients/core: data-source seam and the demo enclosure over the signed dataset [FR-C-5] [AC-C-13]"
 ```
 
@@ -3242,8 +3248,9 @@ cargo clippy --offline --locked -p midgard-client-sync -p midgard-client-keystor
 **Step 5: Commit.**
 
 ```bash
+git add clients/keystore clients/store clients/sync
 bash tools/ci/numbers.sh --write
-git add clients/keystore clients/store clients/sync docs/compliance/NUMBERS.md
+git add docs/compliance/NUMBERS.md
 git commit -m "clients: sealed-root custody, persistent sealed cache, requeue of pending ops [FR-C-2] [FR-C-4]"
 ```
 
@@ -3738,8 +3745,9 @@ cargo clippy --offline --locked -p midgard-client-core --features backend-fips -
 **Step 5: Commit.**
 
 ```bash
+git add clients/core
 bash tools/ci/numbers.sh --write
-git add clients/core docs/compliance/NUMBERS.md
+git add docs/compliance/NUMBERS.md
 git commit -m "clients/core: session over a data source with sealed cache, offline queue and persona switch [FR-C-4] [AC-C-13]"
 ```
 
@@ -4886,9 +4894,10 @@ Expected: `3 passed` (plus any you added); no-test-backend passes; 18 binaries.
 ```bash
 git add vendor Cargo.lock
 git commit -m "vendor: uniffi 0.28.3 and its closure for the client bindings [DD-6]"
-bash tools/ci/numbers.sh --write
 git add Cargo.toml clients/ffi supply-chain/licences.toml justfile README.md GETTING_STARTED.md \
-        tools/ci/tests/demo-fixtures.test.sh docs/compliance/NUMBERS.md
+        tools/ci/tests/demo-fixtures.test.sh
+bash tools/ci/numbers.sh --write
+git add docs/compliance/NUMBERS.md
 git commit -m "clients/ffi: UniFFI surface over the client core, typed errors, key-root callback [FR-C-1] [DD-6]"
 ```
 
@@ -6154,14 +6163,15 @@ Everything must pass except `numbers.sh --check`'s gate-record section, which re
 
 ```bash
 /opt/homebrew/bin/bash tools/ci/claims.sh --check
-bash tools/ci/numbers.sh --write && bash tools/ci/numbers.sh --check | tail -2
 ```
 
 **Step 5: Commit.**
 
 ```bash
 git add clients/shells/SHELL_BUILD.md clients/shells/README.md clients/README.md docs/compliance/claims.toml \
-        docs/compliance/CLAIMS.md docs/compliance/NUMBERS.md
+        docs/compliance/CLAIMS.md
+bash tools/ci/numbers.sh --write && bash tools/ci/numbers.sh --check | tail -2
+git add docs/compliance/NUMBERS.md
 git commit -m "docs: Apple binding and shared base built; claims and numbers follow [RC-49] [FR-C-1]"
 ```
 
