@@ -63,6 +63,17 @@ impl FromJson for HeimdallFeed {
     }
 }
 
+/// The values `HeimdallFeed.weight` may take, in contract order.
+pub const HEIMDALL_FEED_WEIGHT_VALUES: &[&str] = &["high", "medium", "low"];
+
+/// The values `HeimdallFeed.scheme` may take, in contract order.
+pub const HEIMDALL_FEED_SCHEME_VALUES: &[&str] = &["ML-DSA", "SLH-DSA"];
+
+/// The values `HeimdallFeed.status` may take, in contract order.
+pub const HEIMDALL_FEED_STATUS_VALUES: &[&str] = &[
+    "online", "secure", "healthy", "offline", "warn", "danger", "gated",
+];
+
 /// `HeimdallEntity`, from `sdk/ts/src/products/heimdall.ts`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct HeimdallEntity {
@@ -120,6 +131,18 @@ impl FromJson for HeimdallEntity {
         })
     }
 }
+
+/// The values `HeimdallEntity.track` may take, in contract order.
+pub const HEIMDALL_ENTITY_TRACK_VALUES: &[&str] = &["stable", "anomalous"];
+
+/// The values `HeimdallEntity.marking` may take, in contract order.
+pub const HEIMDALL_ENTITY_MARKING_VALUES: &[&str] =
+    &["confidential", "restricted", "internal", "open"];
+
+/// The values `HeimdallEntity.status` may take, in contract order.
+pub const HEIMDALL_ENTITY_STATUS_VALUES: &[&str] = &[
+    "online", "secure", "healthy", "offline", "warn", "danger", "gated",
+];
 
 /// `HeimdallOption`, from `sdk/ts/src/products/heimdall.ts`.
 #[derive(Debug, Clone, PartialEq)]
@@ -202,6 +225,12 @@ impl FromJson for HeimdallTrack {
     }
 }
 
+/// The values `HeimdallTrack.layer` may take, in contract order.
+pub const HEIMDALL_TRACK_LAYER_VALUES: &[&str] = &["air", "maritime", "ground", "feeds"];
+
+/// The values `HeimdallTrack.track` may take, in contract order.
+pub const HEIMDALL_TRACK_TRACK_VALUES: &[&str] = &["stable", "anomalous"];
+
 /// `HeimdallLayer`, from `sdk/ts/src/products/heimdall.ts`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct HeimdallLayer {
@@ -223,6 +252,9 @@ impl FromJson for HeimdallLayer {
         })
     }
 }
+
+/// The values `HeimdallLayer.id` may take, in contract order.
+pub const HEIMDALL_LAYER_ID_VALUES: &[&str] = &["air", "maritime", "ground", "feeds"];
 
 /// `HeimdallWorkflow`, from `sdk/ts/src/products/heimdall.ts`.
 #[derive(Debug, Clone, PartialEq)]
@@ -277,6 +309,11 @@ impl FromJson for HeimdallWorkflow {
         })
     }
 }
+
+/// The values `HeimdallWorkflow.status` may take, in contract order.
+pub const HEIMDALL_WORKFLOW_STATUS_VALUES: &[&str] = &[
+    "online", "secure", "healthy", "offline", "warn", "danger", "gated",
+];
 
 /// `HeimdallDecision`, from `sdk/ts/src/products/heimdall.ts`.
 #[derive(Debug, Clone, PartialEq)]
@@ -369,6 +406,14 @@ impl FromJson for HeimdallSyncSite {
         })
     }
 }
+
+/// The values `HeimdallSyncSite.role` may take, in contract order.
+pub const HEIMDALL_SYNC_SITE_ROLE_VALUES: &[&str] = &["primary", "replica", "air-gap"];
+
+/// The values `HeimdallSyncSite.status` may take, in contract order.
+pub const HEIMDALL_SYNC_SITE_STATUS_VALUES: &[&str] = &[
+    "online", "secure", "healthy", "offline", "warn", "danger", "gated",
+];
 
 /// `HeimdallPicture`, from `sdk/ts/src/products/heimdall.ts`.
 #[derive(Debug, Clone, PartialEq)]

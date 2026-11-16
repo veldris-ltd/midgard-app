@@ -34,6 +34,10 @@ impl FromJson for MidgardMarking {
     }
 }
 
+/// The values `MidgardMarking.level` may take, in contract order.
+pub const MIDGARD_MARKING_LEVEL_VALUES: &[&str] =
+    &["confidential", "restricted", "internal", "open"];
+
 /// `MidgardObjectInstance`, from `sdk/ts/src/types.ts`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MidgardObjectInstance {
@@ -160,6 +164,10 @@ impl FromJson for MidgardApproval {
     }
 }
 
+/// The values `MidgardApproval.status` may take, in contract order.
+pub const MIDGARD_APPROVAL_STATUS_VALUES: &[&str] =
+    &["pending", "approved", "rejected", "used", "expired"];
+
 /// `MidgardLinkType`, from `sdk/ts/src/types.ts`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MidgardLinkType {
@@ -253,6 +261,10 @@ impl FromJson for MidgardObjectType {
     }
 }
 
+/// The values `MidgardObjectType.marking` may take, in contract order.
+pub const MIDGARD_OBJECT_TYPE_MARKING_VALUES: &[&str] =
+    &["confidential", "restricted", "internal", "open"];
+
 /// `MidgardObjectTypeProperties`, from `sdk/ts/src/types.ts`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MidgardObjectTypeProperties {
@@ -313,6 +325,10 @@ impl FromJson for MidgardGraphNode {
         })
     }
 }
+
+/// The values `MidgardGraphNode.marking` may take, in contract order.
+pub const MIDGARD_GRAPH_NODE_MARKING_VALUES: &[&str] =
+    &["confidential", "restricted", "internal", "open"];
 
 /// `MidgardGraphEdge`, from `sdk/ts/src/types.ts`.
 #[derive(Debug, Clone, PartialEq)]
@@ -417,6 +433,13 @@ impl FromJson for MidgardPolicyRule {
     }
 }
 
+/// The values `MidgardPolicyRule.effect` may take, in contract order.
+pub const MIDGARD_POLICY_RULE_EFFECT_VALUES: &[&str] = &["allow", "deny"];
+
+/// The values `MidgardPolicyRule.marking` may take, in contract order.
+pub const MIDGARD_POLICY_RULE_MARKING_VALUES: &[&str] =
+    &["confidential", "restricted", "internal", "open"];
+
 /// `MidgardPolicyDecision`, from `sdk/ts/src/types.ts`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MidgardPolicyDecision {
@@ -441,6 +464,9 @@ impl FromJson for MidgardPolicyDecision {
         })
     }
 }
+
+/// The values `MidgardPolicyDecision.decision` may take, in contract order.
+pub const MIDGARD_POLICY_DECISION_DECISION_VALUES: &[&str] = &["grant", "deny"];
 
 /// `MidgardIdentity`, from `sdk/ts/src/types.ts`.
 #[derive(Debug, Clone, PartialEq)]
@@ -488,6 +514,16 @@ impl FromJson for MidgardIdentity {
     }
 }
 
+/// The values `MidgardIdentity.kind` may take, in contract order.
+pub const MIDGARD_IDENTITY_KIND_VALUES: &[&str] = &["user", "service", "agent"];
+
+/// The values `MidgardIdentity.clearance` may take, in contract order.
+pub const MIDGARD_IDENTITY_CLEARANCE_VALUES: &[&str] =
+    &["confidential", "restricted", "internal", "open"];
+
+/// The values `MidgardIdentity.status` may take, in contract order.
+pub const MIDGARD_IDENTITY_STATUS_VALUES: &[&str] = &["active", "suspended"];
+
 /// `MidgardKeyRecord`, from `sdk/ts/src/types.ts`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MidgardKeyRecord {
@@ -528,6 +564,12 @@ impl FromJson for MidgardKeyRecord {
     }
 }
 
+/// The values `MidgardKeyRecord.custody` may take, in contract order.
+pub const MIDGARD_KEY_RECORD_CUSTODY_VALUES: &[&str] = &["enclosure", "hsm", "client"];
+
+/// The values `MidgardKeyRecord.status` may take, in contract order.
+pub const MIDGARD_KEY_RECORD_STATUS_VALUES: &[&str] = &["active", "rotating", "retired"];
+
 /// `MidgardComputeJob`, from `sdk/ts/src/types.ts`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MidgardComputeJob {
@@ -562,6 +604,9 @@ impl FromJson for MidgardComputeJob {
         })
     }
 }
+
+/// The values `MidgardComputeJob.state` may take, in contract order.
+pub const MIDGARD_COMPUTE_JOB_STATE_VALUES: &[&str] = &["queued", "running", "done", "failed"];
 
 /// `MidgardSloMetric`, from `sdk/ts/src/types.ts`.
 #[derive(Debug, Clone, PartialEq)]
@@ -622,6 +667,13 @@ impl FromJson for MidgardRolloutState {
         })
     }
 }
+
+/// The values `MidgardRolloutState.state` may take, in contract order.
+pub const MIDGARD_ROLLOUT_STATE_STATE_VALUES: &[&str] =
+    &["pending", "in-progress", "healthy", "rolled-back"];
+
+/// The values `MidgardRolloutState.health_gate` may take, in contract order.
+pub const MIDGARD_ROLLOUT_STATE_HEALTH_GATE_VALUES: &[&str] = &["pass", "watch", "fail"];
 
 /// `MidgardRpcSurface`, from `sdk/ts/src/types.ts`.
 #[derive(Debug, Clone, PartialEq)]

@@ -59,6 +59,9 @@ impl FromJson for MimirAgent {
     }
 }
 
+/// The values `MimirAgent.status` may take, in contract order.
+pub const MIMIR_AGENT_STATUS_VALUES: &[&str] = &["healthy", "warn", "danger", "online"];
+
 /// `MimirEval`, from `sdk/ts/src/products/mimir.ts`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MimirEval {
@@ -108,6 +111,13 @@ impl FromJson for MimirEval {
         })
     }
 }
+
+/// The values `MimirEval.kind` may take, in contract order.
+pub const MIMIR_EVAL_KIND_VALUES: &[&str] =
+    &["capability", "grounding", "adversarial", "calibration"];
+
+/// The values `MimirEval.status` may take, in contract order.
+pub const MIMIR_EVAL_STATUS_VALUES: &[&str] = &["healthy", "warn", "danger", "online"];
 
 /// `MimirEvalCase`, from `sdk/ts/src/products/mimir.ts`.
 #[derive(Debug, Clone, PartialEq)]
@@ -227,6 +237,15 @@ impl FromJson for MimirGuardrail {
     }
 }
 
+/// The values `MimirGuardrail.layer` may take, in contract order.
+pub const MIMIR_GUARDRAIL_LAYER_VALUES: &[&str] = &["input", "execution", "output", "planning"];
+
+/// The values `MimirGuardrail.mode` may take, in contract order.
+pub const MIMIR_GUARDRAIL_MODE_VALUES: &[&str] = &["enforce", "monitor"];
+
+/// The values `MimirGuardrail.status` may take, in contract order.
+pub const MIMIR_GUARDRAIL_STATUS_VALUES: &[&str] = &["healthy", "warn", "danger", "online"];
+
 /// `MimirGuardrailCheck`, from `sdk/ts/src/products/mimir.ts`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MimirGuardrailCheck {
@@ -309,6 +328,9 @@ impl FromJson for MimirModel {
     }
 }
 
+/// The values `MimirModel.status` may take, in contract order.
+pub const MIMIR_MODEL_STATUS_VALUES: &[&str] = &["healthy", "warn", "danger", "online"];
+
 /// `MimirLogicStep`, from `sdk/ts/src/products/mimir.ts`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MimirLogicStep {
@@ -336,6 +358,11 @@ impl FromJson for MimirLogicStep {
         })
     }
 }
+
+/// The values `MimirLogicStep.kind` may take, in contract order.
+pub const MIMIR_LOGIC_STEP_KIND_VALUES: &[&str] = &[
+    "trigger", "retrieve", "infer", "branch", "action", "gate", "audit",
+];
 
 /// `MimirLogicFn`, from `sdk/ts/src/products/mimir.ts`.
 #[derive(Debug, Clone, PartialEq)]
@@ -412,6 +439,10 @@ impl FromJson for MimirTraceStep {
     }
 }
 
+/// The values `MimirTraceStep.kind` may take, in contract order.
+pub const MIMIR_TRACE_STEP_KIND_VALUES: &[&str] =
+    &["plan", "act", "observe", "guard", "eval", "gate"];
+
 /// `MimirMemoryRecord`, from `sdk/ts/src/products/mimir.ts`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MimirMemoryRecord {
@@ -436,6 +467,9 @@ impl FromJson for MimirMemoryRecord {
         })
     }
 }
+
+/// The values `MimirMemoryRecord.kind` may take, in contract order.
+pub const MIMIR_MEMORY_RECORD_KIND_VALUES: &[&str] = &["episodic", "semantic", "working"];
 
 /// `MimirSession`, from `sdk/ts/src/products/mimir.ts`.
 #[derive(Debug, Clone, PartialEq)]
@@ -536,3 +570,13 @@ impl FromJson for MimirFeedbackItem {
         })
     }
 }
+
+/// The values `MimirFeedbackItem.kind` may take, in contract order.
+pub const MIMIR_FEEDBACK_ITEM_KIND_VALUES: &[&str] = &["correction", "regression", "rating"];
+
+/// The values `MimirFeedbackItem.prov` may take, in contract order.
+pub const MIMIR_FEEDBACK_ITEM_PROV_VALUES: &[&str] = &["verified", "harness", "FAILED"];
+
+/// The values `MimirFeedbackItem.status` may take, in contract order.
+pub const MIMIR_FEEDBACK_ITEM_STATUS_VALUES: &[&str] =
+    &["healthy", "warn", "danger", "online", "gated", "secure"];

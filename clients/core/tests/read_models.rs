@@ -80,3 +80,38 @@ fn a_label_value_tuple_decodes_in_order_and_refuses_another_length() {
     let e = decode::<Vec<(String, String)>>(r#"[["rows",12]]"#).unwrap_err();
     assert_eq!(e.path, "$[0][1]");
 }
+
+#[test]
+fn a_missing_required_key_is_refused_by_name() {
+    let e = decode::<AdminApproval>(
+        r#"{"id":"APR-1","action":"a","subsystem":"s","risk":1,"requester":"r","approver":"a",
+            "justification":"j"}"#,
+    )
+    .unwrap_err();
+    assert_eq!(e.path, "$");
+    assert!(e.reason.contains("missing key \"state\""), "{e}");
+}
+
+#[test]
+fn a_number_outside_the_finite_range_is_refused() {
+    let e = decode::<f64>("1e400").unwrap_err();
+    assert_eq!(e.path, "$");
+    let e = decode::<f64>("-1e400").unwrap_err();
+    assert_eq!(e.path, "$");
+    assert_eq!(decode::<f64>("1e300").unwrap(), 1e300);
+}
+
+#[test]
+fn every_literal_union_field_publishes_its_allowed_values() {
+    use midgard_client_core::consoles::admin::{
+        ADMIN_APPROVAL_RISK_VALUES, ADMIN_APPROVAL_STATE_VALUES,
+    };
+    use midgard_client_core::consoles::midgard::MIDGARD_MARKING_LEVEL_VALUES;
+    assert_eq!(
+        ADMIN_APPROVAL_STATE_VALUES,
+        &["awaiting", "approved", "denied", "executed"]
+    );
+    assert_eq!(ADMIN_APPROVAL_RISK_VALUES, &[1, 2, 3, 4, 5]);
+    // The marking words the web contract allows; A8's level table must cover each.
+    assert!(MIDGARD_MARKING_LEVEL_VALUES.contains(&"confidential"));
+}

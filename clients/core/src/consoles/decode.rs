@@ -59,7 +59,13 @@ impl FromJson for bool {
 impl FromJson for f64 {
     fn from_json(v: &Json, path: &str) -> Result<Self, DecodeError> {
         match v {
-            Json::Num(text) => text.parse::<f64>().or_else(|_| err(path, "not a number")),
+            // The JSON grammar has no infinities, so a literal out of f64 range (`1e400`)
+            // would otherwise decode as one: refuse it.
+            Json::Num(text) => match text.parse::<f64>() {
+                Ok(x) if x.is_finite() => Ok(x),
+                Ok(_) => err(path, "number out of range"),
+                Err(_) => err(path, "not a number"),
+            },
             _ => err(path, "expected a number"),
         }
     }

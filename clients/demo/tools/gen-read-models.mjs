@@ -4,19 +4,32 @@
 //
 //   node clients/demo/tools/gen-read-models.mjs --write [--ffi-out clients/ffi/src/generated]
 //   node clients/demo/tools/gen-read-models.mjs --check [--ffi-out clients/ffi/src/generated]
+//   (--src-root <dir> reads the TypeScript from <dir> instead of the repository; tests)
 //
 // Reads sdk/ts/src/types.ts and sdk/ts/src/products/{admin,bifrost,forge,heimdall,mimir}.ts
 // as text and understands only what those files use: `export type X = …;` aliases and
 // `export interface X { name?: Type; }` blocks. Anything else is an error, so a new
-// shape in the contract fails here instead of decoding wrongly. Output is formatted
-// with the pinned rustfmt, so `cargo fmt --all --check` agrees with --check.
+// shape in the contract fails here instead of decoding wrongly: every `interface`,
+// `enum` and `type X =`/`type X<` declaration it did not consume (an `extends` or
+// generic interface, an unexported one, an object or generic alias) stops it, and so
+// does a type name declared twice with different text. Classes and functions are
+// behaviour, not contract shapes, and are ignored. Tested by
+// tools/ci/tests/gen-read-models.test.sh.
+//
+// Output is formatted with rustfmt, so `cargo fmt --all --check` agrees with --check.
+// It must be the pinned toolchain's rustfmt (rust-toolchain.toml): put the rustup
+// proxies first on PATH (`export PATH=/opt/homebrew/opt/rustup/bin:$PATH` on this Mac).
+// A different rustfmt, such as Homebrew's, formats differently and --check then
+// reports every file as stale.
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { join, dirname } from 'node:path';
+import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 const CORE_OUT = join(ROOT, 'clients/core/src/consoles');
+const srcRootIdx = process.argv.indexOf('--src-root');
+const SRC_ROOT = srcRootIdx > 0 ? resolve(process.argv[srcRootIdx + 1]) : ROOT;
 const SOURCES = [
   { module: 'midgard', file: 'sdk/ts/src/types.ts', prefix: 'Midgard',
     shared: ['AuditRecord', 'PolicyContext'],
@@ -43,6 +56,23 @@ function stripComments(src) {
     if (c === '/' && n === '*') { const e = src.indexOf('*/', i + 2); i = e < 0 ? src.length : e + 2; continue; }
     if (c === '/' && n === '/') { const e = src.indexOf('\n', i); i = e < 0 ? src.length : e; continue; }
     out += c; i++;
+  }
+  return out;
+}
+// The same text with the inside of every string literal blanked (same length, so
+// indices still line up): a declaration keyword inside a string is not a declaration.
+function blankStrings(src) {
+  let out = '', q = null;
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if (q) {
+      if (c === '\\') { out += '  '; i++; continue; }
+      if (c === q) { q = null; out += c; continue; }
+      out += c === '\n' ? c : ' ';
+      continue;
+    }
+    if (c === "'" || c === '"' || c === '`') q = c;
+    out += c;
   }
   return out;
 }
@@ -83,19 +113,48 @@ function parseMembers(body, where) {
   });
 }
 
+// Every type name, once: a second declaration with different text would silently
+// replace the first. An identical redeclaration is the same type and is kept once.
+const declared = new Map(); // name -> "kind:normalised text"
+function declare(name, kind, text, where) {
+  const key = `${kind}:${text.replace(/\s+/g, ' ').trim()}`;
+  if (!declared.has(name)) { declared.set(name, key); return true; }
+  if (declared.get(name) !== key) die(`${where}: declared twice: ${name}, with different text`);
+  return false;
+}
+
 for (const src of SOURCES) {
-  const text = stripComments(readFileSync(join(ROOT, src.file), 'utf8'));
-  for (const m of text.matchAll(/export\s+type\s+([A-Za-z0-9_]+)\s*=\s*([^;]+);/g)) aliases.set(m[1], m[2].trim());
+  const text = stripComments(readFileSync(join(SRC_ROOT, src.file), 'utf8'));
+  const consumed = new Set(); // indices of the declaration keywords read below
+  // `[^;{]+`: an object-type alias (`= { … }`) is not read here, so the scan below stops on it.
+  for (const m of text.matchAll(/export\s+type\s+([A-Za-z0-9_]+)\s*=\s*([^;{]+);/g)) {
+    consumed.add(m.index + m[0].indexOf('type'));
+    if (declare(m[1], 'type', m[2], src.file)) aliases.set(m[1], m[2].trim());
+  }
   for (const m of text.matchAll(/export\s+interface\s+([A-Za-z0-9_]+)\s*\{/g)) {
     const name = m[1];
     const open = m.index + m[0].length - 1;
     const body = text.slice(open + 1, blockAfter(text, open));
+    consumed.add(m.index + m[0].indexOf('interface'));
+    if (!declare(name, 'interface', body, src.file)) continue;
     if (name.endsWith('Gateway') || (src.skip ?? []).includes(name)) continue;
     const isShared = (src.shared ?? []).includes(name);
     const module = isShared ? 'common' : src.module;
     const rustName = isShared || !src.prefix ? name : `${src.prefix}${name}`;
     rustNameOf.set(name, rustName);
     interfaces.push({ module, name, rustName, source: src.file, members: parseMembers(body, `${src.file} ${name}`) });
+  }
+  // Anything declared that the two loops above did not read is a shape this generator
+  // does not understand: stop rather than leave it out of the Rust.
+  const bare = blankStrings(text);
+  const scans = [
+    /\b(interface|enum)\s+([A-Za-z_$][A-Za-z0-9_$]*)/g,
+    /\b(type)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*[=<]/g,
+  ];
+  for (const re of scans) {
+    for (const m of bare.matchAll(re)) {
+      if (!consumed.has(m.index)) die(`${src.file}: not consumed: ${m[1]} ${m[2]} (only \`export interface X {\` and \`export type X = …;\` are understood)`);
+    }
   }
 }
 
@@ -164,6 +223,15 @@ function structFor(name, members, source, ctx, nested) {
   const decl = fields.map((f) =>
     `${f.doc ? `    /// One of: \`${f.doc}\`.\n` : `    /// \`${f.ts}\`.\n`}    pub ${f.rs}: ${f.ty},`).join('\n');
   const known = fields.map((f) => JSON.stringify(f.ts)).join(', ');
+  // The allowed values of every literal-union field, so callers can check a table
+  // (for example the marking levels) covers them.
+  const consts = fields.filter((f) => f.doc).map((f) => {
+    const strs = [...f.doc.matchAll(/'([^']*)'/g)].map((x) => x[1]);
+    const nums = f.doc.split('|').map((x) => x.trim()).filter((x) => /^\d+$/.test(x));
+    const [ty, vals] = strs.length ? ['&str', strs.map((x) => JSON.stringify(x))] : ['u32', nums];
+    const id = `${snake(name).toUpperCase()}_${f.rs.toUpperCase()}_VALUES`;
+    return `/// The values \`${name}.${f.rs}\` may take, in contract order.\npub const ${id}: &[${ty}] = &[${[...new Set(vals)].join(', ')}];\n`;
+  }).join('\n');
   const init = fields.map((f) =>
     `            ${f.rs}: ${f.opt ? 'opt_field' : 'field'}(o, ${JSON.stringify(f.ts)}, path)?,`).join('\n');
   return { name, fields, rust:
@@ -181,7 +249,7 @@ ${init}
         })
     }
 }
-` };
+${consts ? `\n${consts}` : ''}` };
 }
 
 function rustfmt(src) {

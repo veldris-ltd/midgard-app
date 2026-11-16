@@ -32,6 +32,10 @@ impl FromJson for PolicyContext {
     }
 }
 
+/// The values `PolicyContext.clearance` may take, in contract order.
+pub const POLICY_CONTEXT_CLEARANCE_VALUES: &[&str] =
+    &["confidential", "restricted", "internal", "open"];
+
 /// `AuditRecord`, from `sdk/ts/src/types.ts`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AuditRecord {

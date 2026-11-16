@@ -44,6 +44,9 @@ impl FromJson for BifrostRing {
     }
 }
 
+/// The values `BifrostRing.stage` may take, in contract order.
+pub const BIFROST_RING_STAGE_VALUES: &[&str] = &["canary", "staging", "broad", "air-gap"];
+
 /// `BifrostRelease`, from `sdk/ts/src/products/bifrost.ts`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BifrostRelease {
@@ -97,6 +100,12 @@ impl FromJson for BifrostRelease {
         })
     }
 }
+
+/// The values `BifrostRelease.risk_score` may take, in contract order.
+pub const BIFROST_RELEASE_RISK_SCORE_VALUES: &[&str] = &["LOW", "MEDIUM", "HIGH"];
+
+/// The values `BifrostRelease.health_gate` may take, in contract order.
+pub const BIFROST_RELEASE_HEALTH_GATE_VALUES: &[&str] = &["pass", "watch", "fail"];
 
 /// `BifrostArtefact`, from `sdk/ts/src/products/bifrost.ts`.
 #[derive(Debug, Clone, PartialEq)]
@@ -160,6 +169,11 @@ impl FromJson for BifrostArtefact {
     }
 }
 
+/// The values `BifrostArtefact.state` may take, in contract order.
+pub const BIFROST_ARTEFACT_STATE_VALUES: &[&str] = &[
+    "secure", "healthy", "online", "warn", "danger", "offline", "gated",
+];
+
 /// `BifrostChannel`, from `sdk/ts/src/products/bifrost.ts`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BifrostChannel {
@@ -209,6 +223,11 @@ impl FromJson for BifrostChannel {
         })
     }
 }
+
+/// The values `BifrostChannel.state` may take, in contract order.
+pub const BIFROST_CHANNEL_STATE_VALUES: &[&str] = &[
+    "secure", "healthy", "online", "warn", "danger", "offline", "gated",
+];
 
 /// `BifrostBundle`, from `sdk/ts/src/products/bifrost.ts`.
 #[derive(Debug, Clone, PartialEq)]
@@ -260,6 +279,11 @@ impl FromJson for BifrostBundle {
     }
 }
 
+/// The values `BifrostBundle.state` may take, in contract order.
+pub const BIFROST_BUNDLE_STATE_VALUES: &[&str] = &[
+    "secure", "healthy", "online", "warn", "danger", "offline", "gated",
+];
+
 /// `BifrostFleetNode`, from `sdk/ts/src/products/bifrost.ts`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BifrostFleetNode {
@@ -309,6 +333,11 @@ impl FromJson for BifrostFleetNode {
         })
     }
 }
+
+/// The values `BifrostFleetNode.state` may take, in contract order.
+pub const BIFROST_FLEET_NODE_STATE_VALUES: &[&str] = &[
+    "secure", "healthy", "online", "warn", "danger", "offline", "gated",
+];
 
 /// `BifrostRollback`, from `sdk/ts/src/products/bifrost.ts`.
 #[derive(Debug, Clone, PartialEq)]
@@ -360,6 +389,11 @@ impl FromJson for BifrostRollback {
     }
 }
 
+/// The values `BifrostRollback.state` may take, in contract order.
+pub const BIFROST_ROLLBACK_STATE_VALUES: &[&str] = &[
+    "secure", "healthy", "online", "warn", "danger", "offline", "gated",
+];
+
 /// `BifrostPromotion`, from `sdk/ts/src/products/bifrost.ts`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BifrostPromotion {
@@ -384,3 +418,9 @@ impl FromJson for BifrostPromotion {
         })
     }
 }
+
+/// The values `BifrostPromotion.ring` may take, in contract order.
+pub const BIFROST_PROMOTION_RING_VALUES: &[&str] = &["canary", "staging", "broad", "air-gap"];
+
+/// The values `BifrostPromotion.health_gate` may take, in contract order.
+pub const BIFROST_PROMOTION_HEALTH_GATE_VALUES: &[&str] = &["pass", "watch", "fail"];

@@ -51,6 +51,10 @@ impl FromJson for AdminSubsystem {
     }
 }
 
+/// The values `AdminSubsystem.status` may take, in contract order.
+pub const ADMIN_SUBSYSTEM_STATUS_VALUES: &[&str] =
+    &["secure", "online", "healthy", "warn", "danger"];
+
 /// `AdminOverview`, from `sdk/ts/src/products/admin.ts`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AdminOverview {
@@ -165,6 +169,12 @@ impl FromJson for AdminApproval {
     }
 }
 
+/// The values `AdminApproval.risk` may take, in contract order.
+pub const ADMIN_APPROVAL_RISK_VALUES: &[u32] = &[1, 2, 3, 4, 5];
+
+/// The values `AdminApproval.state` may take, in contract order.
+pub const ADMIN_APPROVAL_STATE_VALUES: &[&str] = &["awaiting", "approved", "denied", "executed"];
+
 /// `AdminApprovalDecision`, from `sdk/ts/src/products/admin.ts`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AdminApprovalDecision {
@@ -186,6 +196,9 @@ impl FromJson for AdminApprovalDecision {
         })
     }
 }
+
+/// The values `AdminApprovalDecision.decision` may take, in contract order.
+pub const ADMIN_APPROVAL_DECISION_DECISION_VALUES: &[&str] = &["granted", "denied"];
 
 /// `AdminRole`, from `sdk/ts/src/products/admin.ts`.
 #[derive(Debug, Clone, PartialEq)]
@@ -233,6 +246,12 @@ impl FromJson for AdminRole {
     }
 }
 
+/// The values `AdminRole.ceiling` may take, in contract order.
+pub const ADMIN_ROLE_CEILING_VALUES: &[u32] = &[1, 2, 3, 4, 5];
+
+/// The values `AdminRole.status` may take, in contract order.
+pub const ADMIN_ROLE_STATUS_VALUES: &[&str] = &["secure", "online", "healthy", "warn", "danger"];
+
 /// `AdminBinding`, from `sdk/ts/src/products/admin.ts`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AdminBinding {
@@ -267,6 +286,9 @@ impl FromJson for AdminBinding {
         })
     }
 }
+
+/// The values `AdminBinding.status` may take, in contract order.
+pub const ADMIN_BINDING_STATUS_VALUES: &[&str] = &["secure", "online", "healthy", "warn", "danger"];
 
 /// `AdminConfigCommit`, from `sdk/ts/src/products/admin.ts`.
 #[derive(Debug, Clone, PartialEq)]
@@ -317,6 +339,13 @@ impl FromJson for AdminConfigCommit {
         })
     }
 }
+
+/// The values `AdminConfigCommit.risk` may take, in contract order.
+pub const ADMIN_CONFIG_COMMIT_RISK_VALUES: &[u32] = &[1, 2, 3, 4, 5];
+
+/// The values `AdminConfigCommit.state` may take, in contract order.
+pub const ADMIN_CONFIG_COMMIT_STATE_VALUES: &[&str] =
+    &["simulated", "committed", "in review", "rolled-back"];
 
 /// `AdminConfigSimulation`, from `sdk/ts/src/products/admin.ts`.
 #[derive(Debug, Clone, PartialEq)]
@@ -419,6 +448,12 @@ impl FromJson for AdminRegistryItem {
     }
 }
 
+/// The values `AdminRegistryItem.state` may take, in contract order.
+pub const ADMIN_REGISTRY_ITEM_STATE_VALUES: &[&str] = &["approved", "revoked", "pending"];
+
+/// The values `AdminRegistryItem.risk` may take, in contract order.
+pub const ADMIN_REGISTRY_ITEM_RISK_VALUES: &[u32] = &[1, 2, 3, 4, 5];
+
 /// `AdminLedgerEntry`, from `sdk/ts/src/products/admin.ts`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AdminLedgerEntry {
@@ -497,6 +532,9 @@ impl FromJson for AdminBreakGlass {
     }
 }
 
+/// The values `AdminBreakGlass.state` may take, in contract order.
+pub const ADMIN_BREAK_GLASS_STATE_VALUES: &[&str] = &["idle", "active", "review"];
+
 /// `AdminCopilotTurn`, from `sdk/ts/src/products/admin.ts`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AdminCopilotTurn {
@@ -538,3 +576,16 @@ impl FromJson for AdminCopilotTurn {
         })
     }
 }
+
+/// The values `AdminCopilotTurn.role` may take, in contract order.
+pub const ADMIN_COPILOT_TURN_ROLE_VALUES: &[&str] = &["admin", "copilot"];
+
+/// The values `AdminCopilotTurn.variant` may take, in contract order.
+pub const ADMIN_COPILOT_TURN_VARIANT_VALUES: &[&str] = &["message", "proposal", "refusal"];
+
+/// The values `AdminCopilotTurn.refusal_code` may take, in contract order.
+pub const ADMIN_COPILOT_TURN_REFUSAL_CODE_VALUES: &[&str] =
+    &["CONTROL_BYPASS_REFUSED", "OUT_OF_SCOPE"];
+
+/// The values `AdminCopilotTurn.proposal_risk` may take, in contract order.
+pub const ADMIN_COPILOT_TURN_PROPOSAL_RISK_VALUES: &[u32] = &[1, 2, 3, 4, 5];

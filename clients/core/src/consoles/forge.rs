@@ -50,6 +50,13 @@ impl FromJson for ForgePipelineNode {
     }
 }
 
+/// The values `ForgePipelineNode.kind` may take, in contract order.
+pub const FORGE_PIPELINE_NODE_KIND_VALUES: &[&str] =
+    &["source", "transform", "dataset", "projection"];
+
+/// The values `ForgePipelineNode.status` may take, in contract order.
+pub const FORGE_PIPELINE_NODE_STATUS_VALUES: &[&str] = &["healthy", "warn", "online"];
+
 /// `ForgePipelineEdge`, from `sdk/ts/src/products/forge.ts`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ForgePipelineEdge {
@@ -93,6 +100,9 @@ impl FromJson for ForgePipelineVersion {
         })
     }
 }
+
+/// The values `ForgePipelineVersion.status` may take, in contract order.
+pub const FORGE_PIPELINE_VERSION_STATUS_VALUES: &[&str] = &["OK", "FAIL"];
 
 /// `ForgePipeline`, from `sdk/ts/src/products/forge.ts`.
 #[derive(Debug, Clone, PartialEq)]
@@ -160,6 +170,10 @@ impl FromJson for ForgePipeline {
     }
 }
 
+/// The values `ForgePipeline.marking` may take, in contract order.
+pub const FORGE_PIPELINE_MARKING_VALUES: &[&str] =
+    &["confidential", "restricted", "internal", "open"];
+
 /// `ForgeBuildStep`, from `sdk/ts/src/products/forge.ts`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ForgeBuildStep {
@@ -181,6 +195,9 @@ impl FromJson for ForgeBuildStep {
         })
     }
 }
+
+/// The values `ForgeBuildStep.status` may take, in contract order.
+pub const FORGE_BUILD_STEP_STATUS_VALUES: &[&str] = &["ok", "warn"];
 
 /// `ForgeBuildResult`, from `sdk/ts/src/products/forge.ts`.
 #[derive(Debug, Clone, PartialEq)]
@@ -273,6 +290,9 @@ impl FromJson for ForgeConnector {
     }
 }
 
+/// The values `ForgeConnector.state` may take, in contract order.
+pub const FORGE_CONNECTOR_STATE_VALUES: &[&str] = &["healthy", "online", "warn", "offline"];
+
 /// `ForgeDatasetDiffLine`, from `sdk/ts/src/products/forge.ts`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ForgeDatasetDiffLine {
@@ -291,6 +311,9 @@ impl FromJson for ForgeDatasetDiffLine {
         })
     }
 }
+
+/// The values `ForgeDatasetDiffLine.tone` may take, in contract order.
+pub const FORGE_DATASET_DIFF_LINE_TONE_VALUES: &[&str] = &["add", "remove", "change"];
 
 /// `ForgeLineageHop`, from `sdk/ts/src/products/forge.ts`.
 #[derive(Debug, Clone, PartialEq)]
@@ -373,6 +396,13 @@ impl FromJson for ForgeDataset {
     }
 }
 
+/// The values `ForgeDataset.marking` may take, in contract order.
+pub const FORGE_DATASET_MARKING_VALUES: &[&str] =
+    &["confidential", "restricted", "internal", "open"];
+
+/// The values `ForgeDataset.state` may take, in contract order.
+pub const FORGE_DATASET_STATE_VALUES: &[&str] = &["secure", "healthy", "warn"];
+
 /// `ForgeHealthCheck`, from `sdk/ts/src/products/forge.ts`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ForgeHealthCheck {
@@ -434,6 +464,12 @@ impl FromJson for ForgeHealthCheck {
         })
     }
 }
+
+/// The values `ForgeHealthCheck.state` may take, in contract order.
+pub const FORGE_HEALTH_CHECK_STATE_VALUES: &[&str] = &["secure", "healthy", "warn"];
+
+/// The values `ForgeHealthCheck.projection_gate` may take, in contract order.
+pub const FORGE_HEALTH_CHECK_PROJECTION_GATE_VALUES: &[&str] = &["CLEAR", "BLOCKS"];
 
 /// `ForgeSchedule`, from `sdk/ts/src/products/forge.ts`.
 #[derive(Debug, Clone, PartialEq)]
@@ -500,6 +536,12 @@ impl FromJson for ForgeSchedule {
         })
     }
 }
+
+/// The values `ForgeSchedule.mode` may take, in contract order.
+pub const FORGE_SCHEDULE_MODE_VALUES: &[&str] = &["batch", "stream"];
+
+/// The values `ForgeSchedule.state` may take, in contract order.
+pub const FORGE_SCHEDULE_STATE_VALUES: &[&str] = &["healthy", "online", "warn"];
 
 /// `ForgeTransform`, from `sdk/ts/src/products/forge.ts`.
 #[derive(Debug, Clone, PartialEq)]
@@ -573,6 +615,9 @@ impl FromJson for ForgeDiffHunk {
         })
     }
 }
+
+/// The values `ForgeDiffHunk.op` may take, in contract order.
+pub const FORGE_DIFF_HUNK_OP_VALUES: &[&str] = &["+", "-", "~"];
 
 /// `ForgeTransformDiff`, from `sdk/ts/src/products/forge.ts`.
 #[derive(Debug, Clone, PartialEq)]
@@ -682,6 +727,10 @@ impl FromJson for ForgeProjectionMapping {
     }
 }
 
+/// The values `ForgeProjectionMapping.kind` may take, in contract order.
+pub const FORGE_PROJECTION_MAPPING_KIND_VALUES: &[&str] =
+    &["key", "property", "link", "struct", "governance"];
+
 /// `ForgeProjection`, from `sdk/ts/src/products/forge.ts`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ForgeProjection {
@@ -747,3 +796,7 @@ impl FromJson for ForgeProjection {
         })
     }
 }
+
+/// The values `ForgeProjection.marking` may take, in contract order.
+pub const FORGE_PROJECTION_MARKING_VALUES: &[&str] =
+    &["confidential", "restricted", "internal", "open"];
