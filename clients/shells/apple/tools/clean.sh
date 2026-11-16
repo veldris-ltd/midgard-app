@@ -3,7 +3,8 @@
 #
 #   bash clients/shells/apple/tools/clean.sh [--target]
 #
-# Removes ~/Library/Caches/midgard-build/clients-* outputs and what
+# Removes ~/Library/Caches/midgard-build/clients-* outputs (including clients-swift,
+# the `swift build --scratch-path` directory) and what
 # build-xcframework.sh linked into the Swift package; --target also removes the cargo
 # target directory (~/Library/Caches/midgard-build/target-clients).
 set -euo pipefail
@@ -23,7 +24,8 @@ case "${1:-}" in
         exit 2
         ;;
 esac
-rm -rf "$cache/clients-xcframework" "$cache/clients-xcframework.new" "$cache/clients-derived" "$cache/clients-archive"
+rm -rf "$cache/clients-xcframework" "$cache/clients-xcframework.new" "$cache/clients-derived" "$cache/clients-archive" \
+    "$cache/clients-swift"
 cd "$(dirname "$0")/.."
 rm -rf Frameworks Sources/MidgardCore/midgard_client_ffi.swift .build .swiftpm
 echo "clean: done"

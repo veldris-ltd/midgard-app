@@ -11,6 +11,7 @@ f=clients/shells/apple/tools/build-xcframework.sh
 c=clients/shells/apple/tools/clean.sh
 v=clients/shells/apple/tools/verify-xcframework.sh
 g=clients/shells/apple/.gitignore
+k=clients/shells/apple/tools/check-contract.sh
 failures=0
 check() { if eval "$2"; then echo "ok    $1"; else echo "FAIL  $1"; failures=$((failures + 1)); fi; }
 check "script exists" "[ -f $f ]"
@@ -23,7 +24,7 @@ check "outputs under clients-*" "grep -q 'midgard-build/clients-' $f"
 check "stops on the first failing step" "grep -qx 'set -euo pipefail' $f"
 check "sets the deployment targets" "grep -q 'MACOSX_DEPLOYMENT_TARGET=14.0' $f && grep -q 'IPHONEOS_DEPLOYMENT_TARGET=17.0' $f"
 check "verifies its output" "grep -q 'verify-xcframework.sh' $f"
-for s in $f $c $v; do
+for s in $f $c $v $k; do
     check "$s: no bash-4 builtins" "[ -f $s ] && ! grep -Eq 'mapfile|readarray|declare -A|\\\$\\{[A-Za-z_]+,,\\}' $s"
     check "$s: no in-place sed" "[ -f $s ] && ! grep -Eq 'sed -i( |\$)' $s"
     check "$s: parses under /bin/bash" "[ -f $s ] && /bin/bash -n $s"
@@ -40,7 +41,7 @@ done
 # package, so the real package's linked framework is untouched.
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-mkdir -p "$tmp/cache/clients-xcframework/x" "$tmp/cache/clients-derived" "$tmp/cache/target-clients/release" \
+mkdir -p "$tmp/cache/clients-xcframework/x" "$tmp/cache/clients-derived" "$tmp/cache/clients-swift/x" "$tmp/cache/target-clients/release" \
     "$tmp/pkg/tools" "$tmp/pkg/Frameworks" "$tmp/pkg/Sources/MidgardCore" "$tmp/pkg/.build" "$tmp/pkg/.swiftpm"
 echo keep >"$tmp/cache/sentinel"
 mkdir -p "$tmp/cache/other-build"
@@ -51,5 +52,5 @@ check "clean.sh --target runs" "[ -f $c ] && MIDGARD_BUILD_CACHE=$tmp/cache bash
 check "clean.sh keeps what is not a build output" \
     "[ -f $tmp/cache/sentinel ] && [ -d $tmp/cache/other-build ] && [ -f $tmp/pkg/Sources/MidgardCore/Keep.swift ] && [ -f $tmp/pkg/tools/clean.sh ]"
 check "clean.sh removes the build outputs" \
-    "[ ! -e $tmp/cache/clients-xcframework ] && [ ! -e $tmp/cache/clients-derived ] && [ ! -e $tmp/cache/target-clients ] && [ ! -e $tmp/pkg/Frameworks ] && [ ! -e $tmp/pkg/Sources/MidgardCore/midgard_client_ffi.swift ] && [ ! -e $tmp/pkg/.build ] && [ ! -e $tmp/pkg/.swiftpm ]"
+    "[ ! -e $tmp/cache/clients-xcframework ] && [ ! -e $tmp/cache/clients-derived ] && [ ! -e $tmp/cache/clients-swift ] && [ ! -e $tmp/cache/target-clients ] && [ ! -e $tmp/pkg/Frameworks ] && [ ! -e $tmp/pkg/Sources/MidgardCore/midgard_client_ffi.swift ] && [ ! -e $tmp/pkg/.build ] && [ ! -e $tmp/pkg/.swiftpm ]"
 [ "$failures" -eq 0 ] || exit 1
