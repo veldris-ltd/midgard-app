@@ -1314,7 +1314,7 @@ The design forbids any data from a local suite in the dataset: no live feeds, no
 
 What it refuses:
 1. any string containing a marker of a local data source (case-insensitive): leak-archive names (`icij`, `offshore leaks`, `panama papers`, `pandora papers`, `paradise papers`, `mauritius leaks`), the local suite's live area (`mauritius`, `port louis`, `rodrigues`, `agalega`, `agaléga`), live-feed sources (`adsb.lol`, `adsbexchange`, `airplanes.live`, `opensky`, `aishub`, `aisstream`, `marinetraffic`, `knmi`, `usgs.gov`, `emsc-csem`) and the local suite's replay switches (`live-feeds`, `midgard_replay`);
-2. any object with numeric `lat`/`lon` (or `latitude`/`longitude`) inside the Mauritius exclusive economic zone box (23° S–9° S, 55° E–65° E);
+2. any position inside the Mauritius exclusive economic zone box (25° S–6° S, 52° E–68.5° E) or the Chagos Archipelago box (9° S–3.5° S, 69° E–74.5° E): an object with `lat`/`lon` under any of their usual names, as numbers or numeric strings; a bare array of two or three numbers; or a number pair written in a string (as built, after the 16 Nov review: the guard also folds accents, full-width forms and separators before matching markers, and refuses combining marks and invisible format characters);
 3. any `inputs` entry in the fixture manifest outside `sdk/ts/src/mock/`, `clients/demo/` (checked in Task A7's builder, which also checks the blob ids against the tag).
 
 **Files:**
@@ -1408,7 +1408,10 @@ pub struct Area {
 }
 
 /// Areas no demo position may fall in.
-pub const DENY_AREAS: &[Area] = &[Area { name: "Mauritius EEZ", lat_min: -23.0, lat_max: -9.0, lon_min: 55.0, lon_max: 65.0 }];
+pub const DENY_AREAS: &[Area] = &[
+    Area { name: "Mauritius EEZ", lat_min: -25.0, lat_max: -6.0, lon_min: 52.0, lon_max: 68.5 },
+    Area { name: "Chagos Archipelago", lat_min: -9.0, lat_max: -3.5, lon_min: 69.0, lon_max: 74.5 },
+];
 
 /// One finding.
 #[derive(Debug, Clone, PartialEq)]
