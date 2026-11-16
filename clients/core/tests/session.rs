@@ -7,6 +7,9 @@
 #![cfg(feature = "backend-fips")]
 
 use std::cell::Cell;
+use std::collections::BTreeSet;
+use std::fs;
+use std::path::PathBuf;
 
 use attest::json::{parse, Json};
 use attest::TrustAnchors;
@@ -19,8 +22,9 @@ use midgard_client_core::keystore::sealed_root::{RootSealer, SealedRootKeystore}
 use midgard_client_core::keystore::{KeystoreError, SoftwareKeystore};
 use midgard_client_core::marking::{MarkingLevel, RowMarking, Visible};
 use midgard_client_core::session::{ActionState, Session, SessionError, SyncPhase};
-use midgard_client_core::source::{DataSource, Delivered, Grant, Persona, SourceError};
-use midgard_client_core::CoreError;
+use midgard_client_core::source::{action, DataSource, Delivered, Grant, Persona, SourceError};
+use midgard_client_core::sync::{Replica, SyncOp};
+use midgard_client_core::{CoreError, CORE_VERSION};
 use pqc_agility::backend::fips::provider;
 use pqc_agility::{Aes256GcmAead, OsRng, Rng, SecretBytes, GCM_NONCE_LEN};
 
@@ -34,10 +38,6 @@ fn session(persona: &str) -> Session<SoftwareKeystore, DemoEnclosure> {
     let ks = SoftwareKeystore::generate(&provider(), "device-root", &mut OsRng).unwrap();
     let (device, _) = DeviceAuditKey::create(&ks, &mut OsRng).unwrap();
     Session::open(ks, device, enclosure(), persona, "dev-1").unwrap()
-}
-
-fn internal() -> RowMarking {
-    RowMarking::new(MarkingLevel::Internal, Vec::<String>::new())
 }
 
 fn audit_rows<K, S>(s: &mut Session<K, S>) -> Vec<Visible<AuditRecord>>
@@ -63,8 +63,9 @@ where
     K: midgard_client_core::keystore::Keystore + midgard_client_core::keystore::TrustRoot,
     S: DataSource,
 {
+    let _ = audit_rows(s);
     let id = s
-        .request_action("demo.ping", "midgard.audit/AUD-1", &[], &internal())
+        .request_action("demo.ping", "midgard.audit/AUD-1", &[])
         .unwrap();
     s.sync().unwrap();
     match s.action_state(&id) {
@@ -93,9 +94,10 @@ fn rows_online_then_from_the_sealed_cache_offline() {
 #[test]
 fn an_offline_action_queues_then_applies_once() {
     let mut s = session("k.rao");
+    let _ = audit_rows(&mut s);
     s.set_online(false);
     let id = s
-        .request_action("demo.ping", "midgard.audit/AUD-1", &[], &internal())
+        .request_action("demo.ping", "midgard.audit/AUD-1", &[])
         .unwrap();
     assert!(id.starts_with("action:dev-1-"), "{id}");
     assert_eq!(s.action_state(&id), ActionState::Queued);
@@ -121,12 +123,13 @@ fn an_offline_action_queues_then_applies_once() {
 #[test]
 fn action_ids_never_repeat() {
     let mut s = session("k.rao");
+    let _ = audit_rows(&mut s);
     s.set_online(false);
     let a = s
-        .request_action("demo.ping", "midgard.audit/AUD-1", &[], &internal())
+        .request_action("demo.ping", "midgard.audit/AUD-1", &[])
         .unwrap();
     let b = s
-        .request_action("demo.ping", "midgard.audit/AUD-1", &[], &internal())
+        .request_action("demo.ping", "midgard.audit/AUD-1", &[])
         .unwrap();
     assert_ne!(a, b);
 }
@@ -134,10 +137,25 @@ fn action_ids_never_repeat() {
 #[test]
 fn acting_on_a_row_above_clearance_is_refused_before_queueing() {
     let mut s = session("k.rao");
-    let secret = RowMarking::new(MarkingLevel::Confidential, ["OPS-N"]);
+    // Nothing cached yet: the target's marking is unknown, so nothing is queued.
     assert!(matches!(
-        s.request_action("demo.ping", "midgard.audit/AUD-2", &[], &secret),
+        s.request_action("demo.ping", "midgard.audit/AUD-1", &[]),
+        Err(SessionError::NothingCached(_))
+    ));
+    let _ = audit_rows(&mut s);
+    // AUD-2 is withheld: its marking is the cache's, not the caller's.
+    assert!(matches!(
+        s.request_action("demo.ping", "midgard.audit/AUD-2", &[]),
         Err(SessionError::AboveClearance)
+    ));
+    // A row that is not there is refused the same way.
+    assert!(matches!(
+        s.request_action("demo.ping", "midgard.audit/AUD-9", &[]),
+        Err(SessionError::AboveClearance)
+    ));
+    assert!(matches!(
+        s.request_action("demo.ping", "no-slash", &[]),
+        Err(SessionError::BadTarget(_))
     ));
     assert_eq!(s.sync_status().pending, 0);
 }
@@ -148,7 +166,7 @@ fn a_switch_with_unsent_work_is_refused_and_a_switch_keeps_nothing() {
     let seen = audit_rows(&mut s);
     assert!(matches!(&seen[1], Visible::Shown { id, .. } if id == "AUD-2"));
     s.set_online(false);
-    s.request_action("demo.ping", "midgard.audit/AUD-1", &[], &internal())
+    s.request_action("demo.ping", "midgard.audit/AUD-1", &[])
         .unwrap();
     let (s, err) = match s.switch_persona("k.rao") {
         Ok(_) => panic!("a switch with pending work must be refused"),
@@ -264,7 +282,7 @@ fn state_survives_a_relaunch_with_its_queue_and_generation() {
     let rows = audit_rows(&mut s);
     s.set_online(false);
     let id = s
-        .request_action("demo.ping", "midgard.audit/AUD-1", &[], &internal())
+        .request_action("demo.ping", "midgard.audit/AUD-1", &[])
         .unwrap();
     let saved = s.export_state().unwrap();
     assert!(saved.generation >= 1);
@@ -407,6 +425,19 @@ enum Mode {
     ClaimDevice,
     /// Delivers a withheld row in full, above the grant.
     Leak,
+    /// Claims every unsigned audit row is verified.
+    ClaimVerified,
+    /// Fetch fails (exchange still works).
+    FailFetch,
+    /// Exchange also answers a made-up action "by" this persona, audited as AUD-1.
+    Inject,
+    /// Exchange also overwrites the target (to AUD-1's resource) and the audit id
+    /// (to AUD-1) of each action pushed.
+    Overwrite,
+    /// Appends a "claimed by" suffix to the `action` text of unsigned audit rows.
+    AlterAction,
+    /// Reports the audit collection as another type.
+    HideAuditType,
 }
 
 struct Wrapped {
@@ -419,14 +450,23 @@ impl DataSource for Wrapped {
         self.inner.personas()
     }
     fn collections(&self) -> Vec<(String, String)> {
-        self.inner.collections()
+        let mut c = self.inner.collections();
+        if self.mode.get() == Mode::HideAuditType {
+            for (_, t) in c.iter_mut() {
+                *t = "AdminApproval".into();
+            }
+        }
+        c
     }
     fn grant(&self, persona_id: &str) -> Result<Grant, SourceError> {
         self.inner.grant(persona_id)
     }
     fn fetch(&self, grant: &Grant, collection: &str) -> Result<Vec<Delivered>, SourceError> {
-        let rows = self.inner.fetch(grant, collection)?;
         let mode = self.mode.get();
+        if mode == Mode::FailFetch {
+            return Err(SourceError::Offline);
+        }
+        let rows = self.inner.fetch(grant, collection)?;
         Ok(rows
             .into_iter()
             .map(|d| match (mode, d) {
@@ -481,12 +521,76 @@ impl DataSource for Wrapped {
                     body: br#"{"id":"AUD-2","actor":"x","action":"y","resource":"z","ts":"14:00:01","pqSignature":"none"}"#.to_vec(),
                     signature: Some(SignatureStatus::Unsigned),
                 },
+                (
+                    Mode::ClaimVerified,
+                    Delivered::Row {
+                        id,
+                        marking,
+                        body,
+                        signature: Some(SignatureStatus::Unsigned),
+                    },
+                ) => Delivered::Row {
+                    id,
+                    marking,
+                    body: String::from_utf8(body)
+                        .unwrap()
+                        .replace("\"none\"", "\"verified\"")
+                        .into_bytes(),
+                    signature: Some(SignatureStatus::Verified),
+                },
+                (
+                    Mode::AlterAction,
+                    Delivered::Row {
+                        id,
+                        marking,
+                        body,
+                        signature: Some(SignatureStatus::Unsigned),
+                    },
+                ) => Delivered::Row {
+                    id,
+                    marking,
+                    body: String::from_utf8(body)
+                        .unwrap()
+                        .replace("demo.ping\"", "demo.ping (claimed by k.rao)\"")
+                        .into_bytes(),
+                    signature: Some(SignatureStatus::Unsigned),
+                },
                 (_, d) => d,
             })
             .collect())
     }
     fn exchange(&mut self, grant: &Grant, ops: &[Vec<u8>]) -> Result<Vec<Vec<u8>>, SourceError> {
-        self.inner.exchange(grant, ops)
+        let mut back = self.inner.exchange(grant, ops)?;
+        let mut evil = Replica::new("evil");
+        evil.observe(1 << 40);
+        match self.mode.get() {
+            Mode::Inject => {
+                let made_up = "action:dev-1-0000000000000000-999";
+                for (f, v) in [
+                    (action::VERB, "demo.ping"),
+                    (action::TARGET, "r"),
+                    (action::PARAMS, "{}"),
+                    (action::BY, "k.rao"),
+                    (action::STATUS, "applied"),
+                    (action::AUDIT, "AUD-1"),
+                ] {
+                    evil.set(made_up, f, v.as_bytes().to_vec());
+                }
+            }
+            Mode::Overwrite => {
+                let ids: BTreeSet<String> = ops
+                    .iter()
+                    .map(|b| SyncOp::decode(b).unwrap().object)
+                    .collect();
+                for id in ids {
+                    evil.set(&id, action::TARGET, b"r".to_vec());
+                    evil.set(&id, action::AUDIT, b"AUD-1".to_vec());
+                }
+            }
+            _ => {}
+        }
+        back.extend(evil.drain_pending().iter().map(SyncOp::encode));
+        Ok(back)
     }
     fn online(&self) -> bool {
         self.inner.online()
@@ -497,9 +601,33 @@ impl DataSource for Wrapped {
 }
 
 fn wrapped() -> Wrapped {
+    wrap(enclosure())
+}
+
+fn wrap(inner: DemoEnclosure) -> Wrapped {
     Wrapped {
-        inner: enclosure(),
+        inner,
         mode: Cell::new(Mode::Honest),
+    }
+}
+
+fn pinned() -> DemoEnclosure {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join(format!("../demo/datasets/{CORE_VERSION}.mgdemo"));
+    DemoEnclosure::open_pinned(&fs::read(path).unwrap()).unwrap()
+}
+
+fn statuses(rows: &[Visible<AuditRecord>]) -> BTreeSet<String> {
+    rows.iter()
+        .filter_map(|v| v.shown().map(|r| r.pq_signature.clone()))
+        .collect()
+}
+
+/// The newest audit row (the source puts new rows first).
+fn newest(rows: &[Visible<AuditRecord>]) -> (String, String) {
+    match &rows[0] {
+        Visible::Shown { id, item, .. } => (id.clone(), item.pq_signature.clone()),
+        other => panic!("{other:?}"),
     }
 }
 
@@ -549,4 +677,130 @@ fn a_source_that_leaks_a_row_above_clearance_is_refused() {
         s.rows::<AuditRecord>("midgard.audit"),
         Err(SessionError::NothingCached(_))
     ));
+}
+
+#[test]
+fn a_made_up_action_in_the_answer_gets_nothing_signed() {
+    let dev = Device::new();
+    let mut s = dev.open(wrapped(), "k.rao");
+    s.source().mode.set(Mode::Inject);
+    let audit = act_and_sync(&mut s);
+    s.source().mode.set(Mode::Honest);
+    let rows = audit_rows(&mut s);
+    // AUD-1's actor is this persona and its resource the made-up action's target,
+    // but the action is not one this device recorded.
+    assert_eq!(status_of(&rows, "AUD-1"), "none");
+    // The genuine action's row is still this device's.
+    assert_eq!(status_of(&rows, &audit), "device");
+}
+
+#[test]
+fn an_overwritten_target_and_audit_id_get_nothing_signed() {
+    let dev = Device::new();
+    let mut s = dev.open(wrapped(), "k.rao");
+    let _ = audit_rows(&mut s);
+    s.source().mode.set(Mode::Overwrite);
+    let id = s
+        .request_action("demo.ping", "midgard.audit/AUD-1", &[])
+        .unwrap();
+    s.sync().unwrap();
+    // The merged view now names AUD-1, whose resource is the overwritten target.
+    assert!(matches!(s.action_state(&id), ActionState::Applied { audit, .. } if audit == "AUD-1"));
+    s.source().mode.set(Mode::Honest);
+    let rows = audit_rows(&mut s);
+    assert_eq!(status_of(&rows, "AUD-1"), "none");
+    assert_eq!(newest(&rows).1, "none");
+}
+
+#[test]
+fn a_row_whose_action_text_is_not_the_answer_is_not_signed() {
+    let dev = Device::new();
+    let mut s = dev.open(wrapped(), "k.rao");
+    s.source().mode.set(Mode::AlterAction);
+    let audit = act_and_sync(&mut s);
+    assert_eq!(status_of(&audit_rows(&mut s), &audit), "none");
+    s.source().mode.set(Mode::Honest);
+    assert_eq!(status_of(&audit_rows(&mut s), &audit), "none");
+}
+
+#[test]
+fn an_owed_row_is_signed_on_its_first_later_read() {
+    let dev = Device::new();
+    let mut s = dev.open(wrapped(), "k.rao");
+    let _ = audit_rows(&mut s);
+    let id = s
+        .request_action("demo.ping", "midgard.audit/AUD-1", &[])
+        .unwrap();
+    s.source().mode.set(Mode::FailFetch);
+    s.sync().unwrap();
+    let ActionState::Applied { audit, .. } = s.action_state(&id) else {
+        panic!("not applied")
+    };
+    // Kept across a relaunch, too.
+    let saved = s.export_state().unwrap();
+    let source = s.into_source();
+    let mut s = dev.open(source, "k.rao");
+    s.import_state(&saved.file, saved.generation).unwrap();
+    s.source().mode.set(Mode::Honest);
+    assert_eq!(status_of(&audit_rows(&mut s), &audit), "device");
+}
+
+#[test]
+fn rows_of_a_collection_that_is_not_an_audit_type_are_never_signed() {
+    let dev = Device::new();
+    let mut s = dev.open(wrapped(), "k.rao");
+    s.source().mode.set(Mode::HideAuditType);
+    let audit = act_and_sync(&mut s);
+    // Owed, but the collection is not an audit collection: not signed, not checked.
+    assert_eq!(status_of(&audit_rows(&mut s), &audit), "none");
+    s.set_online(false);
+    assert_eq!(
+        status_of(&s.rows::<AuditRecord>("midgard.audit").unwrap(), &audit),
+        "none"
+    );
+}
+
+#[test]
+fn only_an_in_core_source_may_say_verified() {
+    // The demo enclosure checked the built-in rows under the pinned anchor.
+    let ks = SoftwareKeystore::generate(&provider(), "device-root", &mut OsRng).unwrap();
+    let (device, _) = DeviceAuditKey::create(&ks, &mut OsRng).unwrap();
+    let mut s = Session::open(ks, device, pinned(), "k.osei", "dev-1").unwrap();
+    assert!(statuses(&audit_rows(&mut s)).contains("verified"));
+
+    // The same rows through a source outside the core: not believed.
+    let dev = Device::new();
+    let mut s = dev.open(wrap(pinned()), "k.osei");
+    let st = statuses(&audit_rows(&mut s));
+    assert!(!st.contains("verified"), "{st:?}");
+
+    // Nor a claim on rows nobody signed.
+    let mut s = dev.open(wrapped(), "k.rao");
+    s.source().mode.set(Mode::ClaimVerified);
+    assert_eq!(status_of(&audit_rows(&mut s), "AUD-1"), "none");
+}
+
+#[test]
+fn unsent_actions_lost_on_import_are_reported() {
+    let dev = Device::new();
+    let mut s = dev.open(enclosure(), "k.osei");
+    let _ = audit_rows(&mut s);
+    s.set_online(false);
+    s.request_action("demo.ping", "midgard.audit/AUD-1", &[])
+        .unwrap();
+    let saved = s.export_state().unwrap();
+
+    // The same persona, now at a lower clearance: the queue (sealed at the old
+    // clearance) cannot be read, and the caller is told.
+    let lower = BODY.replace(
+        r#""clearance":"confidential","compartments":["OPS-N","SIG"]"#,
+        r#""clearance":"restricted","compartments":[]"#,
+    );
+    assert_ne!(lower, BODY);
+    let e =
+        DemoEnclosure::from_body("test", &parse(&lower).unwrap(), &TrustAnchors::new()).unwrap();
+    let mut s = dev.open(e, "k.osei");
+    let report = s.import_state(&saved.file, saved.generation).unwrap();
+    assert!(report.pending_dropped);
+    assert_eq!(s.sync_status().pending, 0);
 }

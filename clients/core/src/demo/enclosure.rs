@@ -19,7 +19,7 @@ use crate::consoles::check_item;
 use crate::demo::audit::{self, SignatureStatus};
 use crate::demo::{canon, dataset, guard};
 use crate::marking::{clearance, may_see, MarkingLevel, RowMarking};
-use crate::source::{action, DataSource, Delivered, Grant, Persona, SourceError};
+use crate::source::{action, DataSource, Delivered, Grant, InCoreAuditCheck, Persona, SourceError};
 use crate::sync::{Replica, SyncOp};
 use crate::CORE_VERSION;
 
@@ -686,5 +686,10 @@ impl DataSource for DemoEnclosure {
 
     fn set_online(&mut self, online: bool) {
         self.online = online;
+    }
+
+    /// Every `verified` row was checked under the pinned demo-audit anchor at load.
+    fn in_core_audit_check(&self) -> Option<InCoreAuditCheck> {
+        Some(InCoreAuditCheck::new())
     }
 }

@@ -10,20 +10,29 @@
 //!   session's clearance; withheld rows kept by level only) and returned; offline,
 //!   the cached delivery is returned ([`ClientCore::cached_delivery`], all or
 //!   nothing). Either way rows decode into the generated read model.
-//! - **Audit status.** A source may say a row is `verified` (the demo enclosure
-//!   checked it under the pinned demo-audit anchor) or `none`; a source's `device`
+//! - **Audit status.** Only rows of a collection the source serves as `AuditRecord`
+//!   carry a status; every other row carries none. `verified` is believed only from
+//!   a source that checked it inside the core (the demo enclosure, under the pinned
+//!   demo-audit anchor: [`DataSource::in_core_audit_check`]); a source's `device`
 //!   claim is never believed. An audit row is shown as `device` only when this
-//!   session holds a device signature for it and the row as delivered verifies
-//!   under this device's key, checked on every read, online or offline.
-//! - **Device signatures.** When a sync answers one of this persona's actions with
-//!   an audit row id, the session fetches the audit collections, signs that row
-//!   (only if its actor is this persona and its resource the action's target) and
-//!   keeps the signature in the persona's sealed cache
-//!   ([`DEVICE_AUDIT_OBJECT`](crate::DEVICE_AUDIT_OBJECT)). A row not found yet is
-//!   signed when it is next fetched; a row signed once is never signed again.
-//! - **Actions** ([`Session::request_action`]): four `edit_field` calls on a new
-//!   action object ([`ClientCore::new_action_id`]), at the target row's marking, so
-//!   acting on a row above clearance is refused before anything is queued.
+//!   session holds a device signature for it, the row is still the one owed for the
+//!   recorded action, and the statement verifies under this device's key, checked
+//!   on every read, online or offline.
+//! - **Device signatures.** [`Session::request_action`] records the action (id,
+//!   verb, target, SHA-256 of the parameters) in the persona's sealed record
+//!   ([`DEVICE_AUDIT_OBJECT`](crate::DEVICE_AUDIT_OBJECT)) before queueing it. When a
+//!   sync answers a recorded action, the merged status and audit row id are owed a
+//!   signature; ops about any other object are ignored, and verb and target always
+//!   come from the record, never from the answer. The row is signed only if its
+//!   actor is this persona, its resource the recorded target and its `action` text
+//!   exactly `"<status> · <verb>"`; what is signed is a device statement (the row
+//!   plus the recorded action and the status, [`crate::device_audit`]), not the
+//!   bare row. A row not found yet is signed when it is next read; a row signed once
+//!   is never signed again.
+//! - **Actions** ([`Session::request_action`]): the target's marking comes from the
+//!   persona's cached delivery, never from the caller, so acting on a row that is
+//!   withheld, missing or never read is refused before anything is queued; then four
+//!   `edit_field` calls on a new action object ([`ClientCore::new_action_id`]).
 //! - **Sync** ([`Session::sync`]): the pending ops are pushed (encoded, not
 //!   drained), the answer is merged (all or nothing) and only then is the queue
 //!   drained, so a failed push or a malformed answer loses nothing.
@@ -35,19 +44,20 @@
 //!   On any import error the cache is empty: discard the file; the next read
 //!   refetches.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
+use attest::hex::hex;
 use attest::json::{parse, Json};
 use pqc_agility::backend::fips::provider;
-use pqc_agility::OsRng;
+use pqc_agility::{sha256, OsRng};
 
 use crate::consoles::decode::{DecodeError, FromJson};
 use crate::demo::audit::{self, SignatureStatus};
 use crate::demo::canon;
-use crate::device_audit::{DeviceAuditKey, DeviceKeyError};
+use crate::device_audit::{DeviceAuditKey, DeviceKeyError, DeviceStatement};
 use crate::keystore::{Keystore, SecurityFloor, TrustRoot};
-use crate::marking::{RowMarking, Visible};
+use crate::marking::{may_see, Visible};
 use crate::source::{action, decode_rows, DataSource, Delivered, Grant, SourceError};
 use crate::store::StoreError;
 use crate::sync::SyncOp;
@@ -132,6 +142,8 @@ pub enum SessionError {
     Decode(DecodeError),
     /// The device-audit key could not sign.
     Device(DeviceKeyError),
+    /// An action target that is not `<collection>/<row id>`.
+    BadTarget(String),
 }
 
 impl fmt::Display for SessionError {
@@ -145,6 +157,7 @@ impl fmt::Display for SessionError {
             SessionError::Core(e) => write!(f, "{e}"),
             SessionError::Decode(e) => write!(f, "{}: {}", e.path, e.reason),
             SessionError::Device(e) => write!(f, "{e}"),
+            SessionError::BadTarget(t) => write!(f, "action target {t:?} is not <collection>/<id>"),
         }
     }
 }
@@ -182,26 +195,109 @@ impl From<DeviceKeyError> for SessionError {
     }
 }
 
-/// This persona's device-audit record: signatures by `<collection>/<id>`, and the
-/// audit row ids owed a signature (answered, not yet seen), with the action's target.
+/// What this device recorded when it made an action: the source never supplies it.
+#[derive(Debug, Clone, PartialEq)]
+struct ActionRecord {
+    verb: String,
+    target: String,
+    params_sha256: String,
+}
+
+/// An audit row id answered for one of this device's actions, not yet signed.
+#[derive(Debug, Clone, PartialEq)]
+struct Owed {
+    action: String,
+    status: String,
+}
+
+/// A device signature over a statement about one row.
+#[derive(Debug, Clone, PartialEq)]
+struct Signed {
+    action: String,
+    status: String,
+    sig: String,
+}
+
+/// This persona's device-audit record, sealed in its cache: the actions this device
+/// made, the audit rows owed a signature (by audit row id: the source decides which
+/// collection holds the row, so the collection is known only when the row is seen),
+/// and the signatures (by `<collection>/<id>`).
 #[derive(Debug, Default, Clone, PartialEq)]
 struct DeviceRecord {
-    sigs: BTreeMap<String, String>,
-    owed: BTreeMap<String, String>,
+    actions: BTreeMap<String, ActionRecord>,
+    owed: BTreeMap<String, Owed>,
+    sigs: BTreeMap<String, Signed>,
+}
+
+fn obj(fields: &[(&str, &str)]) -> Json {
+    Json::Obj(
+        fields
+            .iter()
+            .map(|(k, v)| (k.to_string(), Json::Str(v.to_string())))
+            .collect(),
+    )
+}
+
+/// The string fields `keys` of `v`, which must have exactly those keys.
+fn fields<const N: usize>(v: &Json, keys: [&str; N]) -> Option<[String; N]> {
+    let Json::Obj(pairs) = v else { return None };
+    if pairs.len() != N {
+        return None;
+    }
+    let mut out: [String; N] = std::array::from_fn(|_| String::new());
+    for (i, k) in keys.iter().enumerate() {
+        out[i] = v.get(k)?.as_str()?.to_string();
+    }
+    Some(out)
 }
 
 impl DeviceRecord {
     fn encode(&self) -> Vec<u8> {
-        let map = |m: &BTreeMap<String, String>| {
-            Json::Obj(
-                m.iter()
-                    .map(|(k, v)| (k.clone(), Json::Str(v.clone())))
-                    .collect(),
-            )
-        };
+        let map = |m: Vec<(String, Json)>| Json::Obj(m);
         canon::encode(&Json::Obj(vec![
-            ("owed".into(), map(&self.owed)),
-            ("sigs".into(), map(&self.sigs)),
+            (
+                "actions".into(),
+                map(self
+                    .actions
+                    .iter()
+                    .map(|(k, a)| {
+                        let v = obj(&[
+                            ("paramsSha256", &a.params_sha256),
+                            ("target", &a.target),
+                            ("verb", &a.verb),
+                        ]);
+                        (k.clone(), v)
+                    })
+                    .collect()),
+            ),
+            (
+                "owed".into(),
+                map(self
+                    .owed
+                    .iter()
+                    .map(|(k, o)| {
+                        (
+                            k.clone(),
+                            obj(&[("action", &o.action), ("status", &o.status)]),
+                        )
+                    })
+                    .collect()),
+            ),
+            (
+                "sigs".into(),
+                map(self
+                    .sigs
+                    .iter()
+                    .map(|(k, s)| {
+                        let v = obj(&[
+                            ("action", &s.action),
+                            ("sig", &s.sig),
+                            ("status", &s.status),
+                        ]);
+                        (k.clone(), v)
+                    })
+                    .collect()),
+            ),
         ]))
         .into_bytes()
     }
@@ -210,22 +306,43 @@ impl DeviceRecord {
     fn decode(bytes: &[u8]) -> Option<Self> {
         let v = parse(std::str::from_utf8(bytes).ok()?).ok()?;
         let Json::Obj(top) = &v else { return None };
-        if top.len() != 2 {
+        if top.len() != 3 {
             return None;
         }
-        let map = |k: &str| -> Option<BTreeMap<String, String>> {
-            let Json::Obj(pairs) = v.get(k)? else {
-                return None;
-            };
-            pairs
-                .iter()
-                .map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-                .collect()
+        let entries = |k: &str| -> Option<&[(String, Json)]> {
+            match v.get(k)? {
+                Json::Obj(pairs) => Some(pairs.as_slice()),
+                _ => None,
+            }
         };
-        Some(Self {
-            sigs: map("sigs")?,
-            owed: map("owed")?,
-        })
+        let mut r = Self::default();
+        for (k, e) in entries("actions")? {
+            let [params_sha256, target, verb] = fields(e, ["paramsSha256", "target", "verb"])?;
+            r.actions.insert(
+                k.clone(),
+                ActionRecord {
+                    verb,
+                    target,
+                    params_sha256,
+                },
+            );
+        }
+        for (k, e) in entries("owed")? {
+            let [action, status] = fields(e, ["action", "status"])?;
+            r.owed.insert(k.clone(), Owed { action, status });
+        }
+        for (k, e) in entries("sigs")? {
+            let [action, sig, status] = fields(e, ["action", "sig", "status"])?;
+            r.sigs.insert(
+                k.clone(),
+                Signed {
+                    action,
+                    status,
+                    sig,
+                },
+            );
+        }
+        Some(r)
     }
 
     /// Whether a signature is held for audit row `id` in any collection (a
@@ -234,6 +351,19 @@ impl DeviceRecord {
         self.sigs
             .keys()
             .any(|k| k.split_once('/').is_some_and(|(_, i)| i == id))
+    }
+
+    /// The statement about `action` answered with `status`, from this record only.
+    fn statement(&self, action: &str, status: &str) -> Option<(DeviceStatement, &ActionRecord)> {
+        let a = self.actions.get(action)?;
+        let st = DeviceStatement {
+            action_id: action.to_string(),
+            verb: a.verb.clone(),
+            target: a.target.clone(),
+            params_sha256: a.params_sha256.clone(),
+            status: status.to_string(),
+        };
+        Some((st, a))
     }
 }
 
@@ -249,20 +379,30 @@ fn restamp(body: &[u8], status: SignatureStatus) -> Option<(Json, Vec<u8>)> {
     Some((item, bytes))
 }
 
-/// A delivery as the session caches it: a source's `device` claim becomes `none`,
-/// and every audit row's `pqSignature` text says what its status says.
-fn normalise(rows: Vec<Delivered>) -> Vec<Delivered> {
+/// A delivery as the session uses it. Rows of a collection that is not an audit
+/// collection carry no signature status at all. In an audit collection a source's
+/// `device` claim becomes `none`, so does `verified` from a source outside the core,
+/// and every row's `pqSignature` text says what its status says.
+fn normalise(rows: Vec<Delivered>, audit_collection: bool, in_core: bool) -> Vec<Delivered> {
     rows.into_iter()
         .map(|d| match d {
+            Delivered::Row {
+                id, marking, body, ..
+            } if !audit_collection => Delivered::Row {
+                id,
+                marking,
+                body,
+                signature: None,
+            },
             Delivered::Row {
                 id,
                 marking,
                 body,
-                signature: Some(s),
+                signature,
             } => {
-                let s = match s {
-                    SignatureStatus::Device => SignatureStatus::Unsigned,
-                    s => s,
+                let s = match signature {
+                    Some(SignatureStatus::Verified) if in_core => SignatureStatus::Verified,
+                    _ => SignatureStatus::Unsigned,
                 };
                 let body = restamp(&body, s).map_or(body, |(_, b)| b);
                 Delivered::Row {
@@ -279,6 +419,15 @@ fn normalise(rows: Vec<Delivered>) -> Vec<Delivered> {
 
 fn row_key(collection: &str, id: &str) -> String {
     format!("{collection}/{id}")
+}
+
+/// Whether `item` is the audit row the source owes for `action` answered with
+/// `status`, by `me`: actor, resource and action text exactly (no "claimed by").
+fn row_is_for(item: &Json, me: &str, action: &ActionRecord, status: &str) -> bool {
+    let field = |k: &str| item.get(k).and_then(Json::as_str);
+    field("actor") == Some(me)
+        && field("resource") == Some(action.target.as_str())
+        && field("action") == Some(format!("{status} · {}", action.verb).as_str())
 }
 
 /// A signed-in session.
@@ -343,12 +492,28 @@ impl<K: Keystore + TrustRoot, S: DataSource> Session<K, S> {
         self.source.set_online(online);
     }
 
+    /// Whether the source serves `collection` as audit rows.
+    fn is_audit(&self, collection: &str) -> bool {
+        self.source
+            .collections()
+            .iter()
+            .any(|(n, t)| n == collection && t == audit::AUDIT_TYPE)
+    }
+
+    fn normalised(&self, collection: &str, rows: Vec<Delivered>) -> Vec<Delivered> {
+        normalise(
+            rows,
+            self.is_audit(collection),
+            self.source.in_core_audit_check().is_some(),
+        )
+    }
+
     /// The rows of `collection`, decoded into `T`: shown rows in full, rows above
     /// the session's clearance by level only.
     pub fn rows<T: FromJson>(&mut self, collection: &str) -> Result<Vec<Visible<T>>, SessionError> {
         let delivered = match self.source.fetch(&self.grant, collection) {
             Ok(d) => {
-                let d = normalise(d);
+                let d = self.normalised(collection, d);
                 self.core.cache_delivery(collection, &d, &mut OsRng)?;
                 if self.sign_owed(collection, &d)? {
                     self.save_record()?;
@@ -363,7 +528,7 @@ impl<K: Keystore + TrustRoot, S: DataSource> Session<K, S> {
 
     fn cached(&self, collection: &str) -> Result<Vec<Delivered>, SessionError> {
         match self.core.cached_delivery(collection) {
-            Ok(d) => Ok(normalise(d)),
+            Ok(d) => Ok(self.normalised(collection, d)),
             Err(CoreError::Store(StoreError::NotFound)) => {
                 Err(SessionError::NothingCached(collection.to_string()))
             }
@@ -371,9 +536,15 @@ impl<K: Keystore + TrustRoot, S: DataSource> Session<K, S> {
         }
     }
 
-    /// `rows` with each unchecked audit row this session holds a signature for
-    /// checked under the device key: `device` if it verifies, `none` otherwise.
+    /// `rows` (normalised) with each unchecked row of an audit collection that this
+    /// session holds a signature for checked again: the row is still the one owed
+    /// for the recorded action, and the statement verifies under the device key.
+    /// `device` if both hold, `none` otherwise.
     fn device_checked(&self, collection: &str, rows: Vec<Delivered>) -> Vec<Delivered> {
+        if !self.is_audit(collection) {
+            return rows;
+        }
+        let me = self.grant.persona().id.as_str();
         rows.into_iter()
             .map(|d| match d {
                 Delivered::Row {
@@ -382,30 +553,38 @@ impl<K: Keystore + TrustRoot, S: DataSource> Session<K, S> {
                     body,
                     signature: Some(SignatureStatus::Unsigned),
                 } => {
-                    let checked = self
-                        .record
-                        .sigs
-                        .get(&row_key(collection, &id))
-                        .and_then(|sig| {
-                            let (item, _) = restamp(&body, SignatureStatus::Unsigned)?;
-                            self.device
-                                .verify_row(collection, &id, &marking, &item, sig)
-                                .ok()?;
-                            restamp(&body, SignatureStatus::Device).map(|(_, b)| b)
-                        });
-                    match checked {
-                        Some(body) => Delivered::Row {
-                            id,
-                            marking,
-                            body,
-                            signature: Some(SignatureStatus::Device),
-                        },
-                        None => Delivered::Row {
-                            id,
-                            marking,
-                            body,
-                            signature: Some(SignatureStatus::Unsigned),
-                        },
+                    let checked =
+                        self.record
+                            .sigs
+                            .get(&row_key(collection, &id))
+                            .and_then(|signed| {
+                                let (st, rec) =
+                                    self.record.statement(&signed.action, &signed.status)?;
+                                let (item, _) = restamp(&body, SignatureStatus::Unsigned)?;
+                                if !row_is_for(&item, me, rec, &signed.status) {
+                                    return None;
+                                }
+                                self.device
+                                    .verify_statement(
+                                        collection,
+                                        &id,
+                                        &marking,
+                                        &item,
+                                        &st,
+                                        &signed.sig,
+                                    )
+                                    .ok()?;
+                                restamp(&body, SignatureStatus::Device).map(|(_, b)| b)
+                            });
+                    let (body, s) = match checked {
+                        Some(b) => (b, SignatureStatus::Device),
+                        None => (body, SignatureStatus::Unsigned),
+                    };
+                    Delivered::Row {
+                        id,
+                        marking,
+                        body,
+                        signature: Some(s),
                     }
                 }
                 d => d,
@@ -413,9 +592,14 @@ impl<K: Keystore + TrustRoot, S: DataSource> Session<K, S> {
             .collect()
     }
 
-    /// Sign each owed audit row of `rows` whose actor is this persona and whose
-    /// resource is the action's target. Whether the record changed.
+    /// Sign a statement about each owed row of `rows` (normalised, of an audit
+    /// collection) that is the row owed for the recorded action. A row that is not
+    /// is never signed. Whether the record changed.
     fn sign_owed(&mut self, collection: &str, rows: &[Delivered]) -> Result<bool, SessionError> {
+        if self.record.owed.is_empty() || !self.is_audit(collection) {
+            return Ok(false);
+        }
+        let me = self.grant.persona().id.clone();
         let mut changed = false;
         for d in rows {
             let Delivered::Row {
@@ -427,22 +611,30 @@ impl<K: Keystore + TrustRoot, S: DataSource> Session<K, S> {
             else {
                 continue;
             };
-            let Some(target) = self.record.owed.get(id).cloned() else {
+            let Some(owed) = self.record.owed.remove(id) else {
                 continue;
             };
-            self.record.owed.remove(id);
             changed = true;
+            let Some((st, rec)) = self.record.statement(&owed.action, &owed.status) else {
+                continue;
+            };
             let Some((item, _)) = restamp(body, SignatureStatus::Unsigned) else {
                 continue;
             };
-            let field = |k: &str| item.get(k).and_then(Json::as_str);
-            if field("actor") != Some(self.grant.persona().id.as_str())
-                || field("resource") != Some(target.as_str())
-            {
+            if !row_is_for(&item, &me, rec, &owed.status) {
                 continue;
             }
-            let sig = self.device.sign_row(collection, id, marking, &item)?;
-            self.record.sigs.insert(row_key(collection, id), sig);
+            let sig = self
+                .device
+                .sign_statement(collection, id, marking, &item, &st)?;
+            self.record.sigs.insert(
+                row_key(collection, id),
+                Signed {
+                    action: owed.action,
+                    status: owed.status,
+                    sig,
+                },
+            );
         }
         Ok(changed)
     }
@@ -464,16 +656,36 @@ impl<K: Keystore + TrustRoot, S: DataSource> Session<K, S> {
             .unwrap_or_default();
     }
 
-    /// Queue an action on `target` (a `<collection>/<id>` whose row carries
-    /// `marking`). Refused, with nothing queued, above the session's clearance.
+    /// Queue an action on `target` (`<collection>/<row id>`). The target's marking
+    /// is the one in this persona's cached delivery of the collection, never the
+    /// caller's: [`SessionError::NothingCached`] if the collection was never read,
+    /// [`SessionError::AboveClearance`] if the row is withheld or not there (the
+    /// same answer, so it does not say which). Nothing is queued on a refusal.
     pub fn request_action(
         &mut self,
         verb: &str,
         target: &str,
         params: &[(String, String)],
-        marking: &RowMarking,
     ) -> Result<String, SessionError> {
-        if !crate::marking::may_see(self.grant.clearance(), marking) {
+        let (collection, row) = target
+            .split_once('/')
+            .filter(|(c, r)| !c.is_empty() && !r.is_empty())
+            .ok_or_else(|| SessionError::BadTarget(target.to_string()))?;
+        let cached = match self.core.cached_delivery(collection) {
+            Ok(d) => d,
+            Err(CoreError::Store(StoreError::NotFound)) => {
+                return Err(SessionError::NothingCached(collection.to_string()))
+            }
+            Err(e) => return Err(e.into()),
+        };
+        let marking = cached
+            .into_iter()
+            .find_map(|d| match d {
+                Delivered::Row { id, marking, .. } if id == row => Some(marking),
+                _ => None,
+            })
+            .ok_or(SessionError::AboveClearance)?;
+        if !may_see(self.grant.clearance(), &marking) {
             return Err(SessionError::AboveClearance);
         }
         let id = self.core.new_action_id(&mut OsRng);
@@ -483,6 +695,17 @@ impl<K: Keystore + TrustRoot, S: DataSource> Session<K, S> {
                 .map(|(k, v)| (k.clone(), Json::Str(v.clone())))
                 .collect(),
         ));
+        // Recorded (sealed) before the action is queued: the device signs only
+        // statements about actions in this record.
+        self.record.actions.insert(
+            id.clone(),
+            ActionRecord {
+                verb: verb.to_string(),
+                target: target.to_string(),
+                params_sha256: hex(&sha256(params.as_bytes())),
+            },
+        );
+        self.save_record()?;
         let m = marking.to_policy();
         let by = self.grant.persona().id.clone();
         for (field, value) in [
@@ -520,8 +743,9 @@ impl<K: Keystore + TrustRoot, S: DataSource> Session<K, S> {
         }
     }
 
-    /// Push queued ops and merge the answer, then sign the audit rows made for this
-    /// persona's actions. On a failed push or a malformed answer nothing is lost.
+    /// Push queued ops and merge the answer, then sign statements about the audit
+    /// rows made for this device's own actions. On a failed push or a malformed
+    /// answer nothing is lost.
     pub fn sync(&mut self) -> Result<SyncReport, SessionError> {
         let blobs: Vec<Vec<u8>> = self.core.pending_ops().iter().map(SyncOp::encode).collect();
         let back = self.source.exchange(&self.grant, &blobs)?;
@@ -540,32 +764,38 @@ impl<K: Keystore + TrustRoot, S: DataSource> Session<K, S> {
             .ok()
             .map(|d| d.as_secs());
 
-        // The audit rows answered for this persona's own actions are owed a
-        // signature (once: a re-sent answer for a row signed already adds nothing).
-        let me = self.grant.persona().id.clone();
-        let mut changed = false;
-        for op in answer
+        // Only actions this device recorded count; for each, the merged status and
+        // audit id are owed a signature (once: a re-sent answer for a row signed
+        // already adds nothing). Verb and target come from the record, never the
+        // answer.
+        let answered: BTreeSet<&str> = answer
             .iter()
-            .filter(|op| op.field == action::AUDIT && op.object.starts_with(action::PREFIX))
-        {
-            let by = self.core.read_field(&op.object, action::BY);
-            let target = self.core.read_field(&op.object, action::TARGET);
-            let (Some(audit_id), Some(target)) = (
-                op.value
-                    .as_deref()
-                    .and_then(|v| std::str::from_utf8(v).ok()),
-                target.and_then(|t| String::from_utf8(t).ok()),
-            ) else {
+            .map(|op| op.object.as_str())
+            .filter(|o| self.record.actions.contains_key(*o))
+            .collect();
+        let mut changed = false;
+        for action_id in answered {
+            let text = |f: &str| {
+                self.core
+                    .read_field(action_id, f)
+                    .and_then(|b| String::from_utf8(b).ok())
+            };
+            let (Some(status), Some(audit_id)) = (text(action::STATUS), text(action::AUDIT)) else {
                 continue;
             };
-            if by.as_deref() != Some(me.as_bytes())
-                || audit_id.is_empty()
-                || self.record.signed(audit_id)
-                || self.record.owed.contains_key(audit_id)
+            if audit_id.is_empty()
+                || self.record.signed(&audit_id)
+                || self.record.owed.contains_key(&audit_id)
             {
                 continue;
             }
-            self.record.owed.insert(audit_id.to_string(), target);
+            self.record.owed.insert(
+                audit_id,
+                Owed {
+                    action: action_id.to_string(),
+                    status,
+                },
+            );
             changed = true;
         }
         if !self.record.owed.is_empty() {
@@ -582,7 +812,8 @@ impl<K: Keystore + TrustRoot, S: DataSource> Session<K, S> {
                 }
                 // Best effort: a row not fetched now is signed when next read.
                 if let Ok(rows) = self.source.fetch(&self.grant, &c) {
-                    changed |= self.sign_owed(&c, &normalise(rows))?;
+                    let rows = self.normalised(&c, rows);
+                    changed |= self.sign_owed(&c, &rows)?;
                 }
             }
         }
@@ -699,5 +930,89 @@ impl<K: Keystore + TrustRoot, S: DataSource> Session<K, S> {
                 Err(e.into())
             }
         }
+    }
+}
+
+#[cfg(all(test, feature = "demo-unpinned"))]
+mod tests {
+    use super::*;
+    use crate::consoles::common::AuditRecord;
+    use crate::demo::enclosure::DemoEnclosure;
+    use crate::keystore::SoftwareKeystore;
+    use attest::TrustAnchors;
+
+    const BODY: &str = include_str!("../tests/fixtures/session_body.json");
+
+    fn status_of(rows: &[Visible<AuditRecord>], id: &str) -> String {
+        rows.iter()
+            .find_map(|v| match v {
+                Visible::Shown { id: rid, item, .. } if rid == id => {
+                    Some(item.pq_signature.clone())
+                }
+                _ => None,
+            })
+            .expect("shown")
+    }
+
+    #[test]
+    fn an_unparseable_device_record_leaves_rows_none() {
+        let e =
+            DemoEnclosure::from_body("test", &parse(BODY).unwrap(), &TrustAnchors::new()).unwrap();
+        let ks = SoftwareKeystore::generate(&provider(), "device-root", &mut OsRng).unwrap();
+        let (device, _) = DeviceAuditKey::create(&ks, &mut OsRng).unwrap();
+        let mut s = Session::open(ks, device, e, "k.rao", "dev-1").unwrap();
+        let _ = s.rows::<AuditRecord>("midgard.audit").unwrap();
+        let id = s
+            .request_action("demo.ping", "midgard.audit/AUD-1", &[])
+            .unwrap();
+        s.sync().unwrap();
+        let ActionState::Applied { audit, .. } = s.action_state(&id) else {
+            panic!("not applied")
+        };
+        let rows = s.rows::<AuditRecord>("midgard.audit").unwrap();
+        assert_eq!(status_of(&rows, &audit), "device");
+
+        s.core
+            .set_device_audit_record(b"{\"sigs\":", &mut OsRng)
+            .unwrap();
+        let saved = s.export_state().unwrap();
+        let report = s.import_state(&saved.file, saved.generation).unwrap();
+        assert!(!report.pending_dropped);
+        assert_eq!(s.record, DeviceRecord::default());
+        let rows = s.rows::<AuditRecord>("midgard.audit").unwrap();
+        assert_eq!(status_of(&rows, &audit), "none");
+        s.set_online(false);
+        let rows = s.rows::<AuditRecord>("midgard.audit").unwrap();
+        assert_eq!(status_of(&rows, &audit), "none");
+    }
+
+    #[test]
+    fn the_device_record_round_trips() {
+        let mut r = DeviceRecord::default();
+        r.actions.insert(
+            "action:a".into(),
+            ActionRecord {
+                verb: "demo.ping".into(),
+                target: "c/r".into(),
+                params_sha256: "00".into(),
+            },
+        );
+        r.owed.insert(
+            "AUD-1".into(),
+            Owed {
+                action: "action:a".into(),
+                status: "applied".into(),
+            },
+        );
+        r.sigs.insert(
+            "c/AUD-1".into(),
+            Signed {
+                action: "action:a".into(),
+                status: "applied".into(),
+                sig: "ab".into(),
+            },
+        );
+        assert_eq!(DeviceRecord::decode(&r.encode()), Some(r));
+        assert_eq!(DeviceRecord::decode(b"{}"), None);
     }
 }

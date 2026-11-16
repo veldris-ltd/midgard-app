@@ -2,16 +2,24 @@
 //! `[NFR-PQ-3]` `[AC-C-13]` `[FR-C-2]` `[NFR-PQ-2]`
 //!
 //! An audit row the source appends for one of this device's actions arrives
-//! unchecked ([`SignatureStatus::Unsigned`]). The session signs it with this key
-//! when the action's answer comes back, keeps the signature in the persona's sealed
-//! cache, and shows the row as [`SignatureStatus::Device`] only while the row as
-//! delivered verifies under this key ([`DeviceAuditKey::verify_row`]).
+//! unchecked ([`SignatureStatus::Unsigned`]). The session signs a **device
+//! statement** about it with this key when the action's answer comes back, keeps the
+//! signature in the persona's sealed cache, and shows the row as
+//! [`SignatureStatus::Device`] only while the statement still verifies under this
+//! key ([`DeviceAuditKey::verify_statement`]).
 //!
+//! - **What is signed.** Not the bare row: the row (collection, id, item, marking)
+//!   together with what this device itself recorded when it made the action
+//!   ([`DeviceStatement`]: action id, verb, target, SHA-256 of the canonical
+//!   parameters) and the status the source answered. The session takes the action's
+//!   fields from its own sealed record, never from the source, so a source cannot
+//!   have the device sign content of its choosing ([`statement_bytes`]).
 //! - **Own domain.** Signatures are made over
-//!   `preimage(DEVICE_AUDIT, signed_bytes(collection, id, marking, item))`
+//!   `preimage(DEVICE_AUDIT, statement_bytes(..))`
 //!   ([`attest::accept::DEVICE_AUDIT`]), so a device signature can never stand for a
 //!   built-in demo-audit row ([`attest::accept::DEMO_AUDIT`]), a dataset or a release.
-//!   The key signs nothing else: it has no general signing method.
+//!   The key signs nothing else: it has no general signing method, and the one
+//!   signing method is crate-private.
 //! - **Custody.** The ML-DSA-65 key is made here. At rest its secret is sealed to the
 //!   device's key root ([`TrustRoot`]: the ML-KEM root that the platform key root,
 //!   [`RootSealer`](crate::keystore::sealed_root::RootSealer), seals in turn) with
@@ -31,12 +39,13 @@ use std::fmt;
 use attest::accept::{accept, sign_in_domain, DEVICE_AUDIT};
 use attest::envelope::SigEnvelope;
 use attest::hex::{hex, unhex};
-use attest::json::Json;
+use attest::json::{parse, Json};
 use kms::{seal_to_root, unseal_from_root, SealedBlob};
 use pqc_agility::backend::fips::provider;
 use pqc_agility::{sha256, Rng, SecretBytes, SigId, SigningKey, VerifyingKey};
 
 use crate::demo::audit::{signed_bytes, SignatureStatus};
+use crate::demo::canon;
 use crate::keystore::TrustRoot;
 use crate::marking::{MarkingLevel, RowMarking};
 
@@ -47,6 +56,55 @@ pub const ALG: SigId = SigId::MlDsa65;
 /// The key id prefix; the rest is a digest of the verifying key, so it names the
 /// key and nothing about the device or a persona.
 pub const KEY_ID_PREFIX: &str = "device-audit-";
+
+/// What this device recorded about one of its actions, and the status the source
+/// answered: the part of a device statement that does not come from the row.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DeviceStatement {
+    /// The action object id.
+    pub action_id: String,
+    /// `<console>.<verb>`.
+    pub verb: String,
+    /// `<collection>/<row id>` the action was on.
+    pub target: String,
+    /// Hex SHA-256 of the canonical JSON parameters.
+    pub params_sha256: String,
+    /// `applied`, `refused` or `conflict`.
+    pub status: String,
+}
+
+/// The bytes a device signature covers, before the domain preimage: the canonical
+/// JSON of `{collection, id, item, marking, statement}`, where the first four are
+/// exactly an audit row's [`signed_bytes`] and `statement` is `st`.
+pub fn statement_bytes(
+    collection: &str,
+    id: &str,
+    marking: &RowMarking,
+    item: &Json,
+    st: &DeviceStatement,
+) -> Vec<u8> {
+    let row = signed_bytes(collection, id, marking, item);
+    let mut pairs = match std::str::from_utf8(&row).ok().and_then(|t| parse(t).ok()) {
+        Some(Json::Obj(pairs)) => pairs,
+        // signed_bytes always encodes an object; keep the row's bytes regardless.
+        _ => vec![(
+            "row".to_string(),
+            Json::Str(String::from_utf8_lossy(&row).into_owned()),
+        )],
+    };
+    let s = |v: &str| Json::Str(v.to_string());
+    pairs.push((
+        "statement".to_string(),
+        Json::Obj(vec![
+            ("actionId".into(), s(&st.action_id)),
+            ("paramsSha256".into(), s(&st.params_sha256)),
+            ("status".into(), s(&st.status)),
+            ("target".into(), s(&st.target)),
+            ("verb".into(), s(&st.verb)),
+        ]),
+    ));
+    canon::encode(&Json::Obj(pairs)).into_bytes()
+}
 
 /// Why a device-audit key did not open, or could not sign.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -164,8 +222,9 @@ impl DeviceAuditKey {
         // The secret must sign for the stored verifying key.
         let probe_marking = RowMarking::new(MarkingLevel::Open, Vec::<String>::new());
         let probe = Json::Obj(Vec::new());
-        let sig = key.sign_row("\0probe", "", &probe_marking, &probe)?;
-        key.verify_row("\0probe", "", &probe_marking, &probe, &sig)
+        let st = DeviceStatement::default();
+        let sig = key.sign_statement("\0probe", "", &probe_marking, &probe, &st)?;
+        key.verify_statement("\0probe", "", &probe_marking, &probe, &st, &sig)
             .map_err(|_| DeviceKeyError::Sign("the secret does not match the key".into()))?;
         Ok(key)
     }
@@ -180,18 +239,21 @@ impl DeviceAuditKey {
         &self.verifying
     }
 
-    /// Sign one audit row (as delivered, `pqSignature` included) under the
-    /// device-audit domain. Returns the hex of an attest `MGSIG1` envelope.
-    pub fn sign_row(
+    /// Sign a device statement about one audit row (as delivered, `pqSignature`
+    /// included) under the device-audit domain. Returns the hex of an attest
+    /// `MGSIG1` envelope. Crate-private: only the session signs, and only with the
+    /// fields of an action it recorded itself.
+    pub(crate) fn sign_statement(
         &self,
         collection: &str,
         id: &str,
         marking: &RowMarking,
         item: &Json,
+        st: &DeviceStatement,
     ) -> Result<String, DeviceKeyError> {
         let signature = sign_in_domain(
             &DEVICE_AUDIT,
-            &signed_bytes(collection, id, marking, item),
+            &statement_bytes(collection, id, marking, item, st),
             &self.signing,
         )
         .map_err(|e| DeviceKeyError::Sign(e.to_string()))?;
@@ -203,15 +265,31 @@ impl DeviceAuditKey {
         Ok(hex(&env.encode()))
     }
 
-    /// Check a row's device signature under this key. `Ok` is the only way to
-    /// [`SignatureStatus::Device`]; every finding (not an envelope, another domain,
-    /// another key, a changed row, place, id or marking) is an `Err`.
-    pub fn verify_row(
+    /// [`sign_statement`](Self::sign_statement) for this crate's own tests only
+    /// (feature `demo-unpinned`, which a release build graph never selects).
+    #[cfg(any(test, feature = "demo-unpinned"))]
+    pub fn sign_statement_for_tests(
         &self,
         collection: &str,
         id: &str,
         marking: &RowMarking,
         item: &Json,
+        st: &DeviceStatement,
+    ) -> Result<String, DeviceKeyError> {
+        self.sign_statement(collection, id, marking, item, st)
+    }
+
+    /// Check a device statement's signature under this key. `Ok` is the only way to
+    /// [`SignatureStatus::Device`]; every finding (not an envelope, another domain,
+    /// another key, a changed row, place, id, marking or statement field) is an
+    /// `Err`.
+    pub fn verify_statement(
+        &self,
+        collection: &str,
+        id: &str,
+        marking: &RowMarking,
+        item: &Json,
+        st: &DeviceStatement,
         sig_hex: &str,
     ) -> Result<SignatureStatus, String> {
         let bytes = unhex(sig_hex).ok_or("device signature is not hex")?;
@@ -224,7 +302,7 @@ impl DeviceAuditKey {
         }
         accept(
             &DEVICE_AUDIT,
-            &signed_bytes(collection, id, marking, item),
+            &statement_bytes(collection, id, marking, item, st),
             &self.verifying,
             &env.signature,
             &[ALG],

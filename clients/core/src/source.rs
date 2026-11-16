@@ -104,6 +104,13 @@ pub enum Delivered {
         /// For an audit row (`AuditRecord`), what its signature check found; `None`
         /// for every other row type. A screen shows a check mark only for
         /// [`SignatureStatus::Verified`] or [`SignatureStatus::Device`].
+        ///
+        /// Only a source that checks rows inside this crate may say
+        /// [`SignatureStatus::Verified`] (the demo enclosure, under the pinned
+        /// demo-audit anchor): the session believes it only from a source whose
+        /// [`DataSource::in_core_audit_check`] returns a check, which no code outside
+        /// the crate can make, and shows `none` otherwise. No source may say
+        /// [`SignatureStatus::Device`]: the session decides that itself.
         signature: Option<SignatureStatus>,
     },
     /// A row above the grant: its level only.
@@ -139,6 +146,19 @@ impl fmt::Display for SourceError {
 
 impl std::error::Error for SourceError {}
 
+/// Made only inside this crate, by a source whose `verified` audit rows were checked
+/// in the core under a pinned anchor. A source outside the crate cannot make one,
+/// so the session does not believe its `verified`. `[NFR-PQ-3]` `[AC-C-13]`
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InCoreAuditCheck(());
+
+impl InCoreAuditCheck {
+    /// A check (in-core sources only).
+    pub(crate) fn new() -> Self {
+        Self(())
+    }
+}
+
 /// A source of console data for a session.
 pub trait DataSource {
     /// The personas that may sign in.
@@ -160,6 +180,12 @@ pub trait DataSource {
     fn online(&self) -> bool;
     /// Simulate (demo) or record (gateway) reachability.
     fn set_online(&mut self, online: bool);
+    /// Whether this source's `verified` audit rows were checked inside the core.
+    /// `None` (the default, and the only answer code outside the crate can give):
+    /// the session shows such rows as `none`.
+    fn in_core_audit_check(&self) -> Option<InCoreAuditCheck> {
+        None
+    }
 }
 
 /// Decode delivered rows as the read model `T`, keeping each row's visibility.
