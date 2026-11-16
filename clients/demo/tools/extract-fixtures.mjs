@@ -4,10 +4,10 @@
 // extensionless-import hook (sdk/ts/scripts/ts-resolve.mjs). Output is canonical JSON
 // (sorted keys, no whitespace), one file per console, plus manifest.json with the
 // git blob id of every input and the SHA-256 of every output.
-import { readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { join, dirname, relative } from 'node:path';
+import { join, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -103,28 +103,114 @@ const C = [
 ];
 
 const personas = JSON.parse(readFileSync(join(ROOT, 'clients/demo/personas.json'), 'utf8'));
-const overlay = JSON.parse(readFileSync(join(ROOT, 'clients/demo/overlay.json'), 'utf8'));
+const overlayPath = resolve(arg('--overlay', join(ROOT, 'clients/demo/overlay.json')));
+const overlay = JSON.parse(readFileSync(overlayPath, 'utf8'));
 const LEVELS = ['open', 'internal', 'restricted', 'confidential'];
+const rank = (level) => LEVELS.indexOf(level);
+const covers = (a, b) => rank(a.level) >= rank(b.level) && b.compartments.every((k) => a.compartments.includes(k));
+const show = (m) => (m.compartments.length ? `${m.level} [${m.compartments.join(', ')}]` : m.level);
 for (const p of personas) if (!LEVELS.includes(p.clearance)) die(`persona ${p.id}: unknown clearance ${p.clearance}`);
 
-function markingOf(name, id, x, entities) {
-  const lvl = (v) => (LEVELS.includes(v) ? v : null);
-  const fromItem = lvl(x.marking) ?? lvl(x.markings?.[0]?.level);
-  if (fromItem) {
-    const comps = x.compartments ?? x.markings?.[0]?.compartments ?? (x.compartment ? [x.compartment] : []);
-    return { level: fromItem, compartments: [...new Set(comps)].sort() };
+// The overlay is checked whole before anything is marked with it: every marking a
+// known level with a list of compartment names, every collection one that is extracted.
+function checkMarking(where, m) {
+  if (!m || typeof m !== 'object' || Array.isArray(m)) die(`overlay ${where}: not a marking object`);
+  if (!LEVELS.includes(m.level)) die(`overlay ${where}: unknown level ${m.level}`);
+  if (!Array.isArray(m.compartments) || !m.compartments.every((k) => typeof k === 'string' && k !== ''))
+    die(`overlay ${where}: compartments must be a list of strings`);
+  const extra = Object.keys(m).filter((k) => k !== 'level' && k !== 'compartments');
+  if (extra.length) die(`overlay ${where}: unknown key ${extra[0]}`);
+  return { level: m.level, compartments: [...new Set(m.compartments)].sort() };
+}
+const NAMES = new Set(C.map(([name]) => name));
+const ov = { default: checkMarking('default', overlay.default), collections: {} };
+for (const [name, c] of Object.entries(overlay.collections ?? {})) {
+  if (!NAMES.has(name)) die(`overlay names collection ${name}, which is not extracted`);
+  ov.collections[name] = {
+    default: c.default === undefined ? undefined : checkMarking(`${name} default`, c.default),
+    ids: Object.fromEntries(Object.entries(c.ids ?? {}).map(([id, m]) => [id, checkMarking(`${name}/${id}`, m)])),
+  };
+}
+
+// The marking a row carries itself: null when it has none, { unknown } when it has one
+// this extractor does not recognise. A `markings` list yields its highest level and the
+// union of its compartments.
+function itemMarking(x) {
+  const comps = (v) => {
+    if (v === undefined || v === null) return []; // the contract's `compartment: string | null`
+    if (typeof v === 'string' && v !== '') return [v];
+    if (Array.isArray(v) && v.every((k) => typeof k === 'string' && k !== '')) return v;
+    return null;
+  };
+  if (x.marking !== undefined) {
+    if (!LEVELS.includes(x.marking)) return { unknown: x.marking };
+    const cs = [...(comps(x.compartment) ?? [null]), ...(comps(x.compartments) ?? [null])];
+    if (cs.includes(null)) return { unknown: { compartment: x.compartment, compartments: x.compartments } };
+    return { level: x.marking, compartments: [...new Set(cs)].sort() };
   }
-  if (name === 'heimdall.tracks' && entities.has(id)) return entities.get(id);
-  const c = overlay.collections[name] ?? {};
-  return c.ids?.[id] ?? c.default ?? overlay.default;
+  if (x.markings !== undefined) {
+    const ms = x.markings;
+    if (!Array.isArray(ms) || ms.length === 0) return { unknown: ms };
+    let level = null; const cs = new Set();
+    for (const m of ms) {
+      if (!m || !LEVELS.includes(m.level)) return { unknown: ms };
+      const c = comps(m.compartments);
+      if (c === null) return { unknown: ms };
+      c.forEach((k) => cs.add(k));
+      if (level === null || rank(m.level) > rank(level)) level = m.level;
+    }
+    return { level, compartments: [...cs].sort() };
+  }
+  return null;
+}
+
+// The highest level named anywhere inside a row (`marking`/`level` values only).
+function innerFloor(v) {
+  let top = null;
+  const walk = (x) => {
+    if (Array.isArray(x)) { x.forEach(walk); return; }
+    if (!x || typeof x !== 'object') return;
+    for (const [k, y] of Object.entries(x)) {
+      if ((k === 'marking' || k === 'level') && LEVELS.includes(y) && (top === null || rank(y) > rank(top))) top = y;
+      walk(y);
+    }
+  };
+  walk(v);
+  return top;
+}
+
+function markingOf(name, id, x, entities) {
+  const own = itemMarking(x);
+  const c = ov.collections[name] ?? { ids: {} };
+  const named = c.ids[id];
+  let m;
+  if (own?.unknown !== undefined) {
+    if (!named) die(`${name}/${id}: unrecognised marking ${JSON.stringify(own.unknown)}; name the row in overlay.json`);
+    m = named;
+  } else if (named) {
+    if (own && !covers(named, own)) die(`${name}/${id}: overlay marks it ${show(named)}, below its own marking ${show(own)}`);
+    m = named;
+  } else if (own) {
+    m = own;
+  } else if (name === 'heimdall.tracks') {
+    if (!entities.has(id)) die(`${name}/${id}: no heimdall.entities row with this id to take a marking from`);
+    m = entities.get(id);
+  } else {
+    m = c.default ?? ov.default;
+  }
+  const floor = innerFloor(x);
+  if (floor && rank(m.level) < rank(floor)) die(`${name}/${id}: marked ${m.level}, below ${floor} inside the row`);
+  return m;
 }
 
 // Canonical JSON: sorted keys, no whitespace.
 const canon = (v) => JSON.stringify(v, (_, x) =>
   x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.keys(x).sort().map((k) => [k, x[k]])) : x);
 
+// Read every collection first, then mark: heimdall.tracks take the marking of the
+// heimdall.entities row with the same id, so entities are marked before tracks.
 const byConsole = new Map(Object.keys(fresh).map((c) => [c, {}]));
-const entityMarkings = new Map();
+const read_ = [];
 for (const [name, type, read, idOf] of C) {
   const console_ = name.split('.')[0];
   const raw = await read(fresh[console_]());
@@ -134,14 +220,20 @@ for (const [name, type, read, idOf] of C) {
     const id = String(__id ?? idOf?.(item) ?? item.id ?? item.name ?? i);
     if (seen.has(id)) die(`${name}: duplicate row id ${id}; give the collection an id function`);
     seen.add(id);
-    return { id, marking: markingOf(name, id, item, entityMarkings), item };
+    return { id, item };
   });
-  if (name === 'heimdall.entities') for (const r of rows) entityMarkings.set(r.id, r.marking);
-  for (const id of Object.keys(overlay.collections[name]?.ids ?? {})) if (!seen.has(id)) die(`overlay names ${name}/${id}, which does not exist`);
-  byConsole.get(console_)[name] = { type, rows };
+  for (const id of Object.keys(ov.collections[name]?.ids ?? {})) if (!seen.has(id)) die(`overlay names ${name}/${id}, which does not exist`);
+  read_.push({ name, console_, type, rows });
 }
-// heimdall.tracks is read before heimdall.entities in C; re-mark tracks now that entity markings are known.
-for (const r of byConsole.get('heimdall')['heimdall.tracks'].rows) if (entityMarkings.has(r.id)) r.marking = entityMarkings.get(r.id);
+const entityMarkings = new Map();
+const order = (r) => (r.name === 'heimdall.entities' ? 0 : 1);
+for (const col of [...read_].sort((a, b) => order(a) - order(b))) {
+  for (const r of col.rows) r.marking = markingOf(col.name, r.id, r.item, entityMarkings);
+  if (col.name === 'heimdall.entities') for (const r of col.rows) entityMarkings.set(r.id, r.marking);
+}
+for (const { name, console_, type, rows } of read_) {
+  byConsole.get(console_)[name] = { type, rows: rows.map(({ id, marking, item }) => ({ id, marking, item })) };
+}
 
 // The synthetic hour: a 60-minute closed loop per track, every 10 s.
 const box = { latN: 56.0, latS: 51.0, lonW: -10.0, lonE: -2.0 };
@@ -176,6 +268,6 @@ for (const [c, collections] of byConsole) {
   write(`${c}.json`, { console: c, sources: Object.fromEntries(SOURCE[c].map((p) => [p, blob(p)])), collections });
 }
 const inputs = Object.fromEntries([...Object.values(SOURCE).flat(), 'clients/demo/personas.json',
-  'clients/demo/overlay.json', 'clients/demo/tools/extract-fixtures.mjs'].map((p) => [p, blob(p)]));
+  relative(ROOT, overlayPath), 'clients/demo/tools/extract-fixtures.mjs'].map((p) => [p, blob(p)]));
 writeFileSync(join(out, 'manifest.json'), canon({ format: 'midgard-demo-fixtures', version: 1, release, files, inputs }));
 console.log(`extract-fixtures: ${C.length} collections + motion -> ${relative(ROOT, out) || out}`);
