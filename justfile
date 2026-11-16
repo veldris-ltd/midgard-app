@@ -316,7 +316,8 @@ verify-heimdall:
 
 # Build and sign the demo dataset for this release (Apple clients; Task A7 of
 # docs/plans/2026-11-13-apple-clients-plan.md). Needs the demo key from
-# clients/demo/tools/demo-key.sh. [AC-C-13] [NFR-PQ-3]
+# clients/demo/tools/demo-key.sh (dataset) and the demo-audit key from
+# `demo-key.sh audit`. [AC-C-13] [NFR-PQ-3]
 demo-dataset:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -326,7 +327,9 @@ demo-dataset:
     cargo run --offline --locked -q -p midgard-client-core --features backend-fips --example build_demo_dataset -- \
         --fixtures "clients/demo/fixtures/$release" --tag "v$release" \
         --keystore "$dir/demo-dataset.keystore" --keystore-passphrase-file "$dir/passphrase" \
-        --anchors clients/demo/trust/demo-dataset.pub --out "clients/demo/datasets/$release.mgdemo"
+        --anchors clients/demo/trust/demo-dataset.pub \
+        --audit-keystore "$dir/demo-audit.keystore" --audit-anchors clients/demo/trust/demo-audit.pub \
+        --out "clients/demo/datasets/$release.mgdemo"
 
 # Client Platforms acceptance verification. Prompt 8.b lands the shared-core
 # subset of the Phase-8 Definition of Done: AC-C-1,2,3,4,13 (one core, at-rest

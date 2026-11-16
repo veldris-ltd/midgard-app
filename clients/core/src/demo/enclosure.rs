@@ -31,6 +31,11 @@ use crate::CORE_VERSION;
 /// (`publish` is off).
 pub const PINNED_DATASET_ANCHOR: &str = include_str!("../../../demo/trust/demo-dataset.pub");
 
+/// The demo-audit anchor compiled into the core (`clients/demo/trust/demo-audit.pub`):
+/// the key that signs the audit rows built into a dataset. Same packaging note as
+/// [`PINNED_DATASET_ANCHOR`].
+pub const PINNED_AUDIT_ANCHOR: &str = include_str!("../../../demo/trust/demo-audit.pub");
+
 /// The dataset `format` this enclosure reads.
 pub const FORMAT: &str = "midgard-demo-dataset";
 
@@ -380,9 +385,9 @@ impl DemoEnclosure {
     pub fn open_pinned_for(file: &[u8], release: &str) -> Result<Self, dataset::DatasetError> {
         let anchors = TrustAnchors::parse(PINNED_DATASET_ANCHOR)
             .map_err(|e| dataset::DatasetError::Malformed(format!("pinned anchor: {e}")))?;
-        // No demo-audit key exists yet, so no audit anchor is pinned: a dataset whose
-        // rows carry audit signatures is refused until one is.
-        Self::open_under(file, &anchors, &TrustAnchors::new(), release)
+        let audit_anchors = TrustAnchors::parse(PINNED_AUDIT_ANCHOR)
+            .map_err(|e| dataset::DatasetError::Malformed(format!("pinned audit anchor: {e}")))?;
+        Self::open_under(file, &anchors, &audit_anchors, release)
     }
 
     /// Verify `file` against caller-chosen dataset `anchors` for `release`, then load

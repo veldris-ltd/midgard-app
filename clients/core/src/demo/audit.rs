@@ -23,12 +23,13 @@
 
 use attest::accept::{accept, preimage, DEMO_AUDIT};
 use attest::envelope::SigEnvelope;
-use attest::hex::unhex;
-use attest::json::Json;
-use attest::TrustAnchors;
+use attest::hex::{hex, unhex};
+use attest::json::{parse, Json};
+use attest::{SignError, SigningBackend, TrustAnchors};
+use pqc_agility::{Signature, VerifyingKey};
 
 use super::{canon, dataset};
-use crate::marking::RowMarking;
+use crate::marking::{MarkingLevel, RowMarking};
 
 /// The row field holding a build-time audit-row signature (hex `MGSIG1` envelope).
 pub const ROW_SIG_FIELD: &str = "auditSig";
@@ -209,4 +210,216 @@ pub fn unlisted_claim(type_name: &str, item: &Json) -> Option<String> {
 /// rows (and the tests) make exactly what [`verify_row`] checks.
 pub fn row_preimage(collection: &str, id: &str, marking: &RowMarking, item: &Json) -> Vec<u8> {
     preimage(&DEMO_AUDIT, &signed_bytes(collection, id, marking, item))
+}
+
+/// Whether `msg` is exactly `preimage(DEMO_AUDIT, signed_bytes(..))` for some audit
+/// row: the canonical `{collection, id, item, marking}` with string collection and
+/// id, an object item and a well-formed marking, and nothing after it.
+fn is_row_preimage(msg: &[u8]) -> bool {
+    let Some(rest) = msg.strip_prefix(preimage(&DEMO_AUDIT, b"").as_slice()) else {
+        return false;
+    };
+    let Some(v) = std::str::from_utf8(rest).ok().and_then(|t| parse(t).ok()) else {
+        return false;
+    };
+    let Json::Obj(pairs) = &v else {
+        return false;
+    };
+    let keys: Vec<&str> = pairs.iter().map(|(k, _)| k.as_str()).collect();
+    let mut sorted = keys.clone();
+    sorted.sort_unstable();
+    if sorted != ["collection", "id", "item", "marking"] {
+        return false;
+    }
+    let (Some(collection), Some(id), Some(item @ Json::Obj(_)), Some(m)) = (
+        v.get("collection").and_then(Json::as_str),
+        v.get("id").and_then(Json::as_str),
+        v.get("item"),
+        v.get("marking").and_then(|m| marking_json(m).ok()),
+    ) else {
+        return false;
+    };
+    // Rebuilding the bytes from the parts must give the message back exactly: this
+    // refuses non-canonical text, extra marking keys and unsorted compartments.
+    signed_bytes(collection, id, &m, item) == rest
+}
+
+/// A row marking `{"compartments": [..], "level": ..}`, strictly.
+fn marking_json(m: &Json) -> Result<RowMarking, String> {
+    let Json::Obj(pairs) = m else {
+        return Err("marking is not an object".into());
+    };
+    if pairs.len() != 2 {
+        return Err("marking has keys other than level and compartments".into());
+    }
+    let level = m
+        .get("level")
+        .and_then(Json::as_str)
+        .and_then(MarkingLevel::parse)
+        .ok_or("marking level")?;
+    let compartments = m
+        .get("compartments")
+        .and_then(Json::as_array)
+        .ok_or("marking compartments")?
+        .iter()
+        .map(|c| c.as_str().map(str::to_string).ok_or("marking compartment"))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(RowMarking::new(level, compartments))
+}
+
+/// A signer that signs audit-row preimages and nothing else (the whole message is
+/// checked, see `is_row_preimage`). The build step wraps the unsealed demo-audit
+/// key in this type at once and never hands it to a general signer.
+pub struct DemoAuditOnly<S> {
+    inner: S,
+}
+
+impl<S: SigningBackend> DemoAuditOnly<S> {
+    /// Wrap `inner`.
+    pub fn new(inner: S) -> Self {
+        Self { inner }
+    }
+}
+
+impl<S: SigningBackend> SigningBackend for DemoAuditOnly<S> {
+    fn key_id(&self) -> &str {
+        self.inner.key_id()
+    }
+
+    fn sign(&self, msg: &[u8]) -> Result<Signature, SignError> {
+        if !is_row_preimage(msg) {
+            return Err(SignError::Custodian(
+                "the demo-audit key signs audit-row preimages only".into(),
+            ));
+        }
+        self.inner.sign(msg)
+    }
+
+    fn verifying_key(&self) -> &VerifyingKey {
+        self.inner.verifying_key()
+    }
+}
+
+/// The pairs of a JSON object.
+type Pairs = Vec<(String, Json)>;
+
+/// What [`map_audit_rows`] does to one row: `(collection, row pairs)` to new pairs.
+type RowFn<'a> = dyn FnMut(&str, &[(String, Json)]) -> Result<Pairs, String> + 'a;
+
+/// Apply `f` to every row of every `AuditRecord` collection of `body`, as
+/// `(collection, row pairs)`; other values are copied.
+fn map_audit_rows(body: &Json, f: &mut RowFn<'_>) -> Result<Json, String> {
+    let Json::Obj(top) = body else {
+        return Err("body is not an object".into());
+    };
+    let mut out = Vec::with_capacity(top.len());
+    for (k, v) in top {
+        if k != "collections" {
+            out.push((k.clone(), v.clone()));
+            continue;
+        }
+        let Json::Obj(colls) = v else {
+            return Err("collections is not an object".into());
+        };
+        let mut new_colls = Vec::with_capacity(colls.len());
+        for (name, c) in colls {
+            if c.get("type").and_then(Json::as_str) != Some(AUDIT_TYPE) {
+                new_colls.push((name.clone(), c.clone()));
+                continue;
+            }
+            let Json::Obj(cpairs) = c else {
+                return Err(format!("{name} is not an object"));
+            };
+            let mut new_c = Vec::with_capacity(cpairs.len());
+            for (ck, cv) in cpairs {
+                if ck != "rows" {
+                    new_c.push((ck.clone(), cv.clone()));
+                    continue;
+                }
+                let rows = cv.as_array().ok_or(format!("{name}.rows"))?;
+                let mut new_rows = Vec::with_capacity(rows.len());
+                for r in rows {
+                    let Json::Obj(rp) = r else {
+                        return Err(format!("{name}: a row is not an object"));
+                    };
+                    new_rows.push(Json::Obj(f(name, rp)?));
+                }
+                new_c.push((ck.clone(), Json::Arr(new_rows)));
+            }
+            new_colls.push((name.clone(), Json::Obj(new_c)));
+        }
+        out.push((k.clone(), Json::Obj(new_colls)));
+    }
+    Ok(Json::Obj(out))
+}
+
+fn row_parts(row: &[(String, Json)]) -> Result<(String, RowMarking, Json), String> {
+    let get = |k: &str| row.iter().find(|(p, _)| p == k).map(|(_, v)| v);
+    let id = get("id")
+        .and_then(Json::as_str)
+        .ok_or("row id")?
+        .to_string();
+    let marking = marking_json(get("marking").ok_or("row marking")?)?;
+    let item = get("item").ok_or("row item")?.clone();
+    Ok((id, marking, item))
+}
+
+/// `body` with a [`ROW_SIG_FIELD`] signature, made through `signer`, added to every
+/// `AuditRecord` row. Refuses a row that already carries one, and a key not in
+/// [`dataset::APPROVED`].
+pub fn sign_rows(body: &Json, signer: &dyn SigningBackend) -> Result<Json, String> {
+    let alg = signer.verifying_key().alg();
+    if !dataset::APPROVED.contains(&alg) {
+        return Err(format!(
+            "{} is not approved for demo audit rows",
+            alg.as_str()
+        ));
+    }
+    map_audit_rows(body, &mut |name, row| {
+        if row.iter().any(|(k, _)| k == ROW_SIG_FIELD) {
+            return Err(format!("{name}: a row is signed already"));
+        }
+        let (id, marking, item) = row_parts(row)?;
+        let signature = signer
+            .sign(&row_preimage(name, &id, &marking, &item))
+            .map_err(|e| e.to_string())?;
+        let env = SigEnvelope {
+            domain: DEMO_AUDIT.label().to_vec(),
+            key_id: signer.key_id().to_string(),
+            signature,
+        };
+        let mut out = row.to_vec();
+        out.push((ROW_SIG_FIELD.into(), Json::Str(hex(&env.encode()))));
+        Ok(out)
+    })
+}
+
+/// Check every `AuditRecord` row of `body` carries a signature that verifies under
+/// `anchors`; the number of rows checked.
+pub fn verify_rows(body: &Json, anchors: &TrustAnchors) -> Result<usize, String> {
+    let mut n = 0;
+    map_audit_rows(body, &mut |name, row| {
+        let (id, marking, item) = row_parts(row)?;
+        let sig = row
+            .iter()
+            .find(|(k, _)| k == ROW_SIG_FIELD)
+            .and_then(|(_, v)| v.as_str())
+            .ok_or(format!("{name}/{id}: no audit signature"))?;
+        verify_row(name, &id, &marking, &item, sig, anchors)?;
+        n += 1;
+        Ok(row.to_vec())
+    })?;
+    Ok(n)
+}
+
+/// `body` without any [`ROW_SIG_FIELD`]: what the fixtures build before signing.
+pub fn without_row_sigs(body: &Json) -> Json {
+    map_audit_rows(body, &mut |_, row| {
+        Ok(row
+            .iter()
+            .filter(|(k, _)| k != ROW_SIG_FIELD)
+            .cloned()
+            .collect())
+    })
+    .unwrap_or_else(|_| body.clone())
 }

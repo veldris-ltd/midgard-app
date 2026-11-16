@@ -16,8 +16,11 @@ use midgard_client_core::consoles::heimdall::HeimdallTrack;
 use midgard_client_core::consoles::midgard::MidgardKeyRecord;
 use midgard_client_core::consoles::mimir::MimirSession;
 use midgard_client_core::consoles::motion::HeimdallMotion;
+use midgard_client_core::demo::audit::{self, SignatureStatus};
 use midgard_client_core::demo::dataset;
-use midgard_client_core::demo::enclosure::{DemoEnclosure, PINNED_DATASET_ANCHOR};
+use midgard_client_core::demo::enclosure::{
+    DemoEnclosure, PINNED_AUDIT_ANCHOR, PINNED_DATASET_ANCHOR,
+};
 use midgard_client_core::marking::{MarkingLevel, Visible};
 use midgard_client_core::source::{decode_rows, DataSource, Delivered};
 use midgard_client_core::CORE_VERSION;
@@ -58,7 +61,11 @@ fn with_guest() -> DemoEnclosure {
             list.push(guest.clone());
         }
     }
-    DemoEnclosure::from_body(CORE_VERSION, &Json::Obj(top), &TrustAnchors::new()).unwrap()
+    DemoEnclosure::from_body(CORE_VERSION, &Json::Obj(top), &audit_anchors()).unwrap()
+}
+
+fn audit_anchors() -> TrustAnchors {
+    TrustAnchors::parse(PINNED_AUDIT_ANCHOR).unwrap()
 }
 
 /// One fixture row as the fixtures file has it, read without the core's marking code.
@@ -316,4 +323,94 @@ fn no_delivered_row_of_any_console_claims_an_unchecked_signature() {
     }
     // 4 artefact signatures, 2 artefact "Verified" labels, 4 fleet agents, 3 decisions.
     assert_eq!(replaced, 13);
+}
+
+#[test]
+fn every_built_in_audit_row_of_the_committed_dataset_is_verified() {
+    let e = committed();
+    let g = e.grant("k.osei").unwrap();
+    let mut verified = 0;
+    for (name, ty) in e.collections() {
+        for d in e.fetch(&g, &name).unwrap() {
+            let Delivered::Row {
+                body, signature, ..
+            } = d
+            else {
+                panic!("k.osei is refused a {name} row")
+            };
+            if ty == audit::AUDIT_TYPE {
+                assert_eq!(signature, Some(SignatureStatus::Verified), "{name}");
+                let item = parse(std::str::from_utf8(&body).unwrap()).unwrap();
+                assert_eq!(
+                    item.get("pqSignature").and_then(Json::as_str),
+                    Some("verified")
+                );
+                verified += 1;
+            } else {
+                assert_eq!(signature, None, "{name}");
+            }
+        }
+    }
+    assert_eq!(verified, 20);
+}
+
+#[test]
+fn a_tampered_built_in_audit_row_refuses_the_dataset() {
+    let file =
+        fs::read(repo().join(format!("clients/demo/datasets/{CORE_VERSION}.mgdemo"))).unwrap();
+    let anchors = TrustAnchors::parse(PINNED_DATASET_ANCHOR).unwrap();
+    let ds = dataset::verify(&file, &anchors, CORE_VERSION).unwrap();
+    let text = midgard_client_core::demo::canon::encode(&ds.body);
+    let load =
+        |t: &str| DemoEnclosure::from_body(CORE_VERSION, &parse(t).unwrap(), &audit_anchors());
+    load(&text).unwrap();
+    // One audit row's actor changed under its signature (heimdall.audit, row 0).
+    let mut body = ds.body.clone();
+    let mut changed = false;
+    if let Json::Obj(top) = &mut body {
+        for (k, colls) in top.iter_mut() {
+            let (true, Json::Obj(colls)) = (k == "collections", colls) else {
+                continue;
+            };
+            for (name, c) in colls.iter_mut() {
+                let (true, Json::Obj(c)) = (name == "heimdall.audit", c) else {
+                    continue;
+                };
+                for (ck, rows) in c.iter_mut() {
+                    let (true, Json::Arr(rows)) = (ck == "rows", rows) else {
+                        continue;
+                    };
+                    let Json::Obj(row) = &mut rows[0] else {
+                        panic!("row")
+                    };
+                    for (rk, item) in row.iter_mut() {
+                        let (true, Json::Obj(item)) = (rk == "item", item) else {
+                            continue;
+                        };
+                        for (ik, v) in item.iter_mut() {
+                            if ik == "actor" {
+                                *v = Json::Str("k.rao".into());
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert!(changed);
+    let tampered = midgard_client_core::demo::canon::encode(&body);
+    assert!(load(&tampered).is_err());
+    // Two rows' signatures swapped.
+    let sigs: Vec<&str> = text
+        .split(r#""auditSig":""#)
+        .skip(1)
+        .map(|t| &t[..t.find('"').unwrap()])
+        .collect();
+    assert_eq!(sigs.len(), 20);
+    let swapped = text
+        .replacen(sigs[0], "SWAP", 1)
+        .replacen(sigs[1], sigs[0], 1)
+        .replacen("SWAP", sigs[1], 1);
+    assert!(load(&swapped).is_err());
 }

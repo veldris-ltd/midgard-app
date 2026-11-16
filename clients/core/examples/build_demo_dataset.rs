@@ -3,7 +3,8 @@
 //! ```text
 //! cargo run --offline --locked -p midgard-client-core --features backend-fips \
 //!   --example build_demo_dataset -- --fixtures <dir> --tag <tag> --keystore <path> \
-//!   --keystore-passphrase-file <path> --anchors <pub> --out <file>
+//!   --keystore-passphrase-file <path> --anchors <pub> \
+//!   --audit-keystore <path> --audit-anchors <pub> --out <file>
 //! ```
 //!
 //! Refuses unless every manifest input is a plain path under `sdk/ts/src/mock/` (and
@@ -14,8 +15,10 @@
 //! Every check is a refusal; there is no warn-and-continue.
 //!
 //! The unsealed demo key is wrapped in [`dataset::DemoDatasetOnly`] at once, so in
-//! this process it can sign `preimage(DEMO_DATASET, …)` messages only. It is never
-//! handed to a general signer.
+//! this process it can sign `preimage(DEMO_DATASET, …)` messages only. The demo-audit
+//! key (same passphrase file) is wrapped in [`audit::DemoAuditOnly`] at once and signs
+//! each built-in `AuditRecord` row's `preimage(DEMO_AUDIT, …)` and nothing else.
+//! Neither is ever handed to a general signer.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -23,7 +26,7 @@ use std::process::{Command, ExitCode};
 use attest::json::{parse, Json};
 use attest::{Keystore, KmsSigner, RootWrap, TrustAnchors};
 use midgard_client_core::demo::build::{self, InputOrigin};
-use midgard_client_core::demo::dataset;
+use midgard_client_core::demo::{audit, canon, dataset, guard};
 
 /// ML-DSA signing in an unoptimised build holds large arrays on the stack; run the
 /// work on a thread with room, as `mg-sign` does.
@@ -127,6 +130,9 @@ fn run() -> Result<(), String> {
     let anchors = TrustAnchors::parse(
         &std::fs::read_to_string(arg(&args, "--anchors")?).map_err(|e| e.to_string())?,
     )?;
+    let audit_anchors = TrustAnchors::parse(
+        &std::fs::read_to_string(arg(&args, "--audit-anchors")?).map_err(|e| e.to_string())?,
+    )?;
 
     check_inputs(&root, &fixtures, &tag)?;
     let body = build::canonical_body(&fixtures).map_err(|e| e.to_string())?;
@@ -135,11 +141,14 @@ fn run() -> Result<(), String> {
         return Err(format!("the fixtures are not for {release}"));
     }
 
-    // Already built from these fixtures and signed under the pinned key: keep it, so
-    // a rebuild does not churn the committed file (ML-DSA signing is randomised).
+    // Already built from these fixtures and signed under the pinned keys (the
+    // dataset, and every audit row): keep it, so a rebuild does not churn the
+    // committed file (ML-DSA signing is randomised).
     if let Ok(existing) = std::fs::read(&out) {
         if let Ok(ds) = dataset::verify(&existing, &anchors, &release) {
-            if ds.body_bytes == body {
+            if canon::encode(&audit::without_row_sigs(&ds.body)).as_bytes() == body
+                && audit::verify_rows(&ds.body, &audit_anchors).is_ok()
+            {
                 println!(
                     "build_demo_dataset: {} is up to date ({} bytes)",
                     out.display(),
@@ -158,20 +167,41 @@ fn run() -> Result<(), String> {
         &RootWrap::Passphrase(&pass),
     )
     .map_err(|e| e.to_string())?;
+    let audit_ks = Keystore::read(
+        Path::new(&arg(&args, "--audit-keystore")?),
+        &RootWrap::Passphrase(&pass),
+    )
+    .map_err(|e| e.to_string())?;
     drop(pass);
+
+    let audit_signer = audit::DemoAuditOnly::new(KmsSigner::new(
+        audit_ks.into_signing_root().map_err(|e| e.to_string())?,
+    ));
+    let signed_rows = audit::sign_rows(&built, &audit_signer)?;
+    drop(audit_signer);
+    let n = audit::verify_rows(&signed_rows, &audit_anchors)
+        .map_err(|e| format!("audit self-check failed: {e}"))?;
+    if guard::check(&signed_rows).is_err() {
+        return Err("the local-suite guard refuses the signed body".into());
+    }
+    let body = canon::encode(&signed_rows).into_bytes();
+
     let signer = dataset::DemoDatasetOnly::new(KmsSigner::new(
         ks.into_signing_root().map_err(|e| e.to_string())?,
     ));
     let file = dataset::sign(&release, &body, &signer).map_err(|e| e.to_string())?;
     drop(signer);
 
-    dataset::verify(&file, &anchors, &release).map_err(|e| format!("self-check failed: {e}"))?;
+    let ds = dataset::verify(&file, &anchors, &release)
+        .map_err(|e| format!("self-check failed: {e}"))?;
+    audit::verify_rows(&ds.body, &audit_anchors)
+        .map_err(|e| format!("audit self-check failed: {e}"))?;
     if let Some(parent) = out.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     std::fs::write(&out, &file).map_err(|e| e.to_string())?;
     println!(
-        "build_demo_dataset: {} ({} bytes) signed and verified",
+        "build_demo_dataset: {} ({} bytes, {n} audit rows) signed and verified",
         out.display(),
         file.len()
     );

@@ -348,8 +348,15 @@ fn the_committed_dataset_opens() {
         &fs::read_to_string(repo().join("clients/demo/trust/demo-dataset.pub")).unwrap(),
     )
     .unwrap();
-    let e =
-        DemoEnclosure::open(&committed(), &anchors, &TrustAnchors::new(), CORE_VERSION).unwrap();
+    let audit_anchors = TrustAnchors::parse(
+        &fs::read_to_string(repo().join("clients/demo/trust/demo-audit.pub")).unwrap(),
+    )
+    .unwrap();
+    let e = DemoEnclosure::open(&committed(), &anchors, &audit_anchors, CORE_VERSION).unwrap();
+    // Without the audit anchor, the signed audit rows cannot be checked: refused.
+    assert!(
+        DemoEnclosure::open(&committed(), &anchors, &TrustAnchors::new(), CORE_VERSION).is_err()
+    );
     assert_eq!(e.personas().len(), 4);
     assert_eq!(e.release(), CORE_VERSION);
     // The pinned path opens the same file under the anchor compiled into the core.
@@ -359,10 +366,14 @@ fn the_committed_dataset_opens() {
 }
 
 #[test]
-fn the_pinned_anchor_is_the_committed_one() {
+fn the_pinned_anchors_are_the_committed_ones() {
     assert_eq!(
         midgard_client_core::demo::enclosure::PINNED_DATASET_ANCHOR,
         fs::read_to_string(repo().join("clients/demo/trust/demo-dataset.pub")).unwrap()
+    );
+    assert_eq!(
+        midgard_client_core::demo::enclosure::PINNED_AUDIT_ANCHOR,
+        fs::read_to_string(repo().join("clients/demo/trust/demo-audit.pub")).unwrap()
     );
 }
 

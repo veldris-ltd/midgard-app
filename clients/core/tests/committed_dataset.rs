@@ -5,7 +5,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use attest::TrustAnchors;
-use midgard_client_core::demo::{build, dataset};
+use midgard_client_core::demo::{audit, build, canon, dataset};
 use midgard_client_core::CORE_VERSION;
 
 fn repo() -> PathBuf {
@@ -25,10 +25,17 @@ fn the_committed_dataset_verifies_and_matches_its_fixtures() {
     let ds = dataset::verify(&file, &anchors, CORE_VERSION).unwrap();
     let body = build::canonical_body(&repo().join(format!("clients/demo/fixtures/{CORE_VERSION}")))
         .unwrap();
+    // The body is the fixtures' body plus one signature on each built-in audit row.
     assert_eq!(
-        ds.body_bytes, body,
+        canon::encode(&audit::without_row_sigs(&ds.body)).into_bytes(),
+        body,
         "the dataset is stale: run `just demo-dataset`"
     );
+    let audit_anchors = TrustAnchors::parse(
+        &fs::read_to_string(repo().join("clients/demo/trust/demo-audit.pub")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(audit::verify_rows(&ds.body, &audit_anchors).unwrap(), 20);
 }
 
 #[test]
@@ -51,4 +58,25 @@ fn the_pinned_anchor_is_one_ml_dsa_key_for_demo_datasets_only() {
     // A public key only: hex, nothing that looks like keystore or PEM material.
     assert!(fields[2].bytes().all(|b| b.is_ascii_hexdigit()));
     assert!(!text.contains("PRIVATE"));
+}
+
+#[test]
+fn the_pinned_audit_anchor_is_one_ml_dsa_key_for_demo_audit_rows_only() {
+    let text = fs::read_to_string(repo().join("clients/demo/trust/demo-audit.pub")).unwrap();
+    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    assert_eq!(lines.len(), 1, "exactly one demo-audit anchor: {lines:?}");
+    let fields: Vec<&str> = lines[0].split(' ').collect();
+    assert_eq!(fields.len(), 3, "<alg> <key-id> <hex>");
+    assert!(dataset::APPROVED.iter().any(|a| a.as_str() == fields[0]));
+    assert!(
+        fields[1].starts_with("midgard-demo-audit-"),
+        "{}",
+        fields[1]
+    );
+    assert!(fields[2].bytes().all(|b| b.is_ascii_hexdigit()));
+    assert!(!text.contains("PRIVATE"));
+    // Not the dataset key.
+    let dataset_pub =
+        fs::read_to_string(repo().join("clients/demo/trust/demo-dataset.pub")).unwrap();
+    assert_ne!(dataset_pub.trim().split(' ').nth(2), Some(fields[2].trim()));
 }
