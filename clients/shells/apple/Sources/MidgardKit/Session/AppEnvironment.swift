@@ -24,12 +24,18 @@ public struct AppEnvironment {
     }
 
     /// The app's own: the bundled dataset, Application Support, the keychain, and the
-    /// Secure Enclave when this build may use it (else the labelled software root).
-    /// `reason` is the text of the unlock prompt.
+    /// key root chosen by `KeyRootFactory` (at enrolment by a keychain probe; once
+    /// enrolled, by the recorded choice). It touches the keychain and the disk: call it
+    /// off the main thread, through `AppModel.start(making:)`. `reason` is the text of
+    /// the unlock prompt. Throws `KeyRootFactory.Failure.unsignedBuild` for a build
+    /// that cannot keep keys.
     public static func live(reason: String, device: DeviceInfo, bundle: Bundle = .main) throws -> AppEnvironment {
         let secrets = KeychainSecretStore()
-        return AppEnvironment(dataset: StorePaths.bundledDataset(in: bundle), storeDirectory: try StorePaths.storeDirectory(),
-                              secrets: secrets, keyRoot: KeyRootFactory.make(reason: reason, secrets: secrets),
+        let directory = try StorePaths.storeDirectory()
+        let sealed = try PersonaStateStore(directory: directory, secrets: secrets).loadKeys()
+        return AppEnvironment(dataset: StorePaths.bundledDataset(in: bundle), storeDirectory: directory,
+                              secrets: secrets,
+                              keyRoot: try KeyRootFactory.make(reason: reason, secrets: secrets, sealedRoot: sealed?.root),
                               device: device, replicaId: replicaId())
     }
 

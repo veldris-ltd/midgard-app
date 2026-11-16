@@ -29,6 +29,20 @@ public enum Acknowledgements {
 /// internal detail strings) stay out of it. [AC-C-13] [FR-C-9]
 public enum ErrorText {
     public static func describe(_ error: Error) -> String {
+        switch error {
+        case KeyRootFactory.Failure.unsignedBuild:
+            return "This build is not signed for the keychain, so it cannot keep keys. Use a signed build."
+        case KeyRootFactory.Failure.keychainUnavailable, SessionController.Failure.keychainUnavailable:
+            return "The keychain is not available right now. Unlock the device and try again."
+        case KeyRootFactory.Failure.mismatch:
+            return "This device's saved keys do not match its key store. Reset the demo to start again."
+        case PersonaStateStore.Failure.namingKeyDamaged:
+            return "This device's saved data cannot be found again. Reset the demo to start again."
+        case SessionController.Failure.notEnrolled:
+            return "This device is not set up yet."
+        default:
+            break
+        }
         guard let error = error as? ClientError else {
             return "Something went wrong on this device. Try again."
         }

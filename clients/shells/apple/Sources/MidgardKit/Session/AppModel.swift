@@ -45,6 +45,18 @@ public final class AppModel: ObservableObject {
         self.idleTimeout = idleTimeout
     }
 
+    /// Make the environment off the main thread (it probes the keychain), then start.
+    /// A failure is a screen state.
+    public func start(making: @escaping () throws -> AppEnvironment) async {
+        let made: Result<AppEnvironment, Error> = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async { continuation.resume(returning: Result { try making() }) }
+        }
+        switch made {
+        case let .success(env): await start(env)
+        case let .failure(error): phase = .failed(ErrorText.describe(error))
+        }
+    }
+
     public func start(_ env: AppEnvironment) async {
         do {
             guard let dataset = env.dataset else { throw ClientError.NotFound(what: "bundled dataset") }

@@ -94,10 +94,14 @@ final class PresentationTests: XCTestCase {
         XCTAssertEqual(claim.text, "NOT CHECKED (DEMO)")
         XCTAssertFalse(claim.showsCheck)
         // Any check mark left in free text is removed: only Verified/Device get one.
-        for text in ["ML-DSA \u{2713}", "\u{2714} signed", "Verified", "ML-DSA-65"] {
-            let badge = SignatureBadge(claim: text)
-            XCTAssertFalse(badge.showsCheck)
-            XCTAssertFalse(badge.text.contains("\u{2713}") || badge.text.contains("\u{2714}"), badge.text)
+        let marks: Set<UInt32> = [0x2713, 0x2714, 0x2705, 0x2611, 0x1F5F8, 0x1F5F9, 0xFE0F]
+        for text in ["ML-DSA \u{2713}", "\u{2714} signed", "Verified", "ML-DSA-65", "ML-DSA \u{2714}\u{FE0F}",
+                     "\u{2611}\u{FE0F} signed", "\u{1F5F8} ok", "\u{1F5F9} ok", "\u{2705} done"] {
+            for badge in [SignatureBadge(claim: text), SignatureBadge(provenance: text)] {
+                XCTAssertFalse(badge.showsCheck)
+                XCTAssertFalse(badge.text.unicodeScalars.contains { marks.contains($0.value) }, badge.text)
+                XCTAssertFalse(badge.text.isEmpty, text)
+            }
         }
     }
 

@@ -150,21 +150,120 @@ final class KeyRootTests: XCTestCase {
 
     // MARK: factory
 
-    func testFactoryChoosesTheEnclaveOnlyWhenItCanStoreAKey() {
-        XCTAssertEqual(KeyRootFactory.choose(enclaveAvailable: true, protectedKeychainUsable: true, simulator: false),
-                       .secureEnclave)
-        guard case .software = KeyRootFactory.choose(enclaveAvailable: true, protectedKeychainUsable: false, simulator: false),
-              case .software = KeyRootFactory.choose(enclaveAvailable: false, protectedKeychainUsable: true, simulator: false),
-              case .software = KeyRootFactory.choose(enclaveAvailable: true, protectedKeychainUsable: true, simulator: true)
-        else { return XCTFail("every other case is the labelled software root") }
+    /// A sealed root blob as the core writes it (`MGSROOT1`), with a sealed data key of
+    /// `sealedLength` bytes.
+    private func sealedRoot(sealedLength: Int) -> Data {
+        func field(_ bytes: Data) -> Data {
+            var n = UInt32(bytes.count).littleEndian
+            return Data(bytes: &n, count: 4) + bytes
+        }
+        var blob = Data("MGSROOT1".utf8)
+        blob += field(Data("device-root".utf8))
+        blob += Data([1])
+        blob += field(Data(repeating: 2, count: 40))
+        blob += field(Data(repeating: 4, count: sealedLength))
+        blob += Data(repeating: 0, count: 12) + field(Data(repeating: 5, count: 48))
+        return blob
     }
 
-    func testUnsignedTestRunGetsASoftwareRootAndSaysSo() {
-        // `swift test` is unsigned: no keychain-access-groups entitlement, so the
-        // data-protection keychain refuses and the factory falls back truthfully.
-        let root = KeyRootFactory.make(reason: "test", secrets: InMemorySecretStore())
-        XCTAssertFalse(root.hardwareBacked())
-        XCTAssertTrue(root is SoftwareKeyRoot)
+    private func platform(simulator: Bool = false, enclave: Bool = true, probe: OSStatus = errSecSuccess,
+                          probes: ProbeCounter? = nil) -> KeyRootPlatform {
+        KeyRootPlatform(simulator: simulator, enclaveAvailable: enclave) {
+            probes?.count += 1
+            return probe
+        }
+    }
+
+    func testTheSealedRootsShapeNamesItsKind() {
+        XCTAssertEqual(KeyRootKind(sealedRoot: sealedRoot(sealedLength: 113)), .enclave)
+        XCTAssertEqual(KeyRootKind(sealedRoot: sealedRoot(sealedLength: 60)), .software)
+        XCTAssertNil(KeyRootKind(sealedRoot: sealedRoot(sealedLength: 48)))
+        XCTAssertNil(KeyRootKind(sealedRoot: Data("not a root".utf8)))
+    }
+
+    func testTheRealCoreWritesASoftwareShapedRootThroughTheSoftwareKeyRoot() throws {
+        let client = try MidgardClient(config: makeConfig(), keyRoot: softwareRoot())
+        XCTAssertEqual(KeyRootKind(sealedRoot: try client.enrol().root), .software)
+    }
+
+    func testAtEnrolmentTheProbeChoosesTheEnclaveOnlyWhenItCanStoreAKey() throws {
+        let secrets = InMemorySecretStore()
+        XCTAssertTrue(try KeyRootFactory.make(reason: "t", secrets: secrets, sealedRoot: nil, platform: platform())
+                      is SecureEnclaveKeyRoot)
+        let noEnclave = try KeyRootFactory.make(reason: "t", secrets: secrets, sealedRoot: nil,
+                                                platform: platform(enclave: false))
+        XCTAssertEqual(noEnclave.kind, .software)
+        XCTAssertEqual(noEnclave.custodyLabel, "Software key (no Secure Enclave)")
+        let simulator = try KeyRootFactory.make(reason: "t", secrets: secrets, sealedRoot: nil,
+                                                platform: platform(simulator: true))
+        XCTAssertEqual(simulator.custodyLabel, "Software key (simulator)")
+        XCTAssertFalse(simulator.hardwareBacked())
+    }
+
+    func testAnUnsignedBuildCannotKeepKeysAndSaysSo() {
+        XCTAssertThrowsError(try KeyRootFactory.make(reason: "t", secrets: InMemorySecretStore(), sealedRoot: nil,
+                                                     platform: platform(probe: errSecMissingEntitlement))) { error in
+            XCTAssertEqual(error as? KeyRootFactory.Failure, .unsignedBuild)
+        }
+        XCTAssertEqual(ErrorText.describe(KeyRootFactory.Failure.unsignedBuild),
+                       "This build is not signed for the keychain, so it cannot keep keys. Use a signed build.")
+    }
+
+    func testThisUnsignedTestRunIsThatCase() {
+        // `swift test` has no keychain-access-groups entitlement: the real probe write
+        // is refused, and enrolment is refused rather than downgraded.
+        XCTAssertThrowsError(try KeyRootFactory.make(reason: "t", secrets: InMemorySecretStore(), sealedRoot: nil)) { error in
+            XCTAssertEqual(error as? KeyRootFactory.Failure, .unsignedBuild)
+        }
+    }
+
+    func testALockedKeychainAtEnrolmentIsAnErrorNotASoftwareDowngrade() {
+        XCTAssertThrowsError(try KeyRootFactory.make(reason: "t", secrets: InMemorySecretStore(), sealedRoot: nil,
+                                                     platform: platform(probe: errSecInteractionNotAllowed))) { error in
+            XCTAssertEqual(error as? KeyRootFactory.Failure, .keychainUnavailable(errSecInteractionNotAllowed))
+        }
+    }
+
+    func testAnEnrolledEnclaveDeviceKeepsTheEnclaveWhenAProbeWouldFail() throws {
+        let secrets = InMemorySecretStore()
+        try KeyRootFactory.record(.enclave, secrets: secrets)
+        let probes = ProbeCounter()
+        let root = try KeyRootFactory.make(reason: "t", secrets: secrets, sealedRoot: sealedRoot(sealedLength: 113),
+                                           platform: platform(probe: errSecInteractionNotAllowed, probes: probes))
+        XCTAssertTrue(root is SecureEnclaveKeyRoot)
+        XCTAssertEqual(probes.count, 0, "an enrolled device is never re-probed")
+    }
+
+    func testAStoredChoiceThatContradictsTheSealedRootIsRefused() throws {
+        let secrets = InMemorySecretStore()
+        try KeyRootFactory.record(.enclave, secrets: secrets)
+        XCTAssertThrowsError(try KeyRootFactory.make(reason: "t", secrets: secrets, sealedRoot: sealedRoot(sealedLength: 60),
+                                                     platform: platform())) { error in
+            XCTAssertEqual(error as? KeyRootFactory.Failure, .mismatch(stored: .enclave, sealed: .software))
+        }
+        XCTAssertThrowsError(try KeyRootFactory.make(reason: "t", secrets: secrets, sealedRoot: Data("junk".utf8),
+                                                     platform: platform())) { error in
+            XCTAssertEqual(error as? KeyRootFactory.Failure, .mismatch(stored: .enclave, sealed: nil))
+        }
+    }
+
+    func testWithoutAStoredChoiceAnEnrolledDeviceFollowsTheSealedRootAndRecordsIt() throws {
+        let secrets = InMemorySecretStore()
+        let probes = ProbeCounter()
+        let root = try KeyRootFactory.make(reason: "t", secrets: secrets, sealedRoot: sealedRoot(sealedLength: 113),
+                                           platform: platform(probe: errSecInteractionNotAllowed, probes: probes))
+        XCTAssertTrue(root is SecureEnclaveKeyRoot)
+        XCTAssertEqual(probes.count, 0)
+        XCTAssertEqual(try KeyRootFactory.storedChoice(secrets: secrets), .enclave)
+    }
+
+    func testAnUnreadableChoiceIsAnError() {
+        let secrets = InMemorySecretStore()
+        secrets.failReads[KeyRootFactory.choiceService] = errSecInteractionNotAllowed
+        XCTAssertThrowsError(try KeyRootFactory.make(reason: "t", secrets: secrets, sealedRoot: sealedRoot(sealedLength: 113),
+                                                     platform: platform())) { error in
+            XCTAssertEqual(error as? KeyRootFactory.Failure, .keychainUnavailable(errSecInteractionNotAllowed))
+        }
     }
 
     // MARK: wiping
@@ -201,4 +300,8 @@ struct CancellingPresence: UserPresence {
     func confirm(reason: String) throws {
         throw NSError(domain: LAError.errorDomain, code: LAError.Code.userCancel.rawValue)
     }
+}
+
+final class ProbeCounter {
+    var count = 0
 }

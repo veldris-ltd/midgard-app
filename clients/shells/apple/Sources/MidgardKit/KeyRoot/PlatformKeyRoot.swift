@@ -8,6 +8,8 @@ import MidgardCore
 public protocol PlatformKeyRoot: KeyRoot {
     /// What holds the platform key, for Settings and the custody chip's detail.
     var custodyLabel: String { get }
+    /// Enclave or software: recorded at enrolment (`KeyRootFactory.record`).
+    var kind: KeyRootKind { get }
     /// Delete the platform key (Reset demo). The sealed root is useless afterwards.
     func destroyKey() throws
 }

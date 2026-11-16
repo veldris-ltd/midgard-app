@@ -16,7 +16,15 @@ public struct SignatureBadge: Equatable {
 
     /// The text the core delivers for an unchecked claim (`demo::audit::NOT_CHECKED`).
     public static let notChecked = "not checked (demo)"
-    private static let checkMarks: Set<Character> = ["\u{2713}", "\u{2714}", "\u{2705}", "\u{2611}"]
+    /// Check-mark scalars, and the emoji presentation selector that can follow them.
+    /// Filtered per scalar: a check followed by U+FE0F is one `Character`.
+    private static let checkMarks: Set<UInt32> = [0x2713, 0x2714, 0x2705, 0x2611, 0x1F5F8, 0x1F5F9, 0xFE0F]
+
+    static func withoutCheckMarks(_ text: String) -> String {
+        var scalars = String.UnicodeScalarView()
+        scalars.append(contentsOf: text.unicodeScalars.filter { !checkMarks.contains($0.value) })
+        return String(scalars).trimmingCharacters(in: .whitespaces)
+    }
 
     public init(_ status: SignatureStatus) {
         self.status = status
@@ -48,8 +56,7 @@ public struct SignatureBadge: Equatable {
             accessibilityLabel = "Signature claim not checked: demo data"
             tone = .warn
         } else {
-            let stripped = String(claim.filter { !Self.checkMarks.contains($0) })
-                .trimmingCharacters(in: .whitespaces)
+            let stripped = Self.withoutCheckMarks(claim)
             text = stripped
             accessibilityLabel = "Claim: \(stripped), not checked"
             tone = .info
@@ -61,7 +68,7 @@ public struct SignatureBadge: Equatable {
         status = nil
         showsCheck = false
         tone = .info
-        let label = String(provenance.filter { !Self.checkMarks.contains($0) }).trimmingCharacters(in: .whitespaces)
+        let label = Self.withoutCheckMarks(provenance)
         if label.lowercased() == "verified" {
             text = "verified (demo label)"
             accessibilityLabel = "Provenance: verified, a demo label, not a checked signature"

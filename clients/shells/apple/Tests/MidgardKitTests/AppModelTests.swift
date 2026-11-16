@@ -44,7 +44,10 @@ final class AppModelTests: XCTestCase {
         if model.phase == .needsEnrolment { await model.enrol() }
         let persona = try XCTUnwrap(model.personas.first { $0.id == id })
         await model.signIn(persona)
-        guard case .unlocked = model.phase else { throw XCTSkip("not signed in: \(model.phase)") }
+        guard case .unlocked = model.phase else {
+            XCTFail("not signed in: \(model.phase), \(model.message ?? "")")
+            throw CancellationError()
+        }
         return model
     }
 
@@ -55,6 +58,7 @@ final class AppModelTests: XCTestCase {
         await model.enrol()
         XCTAssertEqual(model.phase, .locked)
         XCTAssertNotNil(try PersonaStateStore(directory: dir, secrets: secrets).loadKeys())
+        XCTAssertEqual(try KeyRootFactory.storedChoice(secrets: secrets), .software, "the choice is recorded at enrolment")
         XCTAssertEqual(keyRoot.unseals, 0, "enrolment never prompts")
 
         let persona = try XCTUnwrap(model.personas.first { $0.id == "k.rao" })
@@ -162,6 +166,21 @@ final class AppModelTests: XCTestCase {
                              "a generation kept in the keychain never goes backwards")
     }
 
+    func testAnUnreadableGenerationFailsSignInInsteadOfImportingAtZero() async throws {
+        let first = try await signedIn()
+        await first.lock()
+        let model = await started()
+        secrets.failReads[PersonaStateStore.generationService] = errSecInteractionNotAllowed
+        await model.signIn(try XCTUnwrap(model.personas.first { $0.id == "k.rao" }))
+        XCTAssertEqual(model.phase, .locked)
+        XCTAssertEqual(model.message, ErrorText.describe(SessionController.Failure.keychainUnavailable))
+        secrets.failReads = [:]
+        XCTAssertNotNil(try PersonaStateStore(directory: dir, secrets: secrets).load(persona: "k.rao"),
+                        "the file is kept for the next attempt")
+        await model.signIn(try XCTUnwrap(model.personas.first { $0.id == "k.rao" }))
+        guard case .unlocked = model.phase else { return XCTFail("\(model.phase)") }
+    }
+
     func testUnsentChangesLostOnImportAreToldToTheUser() async throws {
         let first = try await signedIn()
         await first.lock()
@@ -206,6 +225,22 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dir.path), [])
         XCTAssertEqual(secrets.accounts(service: SoftwareKeyRoot.service), [])
         XCTAssertEqual(secrets.accounts(service: PersonaStateStore.generationService), [])
+        XCTAssertNil(try KeyRootFactory.storedChoice(secrets: secrets))
+    }
+
+    func testResetDestroysThePlatformKeyEvenWhenDeletingFilesFails() async throws {
+        let model = try await signedIn()
+        _ = await model.rows("midgard.objectTypes")
+        secrets.failDeleteAll = errSecInteractionNotAllowed
+        await model.resetDemo()
+        XCTAssertEqual(keyRoot.destroyed, 1)
+        XCTAssertNotNil(model.message, "the failure is reported")
+    }
+
+    func testAnEnvironmentThatCannotBeMadeIsAScreenState() async {
+        let model = AppModel()
+        await model.start { throw KeyRootFactory.Failure.unsignedBuild }
+        XCTAssertEqual(model.phase, .failed(ErrorText.describe(KeyRootFactory.Failure.unsignedBuild)))
     }
 
     func testAMissingDatasetIsAScreenStateNotACrash() async {
@@ -238,6 +273,7 @@ final class RecordingKeyRoot: PlatformKeyRoot {
     var unseals: Int { lock.lock(); defer { lock.unlock() }; return _unseals }
     var unsealedOnMainThread: Bool? { lock.lock(); defer { lock.unlock() }; return _onMain }
     var custodyLabel: String { inner.custodyLabel }
+    var kind: KeyRootKind { inner.kind }
 
     func seal(dataKey: Data) throws -> Data { try inner.seal(dataKey: dataKey) }
 
@@ -253,7 +289,11 @@ final class RecordingKeyRoot: PlatformKeyRoot {
     }
 
     func hardwareBacked() -> Bool { inner.hardwareBacked() }
-    func destroyKey() throws { try inner.destroyKey() }
+    private(set) var destroyed = 0
+    func destroyKey() throws {
+        destroyed += 1
+        try inner.destroyKey()
+    }
 }
 
 /// A real client whose imports report that unsent changes were dropped (the core does

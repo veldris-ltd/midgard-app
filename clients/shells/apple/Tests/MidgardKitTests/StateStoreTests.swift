@@ -124,6 +124,26 @@ final class StateStoreTests: XCTestCase {
         XCTAssertNil(try store.load(persona: "k.osei"))
     }
 
+    func testASaveNeverLowersTheStoredGeneration() throws {
+        try store.save(ExportedState(file: Data("new".utf8), generation: 9), persona: "k.rao")
+        try store.save(ExportedState(file: Data("older".utf8), generation: 3), persona: "k.rao")
+        XCTAssertEqual(try store.minGeneration(for: "k.rao"), 9)
+    }
+
+    func testAnUnreadableGenerationStopsTheSaveBeforeTheFileIsWritten() throws {
+        try store.save(ExportedState(file: Data("first".utf8), generation: 2), persona: "k.rao")
+        secrets.failReads[PersonaStateStore.generationService] = errSecInteractionNotAllowed
+        XCTAssertThrowsError(try store.save(ExportedState(file: Data("second".utf8), generation: 3), persona: "k.rao"))
+        secrets.failReads = [:]
+        XCTAssertEqual(try store.load(persona: "k.rao"), Data("first".utf8))
+    }
+
+    func testANamingKeyOfTheWrongLengthIsAnErrorNotARegeneration() throws {
+        try secrets.write(Data(repeating: 1, count: 16), service: PersonaStateStore.deviceKeyService, account: "state-names")
+        XCTAssertThrowsError(try store.fileName(for: "k.rao"))
+        XCTAssertEqual(try secrets.read(service: PersonaStateStore.deviceKeyService, account: "state-names")?.count, 16)
+    }
+
     func testDiscardDeletesTheFileButKeepsTheGeneration() throws {
         try store.save(ExportedState(file: Data("a".utf8), generation: 7), persona: "k.rao")
         try store.discard(persona: "k.rao")

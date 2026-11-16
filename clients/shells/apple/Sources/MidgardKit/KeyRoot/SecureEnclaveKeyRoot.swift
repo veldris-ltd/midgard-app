@@ -27,6 +27,7 @@ public final class SecureEnclaveKeyRoot: PlatformKeyRoot {
     private let tag: Data
     private let reason: String
     public let custodyLabel = "Secure Enclave"
+    public let kind = KeyRootKind.enclave
 
     public init(keyId: String = SecureEnclaveKeyRoot.keyId, reason: String) {
         self.tag = Data((Self.tagPrefix + keyId).utf8)

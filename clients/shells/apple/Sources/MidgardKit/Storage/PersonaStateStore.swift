@@ -25,7 +25,13 @@ public final class PersonaStateStore {
     static let deviceAuditFile = "device-audit.sealed"
 
     public let directory: URL
-    private let secrets: SecretStore
+    let secrets: SecretStore
+
+    public enum Failure: Error, Equatable {
+        /// The naming key in the keychain is not 32 bytes: refused, never replaced
+        /// (a new key would orphan every persona's file and generation).
+        case namingKeyDamaged
+    }
 
     public init(directory: URL, secrets: SecretStore) {
         self.directory = directory
@@ -33,13 +39,14 @@ public final class PersonaStateStore {
     }
 
     private func deviceKey() throws -> SymmetricKey {
-        if var raw = try secrets.read(service: Self.deviceKeyService, account: Self.deviceKeyAccount), raw.count == 32 {
-            defer { Wipe.wipe(&raw) }
+        if let raw = try secrets.read(service: Self.deviceKeyService, account: Self.deviceKeyAccount) {
+            defer { Wipe.wipeInPlace(raw) }
+            guard raw.count == 32 else { throw Failure.namingKeyDamaged }
             return SymmetricKey(data: raw)
         }
         let key = SymmetricKey(size: .bits256)
-        var raw = key.withUnsafeBytes { Data($0) }
-        defer { Wipe.wipe(&raw) }
+        let raw = key.withUnsafeBytes { Data($0) }
+        defer { Wipe.wipeInPlace(raw) }
         try secrets.write(raw, service: Self.deviceKeyService, account: Self.deviceKeyAccount)
         return key
     }
@@ -68,10 +75,14 @@ public final class PersonaStateStore {
     }
 
     /// Write the state file atomically, then record its generation for this persona.
+    /// The kept generation is read first (an unreadable one stops the save before the
+    /// file is touched) and never lowered.
     public func save(_ state: ExportedState, persona: String) throws {
         let name = try fileName(for: persona)
+        let kept = try minGeneration(for: persona)
         try AtomicFile.write(state.file, to: directory.appendingPathComponent(name + ".state"))
-        let bytes = (0..<8).reversed().map { UInt8(truncatingIfNeeded: state.generation >> (UInt64($0) * 8)) }
+        let generation = max(kept, state.generation)
+        let bytes = (0..<8).reversed().map { UInt8(truncatingIfNeeded: generation >> (UInt64($0) * 8)) }
         try secrets.write(Data(bytes), service: Self.generationService, account: name)
     }
 

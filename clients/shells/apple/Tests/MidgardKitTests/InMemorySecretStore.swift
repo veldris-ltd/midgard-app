@@ -11,13 +11,19 @@ final class InMemorySecretStore: SecretStore {
     var onWrite: ((String, String) -> Void)?
     /// When set, every write fails with this status.
     var failWrites: OSStatus?
+    /// Reads of these services fail with the given status.
+    var failReads: [String: OSStatus] = [:]
 
-    func read(service: String, account: String) throws -> Data? { items[service]?[account] }
+    func read(service: String, account: String) throws -> Data? {
+        if let status = failReads[service] { throw SecretStoreError.keychain(status) }
+        // A fresh buffer each time, as the keychain returns: callers wipe what they get.
+        return items[service]?[account].map { Data([UInt8]($0)) }
+    }
 
     func write(_ data: Data, service: String, account: String) throws {
         if let status = failWrites { throw SecretStoreError.keychain(status) }
         onWrite?(service, account)
-        items[service, default: [:]][account] = data
+        items[service, default: [:]][account] = Data([UInt8](data))
         log.append("write \(service)")
     }
 
@@ -26,7 +32,11 @@ final class InMemorySecretStore: SecretStore {
         log.append("delete \(service)")
     }
 
+    /// When set, `deleteAll` fails with this status.
+    var failDeleteAll: OSStatus?
+
     func deleteAll(service: String) throws {
+        if let status = failDeleteAll { throw SecretStoreError.keychain(status) }
         items[service] = nil
         log.append("deleteAll \(service)")
     }

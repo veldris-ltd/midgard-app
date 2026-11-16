@@ -19,6 +19,7 @@ public final class SoftwareKeyRoot: PlatformKeyRoot {
     private let secrets: SecretStore
     private let presence: UserPresence
     public let custodyLabel: String
+    public let kind = KeyRootKind.software
 
     public init(keyId: String = deviceRootKeyId, reason: String, label: String,
                 secrets: SecretStore = KeychainSecretStore(), presence: UserPresence = DeviceOwnerPresence()) {
@@ -30,8 +31,8 @@ public final class SoftwareKeyRoot: PlatformKeyRoot {
     }
 
     private func storedKey() throws -> SymmetricKey? {
-        guard var raw = try secrets.read(service: Self.service, account: keyId) else { return nil }
-        defer { Wipe.wipe(&raw) }
+        guard let raw = try secrets.read(service: Self.service, account: keyId) else { return nil }
+        defer { Wipe.wipeInPlace(raw) }  // the buffer the keychain returned, not a copy
         return SymmetricKey(data: raw)
     }
 
@@ -43,8 +44,8 @@ public final class SoftwareKeyRoot: PlatformKeyRoot {
                 key = stored
             } else {
                 key = SymmetricKey(size: .bits256)
-                var raw = key.withUnsafeBytes { Data($0) }
-                defer { Wipe.wipe(&raw) }
+                let raw = key.withUnsafeBytes { Data($0) }
+                defer { Wipe.wipeInPlace(raw) }
                 try secrets.write(raw, service: Self.service, account: keyId)
             }
             guard let sealed = try AES.GCM.seal(dataKey, using: key, authenticating: Self.aad).combined,
@@ -66,9 +67,9 @@ public final class SoftwareKeyRoot: PlatformKeyRoot {
             guard let key = try storedKey() else { throw KeyRootError.PlatformUnavailable(detail: "no platform key") }
             let box: AES.GCM.SealedBox
             do { box = try AES.GCM.SealedBox(combined: sealed) } catch { throw KeyRootError.Malformed(detail: "sealed box") }
-            var opened: Data
+            let opened: Data
             do { opened = try AES.GCM.open(box, using: key, authenticating: Self.aad) } catch { throw KeyRootError.Unseal }
-            defer { Wipe.wipe(&opened) }
+            defer { Wipe.wipeInPlace(opened) }
             return opened.withUnsafeBytes { Wipe.selfWiping($0) }
         } catch {
             throw KeyRootErrors.map(error, during: .unseal)

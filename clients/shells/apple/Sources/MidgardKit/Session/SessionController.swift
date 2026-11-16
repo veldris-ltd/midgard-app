@@ -21,6 +21,10 @@ public enum RestoreOutcome: Equatable, Sendable {
 public final class SessionController {
     public enum Failure: Error, Equatable {
         case notEnrolled
+        /// The persona's kept generation (or the naming key) could not be read: signing
+        /// in would import with no rollback check, so it is refused and the client
+        /// locked again. The file is kept for the next attempt.
+        case keychainUnavailable
     }
 
     public let client: MidgardClientProtocol
@@ -38,24 +42,33 @@ public final class SessionController {
     /// First use: make and store the sealed keys (no prompt).
     public func enrol() throws {
         try store.saveKeys(try client.enrol())
+        try KeyRootFactory.record(keyRoot.kind, secrets: store.secrets)
     }
 
     /// Unlock (one prompt) as `persona`, then load that persona's state file.
     public func signIn(_ persona: String) throws -> (SessionInfo, RestoreOutcome) {
         guard let keys = try store.loadKeys() else { throw Failure.notEnrolled }
         let info = try client.unlock(keys: keys, personaId: persona)
-        let outcome = restore(persona)
+        let outcome: RestoreOutcome
+        do {
+            outcome = try restore(persona)
+        } catch {
+            try? client.lock()
+            throw error
+        }
         return ((try? client.statusChips()).map { SessionInfo(persona: info.persona, chips: $0) } ?? info, outcome)
     }
 
     /// Load `persona`'s file with the generation kept for that persona. On `Stale` or
     /// any other import error the file is deleted (the next read refetches); the
     /// generation stays. With no file but a kept generation, the core is still told the
-    /// generation, so its next export is numbered above every file seen.
-    func restore(_ persona: String) -> RestoreOutcome {
-        let minimum = (try? store.minGeneration(for: persona)) ?? 0
+    /// generation, so its next export is numbered above every file seen. If the kept
+    /// generation cannot be read, nothing is imported (`Failure.keychainUnavailable`).
+    func restore(_ persona: String) throws -> RestoreOutcome {
+        let minimum: UInt64
+        do { minimum = try store.minGeneration(for: persona) } catch { throw Failure.keychainUnavailable }
         let file: Data?
-        do { file = try store.load(persona: persona) } catch { file = nil }
+        do { file = try store.load(persona: persona) } catch { file = Data() }  // unreadable: discarded below
         guard let file else {
             if minimum > 0 { _ = try? client.importState(file: Data(), minGeneration: minimum) }
             return .fresh
@@ -88,7 +101,13 @@ public final class SessionController {
     public func switchPersona(_ persona: String) throws -> (SessionInfo, RestoreOutcome) {
         try persist()
         let info = try client.switchPersona(personaId: persona)
-        let outcome = restore(persona)
+        let outcome: RestoreOutcome
+        do {
+            outcome = try restore(persona)
+        } catch {
+            try? client.lock()
+            throw error
+        }
         return ((try? client.statusChips()).map { SessionInfo(persona: info.persona, chips: $0) } ?? info, outcome)
     }
 
@@ -116,9 +135,13 @@ public final class SessionController {
 
     /// Reset demo: lock and reload the dataset, delete every file and keychain item
     /// this app keeps, and the platform key.
+    /// Every step runs even if an earlier one fails; the first error is reported.
     public func resetDemo() throws {
-        try client.resetDemo()
-        try store.reset()
-        try keyRoot.destroyKey()
+        var errors: [Error] = []
+        for step in [{ try self.client.resetDemo() }, { try self.store.reset() }, { try self.keyRoot.destroyKey() },
+                     { try KeyRootFactory.forgetChoice(secrets: self.store.secrets) }] as [() throws -> Void] {
+            do { try step() } catch { errors.append(error) }
+        }
+        if let first = errors.first { throw first }
     }
 }
