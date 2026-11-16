@@ -179,6 +179,19 @@ function innerFloor(v) {
   return top;
 }
 
+// A display marking string in a common form ("C // OPS-N", "RESTRICTED"): a level
+// word or letter, then "//"-separated compartments. null when it is not one of these.
+const WORDS = {
+  C: 'confidential', CONFIDENTIAL: 'confidential', R: 'restricted', RESTRICTED: 'restricted',
+  I: 'internal', INTERNAL: 'internal', O: 'open', U: 'open', OPEN: 'open', UNCLASSIFIED: 'open',
+};
+function parseMarkingString(s) {
+  const [head, ...rest] = s.split('//').map((t) => t.trim());
+  const level = Object.hasOwn(WORDS, head.toUpperCase()) ? WORDS[head.toUpperCase()] : undefined;
+  if (!level || rest.some((k) => k === '')) return null;
+  return { level, compartments: [...new Set(rest)].sort() };
+}
+
 function markingOf(name, id, x, entities) {
   const own = itemMarking(x);
   const c = ov.collections[name] ?? { ids: {} };
@@ -186,6 +199,9 @@ function markingOf(name, id, x, entities) {
   let m;
   if (own?.unknown !== undefined) {
     if (!named) die(`${name}/${id}: unrecognised marking ${JSON.stringify(own.unknown)}; name the row in overlay.json`);
+    // A string the extractor can read still binds: the overlay may raise it, never lower it.
+    const parsed = typeof own.unknown === 'string' ? parseMarkingString(own.unknown) : null;
+    if (parsed && !covers(named, parsed)) die(`${name}/${id}: overlay marks it ${show(named)}, below its own marking ${show(parsed)}`);
     m = named;
   } else if (named) {
     if (own && !covers(named, own)) die(`${name}/${id}: overlay marks it ${show(named)}, below its own marking ${show(own)}`);

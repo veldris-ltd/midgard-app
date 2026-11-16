@@ -65,6 +65,10 @@ refused "a row marked below a marking inside it" "below confidential inside the 
     'o.collections["midgard.searchAround"].default = { level: "internal", compartments: [] };'
 refused "an overlay id below the row's own marking" "below its own marking" \
     'o.collections["midgard.objectTypes"] = { ids: { aircraft: { level: "internal", compartments: [] } } };'
+# SITE-ALPHA carries the string "C // OPS-N": an overlay id may not pin it lower.
+refused "an overlay id below a marking string the row carries" \
+    "heimdall.syncSites/SITE-ALPHA (this): overlay marks it internal, below its own marking confidential [OPS-N]" \
+    'o.collections["heimdall.syncSites"].ids["SITE-ALPHA (this)"] = { level: "internal", compartments: [] };'
 
 # visible <persona> <console>: rows of that console the persona's clearance admits.
 visible() {
