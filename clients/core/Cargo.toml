@@ -16,6 +16,12 @@ backend-fips = [
     "attest/backend-fips",
 ]
 
+# Opens a demo dataset under caller-chosen anchors, or loads an unsigned body
+# (`DemoEnclosure::open`, `DemoEnclosure::from_body`). For this crate's own tests
+# only: production code opens with `open_pinned`, and tools/ci/no-test-backend.sh
+# fails a release build graph that turns this on. [AC-C-13] [NFR-PQ-3]
+demo-unpinned = []
+
 [dependencies]
 # The one-and-only implementations of each concern. The shells depend on THIS
 # crate; everything security- or data-critical lives below it. [FR-C-1] [KDD-1]
@@ -31,6 +37,8 @@ pqc-agility = { path = "../../crypto/pqc-agility", default-features = false }
 attest = { path = "../../crypto/attest", default-features = false, features = ["backend-fips"] }
 
 [dev-dependencies]
+# The integration tests use the unpinned entry points. [AC-C-13]
+midgard-client-core = { path = ".", features = ["demo-unpinned"] }
 # A test platform keystore declares its floor by wrapping a test-floor software
 # root; its TrustRoot impl names kms types. Tests only. [VLD-ANB-MIDGARD-0056]
 midgard-client-keystore = { path = "../keystore", features = ["test-floors"] }

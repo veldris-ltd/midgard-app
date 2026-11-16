@@ -382,31 +382,48 @@ impl DemoEnclosure {
             .map_err(|e| dataset::DatasetError::Malformed(format!("pinned anchor: {e}")))?;
         // No demo-audit key exists yet, so no audit anchor is pinned: a dataset whose
         // rows carry audit signatures is refused until one is.
-        Self::open(file, &anchors, &TrustAnchors::new(), release)
+        Self::open_under(file, &anchors, &TrustAnchors::new(), release)
     }
 
-    /// Verify `file` against the dataset `anchors` for `release`, then load it, with
-    /// audit-row signatures checked under `audit_anchors`.
+    /// Verify `file` against caller-chosen dataset `anchors` for `release`, then load
+    /// it, with audit-row signatures checked under `audit_anchors`. Tests only
+    /// (feature `demo-unpinned`); production code uses [`DemoEnclosure::open_pinned`].
+    #[cfg(feature = "demo-unpinned")]
     pub fn open(
         file: &[u8],
         anchors: &TrustAnchors,
         audit_anchors: &TrustAnchors,
         release: &str,
     ) -> Result<Self, dataset::DatasetError> {
-        let ds = dataset::verify(file, anchors, release)?;
-        Self::from_body(&ds.release, &ds.body, audit_anchors)
-            .map_err(|e| dataset::DatasetError::Body(e.to_string()))
+        Self::open_under(file, anchors, audit_anchors, release)
     }
 
-    /// Load a body. Production code reaches this only through [`DemoEnclosure::open`],
-    /// after the signature check; tests use it with an unsigned body. The body is
-    /// still checked in full: format, version, release, the local-suite data guard,
-    /// personas, markings, row types and audit-row signatures.
+    /// Load an unverified body, checked in full but not for a signature. Tests only
+    /// (feature `demo-unpinned`).
+    #[cfg(feature = "demo-unpinned")]
     pub fn from_body(
         release: &str,
         body: &Json,
         audit_anchors: &TrustAnchors,
     ) -> Result<Self, SourceError> {
+        Self::load(release, body, audit_anchors)
+    }
+
+    fn open_under(
+        file: &[u8],
+        anchors: &TrustAnchors,
+        audit_anchors: &TrustAnchors,
+        release: &str,
+    ) -> Result<Self, dataset::DatasetError> {
+        let ds = dataset::verify(file, anchors, release)?;
+        Self::load(&ds.release, &ds.body, audit_anchors)
+            .map_err(|e| dataset::DatasetError::Body(e.to_string()))
+    }
+
+    /// Load a verified body, checked in full: format, version, release, the
+    /// local-suite data guard, personas, markings, row types and audit-row
+    /// signatures.
+    fn load(release: &str, body: &Json, audit_anchors: &TrustAnchors) -> Result<Self, SourceError> {
         strict(
             body,
             "body",

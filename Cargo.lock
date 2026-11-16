@@ -827,6 +827,7 @@ version = "0.1.0-rc.3"
 dependencies = [
  "attest",
  "kms",
+ "midgard-client-core",
  "midgard-client-enclosure",
  "midgard-client-keystore",
  "midgard-client-store",

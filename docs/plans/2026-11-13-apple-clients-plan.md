@@ -4264,7 +4264,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use attest::json::Json;
-use attest::TrustAnchors;
 use midgard_client_core::consoles::decode::{DecodeError, FromJson};
 use midgard_client_core::demo::enclosure::DemoEnclosure;
 use midgard_client_core::marking::{MarkingLevel, RowMarking, Visible};
@@ -4281,9 +4280,9 @@ use pqc_agility::OsRng;
 use crate::key_root::{KeyRoot, Sealer};
 use crate::ClientError;
 
-/// The pinned demo-dataset anchor (Task A7). Compiled in: a dataset signed by any
-/// other key is refused.
-const PINNED: &str = include_str!("../../demo/trust/demo-dataset.pub");
+// The pinned demo-dataset and demo-audit anchors are compiled into the core
+// (`DemoEnclosure::open_pinned`, Task A8): a dataset signed by any other key is
+// refused, and this crate cannot choose other anchors (`demo-unpinned` is off).
 const ROOT_FILE: &str = "root.sealed";
 const STATE_FILE: &str = "state.sealed";
 
@@ -4547,12 +4546,11 @@ fn write_private(path: &Path, bytes: &[u8]) -> Result<(), ClientError> {
     Ok(())
 }
 
-/// Read and verify the bundled dataset against the pinned anchor.
+/// Read and verify the bundled dataset against the anchors compiled into the core.
 fn load_source(config: &ClientConfig) -> Result<DemoEnclosure, ClientError> {
     let file = std::fs::read(&config.dataset_path)
         .map_err(|e| ClientError::NotFound { what: format!("dataset {}: {e}", config.dataset_path) })?;
-    let anchors = TrustAnchors::parse(PINNED).map_err(|detail| ClientError::Internal { detail })?;
-    Ok(DemoEnclosure::open(&file, &anchors, CORE_VERSION)?)
+    Ok(DemoEnclosure::open_pinned(&file)?)
 }
 
 impl MidgardClient {
