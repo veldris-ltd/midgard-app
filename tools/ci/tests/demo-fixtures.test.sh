@@ -103,6 +103,20 @@ marking "CONFIDENTIAL:OPS-N" "unreadable marking" 'm.readMarkingString("CONFIDEN
 marking "C // OPS-N reads" '={"level":"confidential","compartments":["OPS-N"]}' 'm.readMarkingString("C // OPS-N")'
 marking "RESTRICTED reads" '={"level":"restricted","compartments":[]}' 'm.readMarkingString("RESTRICTED")'
 marking "a string without a level word is left to the overlay" '=null' 'm.readMarkingString("NORTH-2 feed")'
+# Punctuation, underscores and full-width letters do not hide a level word.
+marking "TOP_SECRET" "$above" 'm.readMarkingString("TOP_SECRET")'
+marking "SECRET." "$above" 'm.readMarkingString("SECRET.")'
+marking "T.S." "$above" 'm.readMarkingString("T.S.")'
+marking "S.E.C.R.E.T" "$above" 'm.readMarkingString("S.E.C.R.E.T")'
+marking "full-width SECRET" "$above" 'm.readMarkingString("ＳＥＣＲＥＴ")'
+marking "a markings list with level Top_Secret" "$above" 'm.itemMarking({ markings: [{ level: "Top_Secret", compartments: [] }] })'
+marking "C.OPS-N" "unreadable marking" 'm.readMarkingString("C.OPS-N")'
+marking "full-width C // OPS-N reads" '={"level":"confidential","compartments":["OPS-N"]}' 'm.readMarkingString("Ｃ // OPS-N")'
+# Classification-like fields anywhere inside a row are checked too.
+marking "a classification field SECRET" "$above" 'm.innerFloor({ classification: "SECRET" })'
+marking "a nested markings string SECRET" "$above" 'm.innerFloor({ a: { b: [{ markings: "SECRET" }] } })'
+marking "a caveat field NATO SECRET" "$above" 'm.innerFloor({ caveat: "NATO SECRET" })'
+marking "a class field TS" "$above" 'm.innerFloor({ x: { class: "TS" } })'
 
 # visible <persona> <console>: rows of that console the persona's clearance admits.
 visible() {

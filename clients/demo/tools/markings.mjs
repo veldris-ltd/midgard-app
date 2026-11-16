@@ -13,8 +13,11 @@ export class MarkingError extends Error {}
 
 // Words for a level above the four the demo knows. Any of them, as a token or a
 // two-token phrase, refuses the row: the demo ships nothing above confidential.
+// Text is NFKC-folded (full-width letters), upper-cased and split at every run of
+// characters other than A-Z and 0-9, so TOP_SECRET, "T.S." and "S.E.C.R.E.T" are
+// read as their words.
 const ABOVE_TOP = ['S', 'SECRET', 'TS', 'TOP SECRET', 'TOP-SECRET', 'COSMIC', 'NATO SECRET', 'OFFICIAL-SENSITIVE'];
-const tokens = (s) => String(s).toUpperCase().split(/[/():\-,\s]+/).filter((t) => t !== '');
+const tokens = (s) => String(s).normalize('NFKC').toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean);
 const ABOVE = new Set(ABOVE_TOP.map((w) => tokens(w).join(' ')));
 export function aboveTop(s) {
   const t = tokens(s);
@@ -36,7 +39,7 @@ const COMPARTMENT = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 export function readMarkingString(s) {
   refuseAboveTop(s);
   if (!word(tokens(s)[0] ?? '')) return null;
-  const [head, ...rest] = s.split('//').map((t) => t.trim());
+  const [head, ...rest] = s.normalize('NFKC').split('//').map((t) => t.trim());
   const level = word(head.toUpperCase());
   if (!level || !rest.every((k) => COMPARTMENT.test(k)))
     throw new MarkingError(`unreadable marking ${JSON.stringify(s)}: write a level, then "//"-separated compartments`);
@@ -79,14 +82,15 @@ export function itemMarking(x) {
 }
 
 // The highest level named anywhere inside a row (`marking`/`level` values only); a
-// level above confidential anywhere inside it is refused.
+// level above confidential in any classification-like field inside it is refused.
+const CLASSIFICATION_KEYS = new Set(['marking', 'markings', 'level', 'classification', 'caveat', 'class']);
 export function innerFloor(v) {
   let top = null;
   const walk = (x) => {
     if (Array.isArray(x)) { x.forEach(walk); return; }
     if (!x || typeof x !== 'object') return;
     for (const [k, y] of Object.entries(x)) {
-      if ((k === 'marking' || k === 'level') && typeof y === 'string') refuseAboveTop(y);
+      if (CLASSIFICATION_KEYS.has(k) && typeof y === 'string') refuseAboveTop(y);
       if ((k === 'marking' || k === 'level') && LEVELS.includes(y) && (top === null || rank(y) > rank(top))) top = y;
       walk(y);
     }
