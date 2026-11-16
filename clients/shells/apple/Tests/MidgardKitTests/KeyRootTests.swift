@@ -247,14 +247,23 @@ final class KeyRootTests: XCTestCase {
         }
     }
 
-    func testWithoutAStoredChoiceAnEnrolledDeviceFollowsTheSealedRootAndRecordsIt() throws {
-        let secrets = InMemorySecretStore()
-        let probes = ProbeCounter()
-        let root = try KeyRootFactory.make(reason: "t", secrets: secrets, sealedRoot: sealedRoot(sealedLength: 113),
-                                           platform: platform(probe: errSecInteractionNotAllowed, probes: probes))
-        XCTAssertTrue(root is SecureEnclaveKeyRoot)
-        XCTAssertEqual(probes.count, 0)
-        XCTAssertEqual(try KeyRootFactory.storedChoice(secrets: secrets), .enclave)
+    func testASealedRootWithoutARecordedKindIsAlwaysRefused() throws {
+        // Enrolment records the kind before it saves the keys, so a sealed root with no
+        // record was not written by this app: a planted software-shaped blob must not
+        // downgrade an Enclave device, and an Enclave-shaped one is refused as well.
+        for (length, shape) in [(60, KeyRootKind.software), (113, .enclave)] {
+            let secrets = InMemorySecretStore()
+            let probes = ProbeCounter()
+            XCTAssertThrowsError(try KeyRootFactory.make(reason: "t", secrets: secrets,
+                                                         sealedRoot: sealedRoot(sealedLength: length),
+                                                         platform: platform(probes: probes))) { error in
+                XCTAssertEqual(error as? KeyRootFactory.Failure, .mismatch(stored: nil, sealed: shape))
+            }
+            XCTAssertNil(try KeyRootFactory.storedChoice(secrets: secrets), "nothing is recorded")
+            XCTAssertEqual(probes.count, 0)
+        }
+        XCTAssertEqual(ErrorText.describe(KeyRootFactory.Failure.mismatch(stored: nil, sealed: .software)),
+                       "This device's saved keys do not match its key store. Reset the demo to start again.")
     }
 
     func testAnUnreadableChoiceIsAnError() {

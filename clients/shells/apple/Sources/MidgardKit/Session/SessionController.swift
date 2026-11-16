@@ -25,6 +25,9 @@ public final class SessionController {
         /// in would import with no rollback check, so it is refused and the client
         /// locked again. The file is kept for the next attempt.
         case keychainUnavailable
+        /// The persona's state file exists but could not be read just now (for example
+        /// file protection while the device is locked): kept, sign-in can be retried.
+        case stateFileUnavailable
     }
 
     public let client: MidgardClientProtocol
@@ -41,8 +44,10 @@ public final class SessionController {
 
     /// First use: make and store the sealed keys (no prompt).
     public func enrol() throws {
-        try store.saveKeys(try client.enrol())
+        let keys = try client.enrol()
+        // The kind first: keys saved without it would be refused at the next launch.
         try KeyRootFactory.record(keyRoot.kind, secrets: store.secrets)
+        try store.saveKeys(keys)
     }
 
     /// Unlock (one prompt) as `persona`, then load that persona's state file.
@@ -63,12 +68,13 @@ public final class SessionController {
     /// any other import error the file is deleted (the next read refetches); the
     /// generation stays. With no file but a kept generation, the core is still told the
     /// generation, so its next export is numbered above every file seen. If the kept
-    /// generation cannot be read, nothing is imported (`Failure.keychainUnavailable`).
+    /// generation cannot be read, nothing is imported (`Failure.keychainUnavailable`);
+    /// if an existing file cannot be read now, it is kept (`Failure.stateFileUnavailable`).
     func restore(_ persona: String) throws -> RestoreOutcome {
         let minimum: UInt64
         do { minimum = try store.minGeneration(for: persona) } catch { throw Failure.keychainUnavailable }
         let file: Data?
-        do { file = try store.load(persona: persona) } catch { file = Data() }  // unreadable: discarded below
+        do { file = try store.load(persona: persona) } catch { throw Failure.stateFileUnavailable }  // kept; retry
         guard let file else {
             if minimum > 0 { _ = try? client.importState(file: Data(), minGeneration: minimum) }
             return .fresh

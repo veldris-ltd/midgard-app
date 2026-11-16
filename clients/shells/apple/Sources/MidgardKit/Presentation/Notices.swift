@@ -38,6 +38,8 @@ public enum ErrorText {
             return "This device's saved keys do not match its key store. Reset the demo to start again."
         case PersonaStateStore.Failure.namingKeyDamaged:
             return "This device's saved data cannot be found again. Reset the demo to start again."
+        case SessionController.Failure.stateFileUnavailable:
+            return "Saved data on this device cannot be read right now. Unlock the device and try again."
         case SessionController.Failure.notEnrolled:
             return "This device is not set up yet."
         default:

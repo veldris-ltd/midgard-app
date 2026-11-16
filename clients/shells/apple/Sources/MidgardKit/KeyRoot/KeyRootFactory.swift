@@ -63,8 +63,9 @@ public struct KeyRootPlatform {
 /// build (no access group: `errSecMissingEntitlement`) cannot keep keys at all and is
 /// refused; any other probe failure (a locked device) is an error to retry, never a
 /// silent downgrade. Once enrolled, the root follows the choice recorded at enrolment
-/// (keychain service `io.veldris.midgard.key-root.choice`), cross-checked with the
-/// sealed root's shape; a contradiction is refused. Never fakes hardware.
+/// (keychain service `io.veldris.midgard.key-root.choice`, written before the keys),
+/// cross-checked with the sealed root's shape; a contradiction, or a sealed root with
+/// no record, is refused (Reset demo starts again). Never fakes hardware.
 /// [FR-C-2] [FR-C-9] [DD-6]
 public enum KeyRootFactory {
     public enum Failure: Error, Equatable {
@@ -87,14 +88,12 @@ public enum KeyRootFactory {
         let kind: KeyRootKind
         if let sealedRoot {
             let shape = KeyRootKind(sealedRoot: sealedRoot)
-            if let stored {
-                guard shape == stored else { throw Failure.mismatch(stored: stored, sealed: shape) }
-                kind = stored
-            } else {
-                guard let shape else { throw Failure.mismatch(stored: nil, sealed: nil) }
-                try record(shape, secrets: secrets)
-                kind = shape
-            }
+            // Enrolment records the kind before it saves the keys, so a sealed root
+            // without a record was not written by this app (or the record was lost):
+            // refused, never followed — a planted software-shaped blob must not
+            // downgrade an Enclave device.
+            guard let stored, shape == stored else { throw Failure.mismatch(stored: stored, sealed: shape) }
+            kind = stored
         } else {
             kind = try choose(platform)
         }

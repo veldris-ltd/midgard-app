@@ -11,6 +11,8 @@ final class InMemorySecretStore: SecretStore {
     var onWrite: ((String, String) -> Void)?
     /// When set, every write fails with this status.
     var failWrites: OSStatus?
+    /// Writes to these services fail with the given status.
+    var failWritesTo: [String: OSStatus] = [:]
     /// Reads of these services fail with the given status.
     var failReads: [String: OSStatus] = [:]
 
@@ -21,7 +23,7 @@ final class InMemorySecretStore: SecretStore {
     }
 
     func write(_ data: Data, service: String, account: String) throws {
-        if let status = failWrites { throw SecretStoreError.keychain(status) }
+        if let status = failWrites ?? failWritesTo[service] { throw SecretStoreError.keychain(status) }
         onWrite?(service, account)
         items[service, default: [:]][account] = Data([UInt8](data))
         log.append("write \(service)")

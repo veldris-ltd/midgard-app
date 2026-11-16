@@ -181,6 +181,43 @@ final class AppModelTests: XCTestCase {
         guard case .unlocked = model.phase else { return XCTFail("\(model.phase)") }
     }
 
+    func testEnrolmentRecordsTheKindBeforeSavingTheKeys() async throws {
+        let model = await started()
+        secrets.failWritesTo[KeyRootFactory.choiceService] = errSecInteractionNotAllowed
+        await model.enrol()
+        XCTAssertEqual(model.phase, .needsEnrolment)
+        XCTAssertEqual(model.message, ErrorText.describe(KeyRootFactory.Failure.keychainUnavailable(errSecInteractionNotAllowed)))
+        XCTAssertNil(try PersonaStateStore(directory: dir, secrets: secrets).loadKeys(),
+                     "no keys are saved without their recorded kind")
+        secrets.failWritesTo = [:]
+        await model.enrol()
+        XCTAssertEqual(model.phase, .locked)
+        XCTAssertEqual(try KeyRootFactory.storedChoice(secrets: secrets), .software)
+    }
+
+    func testAStateFileThatCannotBeReadNowIsKeptAndSignInCanBeRetried() async throws {
+        let store = PersonaStateStore(directory: dir, secrets: secrets)
+        let first = try await signedIn()
+        _ = await first.rows("midgard.objectTypes")
+        await first.lock()
+        let url = try store.stateURL(for: "k.rao")
+        let saved = try Data(contentsOf: url)
+        XCTAssertEqual(chmod(url.path, 0), 0)
+        defer { chmod(url.path, 0o600) }
+
+        let model = await started()
+        await model.signIn(try XCTUnwrap(model.personas.first { $0.id == "k.rao" }))
+        XCTAssertEqual(model.phase, .locked)
+        XCTAssertEqual(model.message, ErrorText.describe(SessionController.Failure.stateFileUnavailable))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path), "not deleted")
+
+        XCTAssertEqual(chmod(url.path, 0o600), 0)
+        XCTAssertEqual(try Data(contentsOf: url), saved)
+        await model.signIn(try XCTUnwrap(model.personas.first { $0.id == "k.rao" }))
+        guard case .unlocked = model.phase else { return XCTFail("\(model.phase)") }
+        XCTAssertNil(model.message)
+    }
+
     func testUnsentChangesLostOnImportAreToldToTheUser() async throws {
         let first = try await signedIn()
         await first.lock()
