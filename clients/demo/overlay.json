@@ -1,0 +1,18 @@
+{
+  "default": { "level": "internal", "compartments": [] },
+  "collections": {
+    "midgard.searchAround": { "default": { "level": "confidential", "compartments": ["OPS-N", "SIG"] } },
+    "midgard.audit": { "default": { "level": "restricted", "compartments": [] } },
+    "midgard.keys": { "default": { "level": "restricted", "compartments": [] },
+                      "ids": { "kek-root": { "level": "confidential", "compartments": ["OPS-N"] } } },
+    "admin.ledger": { "default": { "level": "restricted", "compartments": [] } },
+    "admin.breakGlass": { "default": { "level": "confidential", "compartments": [] } },
+    "heimdall.feeds": { "default": { "level": "restricted", "compartments": [] } },
+    "heimdall.syncSites": { "default": { "level": "restricted", "compartments": [] },
+                            "ids": { "SITE-ALPHA (this)": { "level": "confidential", "compartments": ["OPS-N"] },
+                                     "SITE-BRAVO": { "level": "confidential", "compartments": ["OPS-N"] } } },
+    "heimdall.decisions": { "default": { "level": "confidential", "compartments": ["OPS-N"] } },
+    "mimir.sessions": { "default": { "level": "restricted", "compartments": [] } },
+    "bifrost.fleet": { "default": { "level": "restricted", "compartments": [] } }
+  }
+}
