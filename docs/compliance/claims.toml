@@ -447,12 +447,12 @@ id = "client-core"
 area = "Clients"
 claim = "One shared client core in Rust: sealed local edits, clearance checks, and conflict-free sync that converges after a disconnection."
 status = "reference"
-limit = "The software keystore reports the NonExtractable floor only; higher floors require a platform keystore."
+limit = "The software keystore reports the NonExtractable floor only; higher floors require a platform keystore. The Apple key root (Secure Enclave-wrapped at rest, in process memory while unlocked) also reports NonExtractable, accepted for the demo (owner decision, 16 Nov 2026)."
 criteria = ["AC-C-6", "AC-C-10"]
-evidence = ["clients/core/src/lib.rs:53"]
-tests = ["clients/core/tests/one_core.rs::two_cores_converge_on_reconnect", "clients/core/tests/one_core.rs::the_core_is_generic_over_the_keystore", "clients/store/tests/at_rest_and_clearance.rs::the_software_keystore_cannot_claim_a_hardware_floor", "clients/sync/tests/convergence.rs::all_permutations_converge_and_are_idempotent", "clients/inference/tests/rc_57.rs::tier2_request_delegates_over_real_pqmtls"]
-fallback = "A shared client core with sealed edits, conflict-free sync and tiered inference is implemented and tested as a library. It keeps its state in memory, and no application is built on it."
-milestone = "Client-side persistence and language bindings (RF-PER-5, RF-CL-1)."
+evidence = ["clients/core/src/lib.rs:53", "clients/core/src/session.rs:1111:pub fn export_state", "clients/core/src/device_audit.rs:135:pub struct DeviceAuditKey", "tools/ci/no-test-backend.sh:51:demo-unpinned"]
+tests = ["clients/core/tests/one_core.rs::two_cores_converge_on_reconnect", "clients/core/tests/one_core.rs::the_core_is_generic_over_the_keystore", "clients/store/tests/at_rest_and_clearance.rs::the_software_keystore_cannot_claim_a_hardware_floor", "clients/sync/tests/convergence.rs::all_permutations_converge_and_are_idempotent", "clients/inference/tests/rc_57.rs::tier2_request_delegates_over_real_pqmtls", "clients/core/tests/session.rs::state_survives_a_relaunch_with_its_queue_and_generation", "clients/store/tests/persist.rs::a_file_sealed_to_another_root_is_refused_and_nothing_is_loaded", "clients/core/tests/device_audit.rs::a_sealed_key_reopens_only_under_its_root_and_is_the_same_key", "clients/core/tests/session.rs::a_source_cannot_claim_a_row_is_device_signed"]
+fallback = "A shared client core with sealed edits, conflict-free sync and tiered inference is implemented and tested as a library. Its sealed cache and offline queue persist across a relaunch, per persona, sealed to the device's key root; the audit rows of its own actions are signed with a device key sealed to the same root and shown as device-signed only after a check; a release build cannot open an unpinned demo dataset. No application is built on it yet."
+milestone = "An application running on the core through its language bindings (RF-CL-1)."
 stated_in = ["docs/launch/pipeline/build-deck.js:416"]
 
 [[claim]]
@@ -461,8 +461,8 @@ area = "Clients"
 claim = "Native applications for iOS, Android and Linux, a Tauri desktop application, a web application and a browser extension, with keys held in device hardware."
 status = "spec"
 criteria = ["AC-C-11"]
-evidence = ["clients/shells/SHELL_BUILD.md:1"]
-fallback = "Six client shells are specified in SAD_06 and scaffolded as manifests and accessibility declarations. None is built: there is no application code and there are no language bindings, so no key is held in device hardware."
+evidence = ["clients/shells/SHELL_BUILD.md:1", "clients/ffi/Cargo.toml:1", "clients/shells/apple/Package.swift:1"]
+fallback = "Six client shells are specified in SAD_06 and scaffolded as manifests and accessibility declarations. The Apple shell has its language bindings (UniFFI) and a shared Swift package, with a key root that wraps the core's root under a Secure Enclave key, built and tested on a Mac; no application is built and no shell has been audited, so no application holds a key in device hardware. The other five shells have no application code and no language bindings."
 milestone = "RF-CL-1 to RF-CL-7."
 
 # ---- Supply chain and release ----------------------------------------------------------

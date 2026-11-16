@@ -998,21 +998,28 @@ Decision support: ranked options, each cited and grounded against the picture, a
 
 One shared client core in Rust: sealed local edits, clearance checks, and conflict-free sync that converges after a disconnection.
 
-**Limit.** The software keystore reports the NonExtractable floor only; higher floors require a platform keystore.
+**Limit.** The software keystore reports the NonExtractable floor only; higher floors require a platform keystore. The Apple key root (Secure Enclave-wrapped at rest, in process memory while unlocked) also reports NonExtractable, accepted for the demo (owner decision, 16 Nov 2026).
 
-**Until it is operable, say:** "A shared client core with sealed edits, conflict-free sync and tiered inference is implemented and tested as a library. It keeps its state in memory, and no application is built on it."
+**Until it is operable, say:** "A shared client core with sealed edits, conflict-free sync and tiered inference is implemented and tested as a library. Its sealed cache and offline queue persist across a relaunch, per persona, sealed to the device's key root; the audit rows of its own actions are signed with a device key sealed to the same root and shown as device-signed only after a check; a release build cannot open an unpinned demo dataset. No application is built on it yet."
 
-**Milestone.** Client-side persistence and language bindings (RF-PER-5, RF-CL-1).
+**Milestone.** An application running on the core through its language bindings (RF-CL-1).
 
 - Criteria: AC-C-6, AC-C-10
 - Source:
   - [`clients/core/src/lib.rs:53`](../../clients/core/src/lib.rs)
+  - [`clients/core/src/session.rs:1111:pub fn export_state`](../../clients/core/src/session.rs)
+  - [`clients/core/src/device_audit.rs:135:pub struct DeviceAuditKey`](../../clients/core/src/device_audit.rs)
+  - [`tools/ci/no-test-backend.sh:51:demo-unpinned`](../../tools/ci/no-test-backend.sh)
 - Tests:
   - [`clients/core/tests/one_core.rs::two_cores_converge_on_reconnect`](../../clients/core/tests/one_core.rs)
   - [`clients/core/tests/one_core.rs::the_core_is_generic_over_the_keystore`](../../clients/core/tests/one_core.rs)
   - [`clients/store/tests/at_rest_and_clearance.rs::the_software_keystore_cannot_claim_a_hardware_floor`](../../clients/store/tests/at_rest_and_clearance.rs)
   - [`clients/sync/tests/convergence.rs::all_permutations_converge_and_are_idempotent`](../../clients/sync/tests/convergence.rs)
   - [`clients/inference/tests/rc_57.rs::tier2_request_delegates_over_real_pqmtls`](../../clients/inference/tests/rc_57.rs)
+  - [`clients/core/tests/session.rs::state_survives_a_relaunch_with_its_queue_and_generation`](../../clients/core/tests/session.rs)
+  - [`clients/store/tests/persist.rs::a_file_sealed_to_another_root_is_refused_and_nothing_is_loaded`](../../clients/store/tests/persist.rs)
+  - [`clients/core/tests/device_audit.rs::a_sealed_key_reopens_only_under_its_root_and_is_the_same_key`](../../clients/core/tests/device_audit.rs)
+  - [`clients/core/tests/session.rs::a_source_cannot_claim_a_row_is_device_signed`](../../clients/core/tests/session.rs)
 - Stated at:
   - [`docs/launch/pipeline/build-deck.js:416`](../../docs/launch/pipeline/build-deck.js)
 
@@ -1020,13 +1027,15 @@ One shared client core in Rust: sealed local edits, clearance checks, and confli
 
 Native applications for iOS, Android and Linux, a Tauri desktop application, a web application and a browser extension, with keys held in device hardware.
 
-**Until it is operable, say:** "Six client shells are specified in SAD_06 and scaffolded as manifests and accessibility declarations. None is built: there is no application code and there are no language bindings, so no key is held in device hardware."
+**Until it is operable, say:** "Six client shells are specified in SAD_06 and scaffolded as manifests and accessibility declarations. The Apple shell has its language bindings (UniFFI) and a shared Swift package, with a key root that wraps the core's root under a Secure Enclave key, built and tested on a Mac; no application is built and no shell has been audited, so no application holds a key in device hardware. The other five shells have no application code and no language bindings."
 
 **Milestone.** RF-CL-1 to RF-CL-7.
 
 - Criteria: AC-C-11
 - Source:
   - [`clients/shells/SHELL_BUILD.md:1`](../../clients/shells/SHELL_BUILD.md)
+  - [`clients/ffi/Cargo.toml:1`](../../clients/ffi/Cargo.toml)
+  - [`clients/shells/apple/Package.swift:1`](../../clients/shells/apple/Package.swift)
 
 ## Supply chain and release
 
