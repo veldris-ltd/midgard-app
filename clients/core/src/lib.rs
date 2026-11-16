@@ -35,6 +35,7 @@ use sync::{Replica, SyncOp};
 
 mod error;
 pub use error::CoreError;
+pub mod marking;
 
 /// The version of the shared core every shell links. All client sub-crates share
 /// the workspace version, so this single string identifies the core on every
