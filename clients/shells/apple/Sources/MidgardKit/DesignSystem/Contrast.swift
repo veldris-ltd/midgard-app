@@ -22,6 +22,16 @@ public enum MGContrast {
         return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
     }
 
+    /// A translucent colour composited over an opaque one (source-over), each channel
+    /// rounded, as gen-tokens.mjs does when it derives `MGToken.ToneText`.
+    public static func over(_ tint: (UInt32, Double), _ surface: UInt32) -> UInt32 {
+        let (hex, alpha) = tint
+        return [16, 8, 0].reduce(UInt32(0)) { acc, shift in
+            let top = Double((hex >> UInt32(shift)) & 0xFF), bottom = Double((surface >> UInt32(shift)) & 0xFF)
+            return acc | UInt32((alpha * top + (1 - alpha) * bottom).rounded()) << UInt32(shift)
+        }
+    }
+
     /// The darkest ink or white, whichever reads better on `fill`.
     public static func ink(on fill: UInt32) -> UInt32 {
         ratio(MGToken.ink950, fill) >= ratio(MGToken.white, fill) ? MGToken.ink950 : MGToken.white

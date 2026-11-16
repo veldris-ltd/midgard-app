@@ -1,6 +1,7 @@
 import MidgardCore
 
-/// The colour a chip takes (`--secure`, `--warn`, `--danger`, `--info`).
+/// The colour a chip takes (`--secure`, `--warn`, `--danger`, `--info`): outlined in the
+/// tone, filled with its tint, lettered in its per-mode text token. [RC-49]
 public enum ChipTone: Equatable, Sendable {
     case secure, warn, danger, info
 
@@ -10,6 +11,26 @@ public enum ChipTone: Equatable, Sendable {
         case .warn: return MGToken.warn
         case .danger: return MGToken.danger
         case .info: return MGToken.info
+        }
+    }
+
+    /// The tone's tint (`--<tone>-tint`), the chip's fill.
+    public var tint: (UInt32, Double) {
+        switch self {
+        case .secure: return MGToken.secureTint
+        case .warn: return MGToken.warnTint
+        case .danger: return MGToken.dangerTint
+        case .info: return MGToken.infoTint
+        }
+    }
+
+    /// Text on the tint, per mode: meets AA on the tint over every surface of the mode.
+    public var text: (dark: UInt32, light: UInt32) {
+        switch self {
+        case .secure: return (MGToken.ToneText.secureDark, MGToken.ToneText.secureLight)
+        case .warn: return (MGToken.ToneText.warnDark, MGToken.ToneText.warnLight)
+        case .danger: return (MGToken.ToneText.dangerDark, MGToken.ToneText.dangerLight)
+        case .info: return (MGToken.ToneText.infoDark, MGToken.ToneText.infoLight)
         }
     }
 }

@@ -100,6 +100,19 @@ public enum MGToken {
         public static let accentHover: (UInt32, Double) = (0xA8171E, 1)
     }
 
+    /// Text on a status tone's tint, per mode: derived by gen-tokens.mjs (the tone mixed
+    /// toward white or black until it reaches 4.6:1 on the tint over every surface).
+    public enum ToneText {
+        public static let secureDark: UInt32 = 0x21C07A
+        public static let warnDark: UInt32 = 0xF0A824
+        public static let dangerDark: UInt32 = 0xDD6C71
+        public static let infoDark: UInt32 = 0x5298FF
+        public static let secureLight: UInt32 = 0x136D46
+        public static let warnLight: UInt32 = 0x7F5913
+        public static let dangerLight: UInt32 = 0xAE1920
+        public static let infoLight: UInt32 = 0x295DAB
+    }
+
     /// The fixed marking colour for a level (governance chrome: never themed).
     public static func markingHex(_ level: MarkingLevelChip) -> UInt32 {
         switch level {

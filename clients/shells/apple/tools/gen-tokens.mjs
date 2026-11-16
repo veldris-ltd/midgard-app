@@ -56,6 +56,39 @@ for (const [n, v] of Object.entries(colors['.mode-light'] ?? {})) {
   if (c) lines.push(`        public static let ${camel(n)}: (UInt32, Double) = (${hex(c.hex)}, ${c.a})`);
 }
 lines.push('    }', '');
+
+// Text on a status tint (chips and badges: the tone's ~14% tint behind, outlined in the
+// tone). The design system has no darker per-mode text for the tones, and the tone
+// itself fails WCAG AA on its own tint in places, so one is derived per tone and mode,
+// deterministically: mix the tone toward white (dark mode) or black (light mode) in
+// 1% steps, each channel rounded, and take the first mix whose contrast against the
+// tint composited (source-over, rounded) on every surface of that mode is at least
+// TONE_TEXT_TARGET (AA's 4.5:1 plus 0.1 for rendering).
+const TONE_TEXT_TARGET = 4.6;
+const TONES = ['secure', 'warn', 'danger', 'info'];
+const SURFACES = ['bg-page', 'bg-sunken', 'surface-card', 'surface-raised', 'surface-inset'];
+const ch = (h, s) => (h >> s) & 0xff;
+const rgb = (r, g, b) => (Math.round(r) << 16) | (Math.round(g) << 8) | Math.round(b);
+const lum = (h) => [16, 8, 0].map((s) => { const c = ch(h, s) / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; })
+  .reduce((a, c, i) => a + c * [0.2126, 0.7152, 0.0722][i], 0);
+const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)]; return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+const over = (t, s) => rgb(...[16, 8, 0].map((k) => t.a * ch(t.hex, k) + (1 - t.a) * ch(s, k)));
+const mix = (a, b, k) => rgb(...[16, 8, 0].map((s) => ch(a, s) + k * (ch(b, s) - ch(a, s))));
+function toneText(tone, scope, toward) {
+  const base = color(root[tone]).hex, tint = color(root[`${tone}-tint`]);
+  const fills = SURFACES.map((n) => over(tint, color(scope[n], scope).hex));
+  for (let i = 0; i <= 100; i++) {
+    const c = mix(base, toward, i / 100);
+    if (Math.min(...fills.map((f) => ratio(c, f))) >= TONE_TEXT_TARGET) return c;
+  }
+  throw new Error(`no text colour for ${tone}`);
+}
+lines.push('    /// Text on a status tone\'s tint, per mode: derived by gen-tokens.mjs (the tone mixed');
+lines.push(`    /// toward white or black until it reaches ${TONE_TEXT_TARGET}:1 on the tint over every surface).`);
+lines.push('    public enum ToneText {');
+for (const t of TONES) lines.push(`        public static let ${camel(t)}Dark: UInt32 = ${hex(toneText(t, root, 0xffffff))}`);
+for (const t of TONES) lines.push(`        public static let ${camel(t)}Light: UInt32 = ${hex(toneText(t, light, 0x000000))}`);
+lines.push('    }', '');
 lines.push('    /// The fixed marking colour for a level (governance chrome: never themed).');
 lines.push('    public static func markingHex(_ level: MarkingLevelChip) -> UInt32 {');
 lines.push('        switch level {', '        case .open: return markingOpen', '        case .internal: return markingInternal',

@@ -10,7 +10,8 @@ import XCTest
 /// the XCUITest run on a real runner (clients/shells/apple/audit.sh, AUDIT_SCHEMA.md).
 ///
 /// - contrast_aa: measured from the tokens (WCAG 2.x ratio, AA 4.5:1 for text), for every
-///   pair the shared views draw themselves and the theme's text tokens on its surfaces.
+///   pair the shared views draw themselves — chip text on the tone's tint composited over
+///   every surface, in both modes — and the theme's text tokens on its surfaces.
 /// - hit_target_size: measured on macOS from the laid-out controls of the shared screens.
 /// - reduced_motion: the loading view measured on macOS (no spinner when reduced), plus
 ///   source rules.
@@ -42,10 +43,40 @@ final class AccessibilityPrecheckTests: XCTestCase {
         XCTAssertEqual(MGContrast.ink(on: MGToken.markingRestricted), MGToken.ink950)
     }
 
-    func testStatusChipsAndSignatureBadgesMeetAAInEveryTone() {
-        for tone in [ChipTone.secure, .warn, .danger, .info] {
-            XCTAssertGreaterThanOrEqual(MGContrast.ratio(MGContrast.ink(on: tone.hex), tone.hex), aa, "\(tone)")
+    private let tones: [ChipTone] = [.secure, .warn, .danger, .info]
+    private let darkSurfaces = [MGToken.bgPage, MGToken.bgSunken, MGToken.surfaceCard, MGToken.surfaceRaised,
+                                MGToken.surfaceInset]
+    private let lightSurfaces = [MGToken.Light.bgPage.0, MGToken.Light.bgSunken.0, MGToken.Light.surfaceCard.0,
+                                 MGToken.Light.surfaceRaised.0, MGToken.Light.surfaceInset.0]
+
+    /// The lowest contrast of `text` on the tone's tint composited over each surface.
+    private func worst(_ text: UInt32, on tone: ChipTone, over surfaces: [UInt32]) -> Double {
+        surfaces.map { MGContrast.ratio(text, MGContrast.over(tone.tint, $0)) }.min() ?? 0
+    }
+
+    func testCompositingFollowsSourceOver() {
+        XCTAssertEqual(MGContrast.over((0xFFFFFF, 1), 0x000000), 0xFFFFFF)
+        XCTAssertEqual(MGContrast.over((0xFFFFFF, 0), 0x123456), 0x123456)
+        XCTAssertEqual(MGContrast.over((0xFFFFFF, 0.5), 0x000000), 0x808080)
+    }
+
+    /// Status chips and signature badges are tinted and outlined (owner, 16 Nov): text in
+    /// the tone's per-mode text token on the tone's tint, composited over every surface
+    /// of that mode, meets AA.
+    func testToneTextMeetsAAOnTheTintOverEverySurfaceInBothModes() {
+        for tone in tones {
+            XCTAssertGreaterThanOrEqual(worst(tone.text.dark, on: tone, over: darkSurfaces), aa, "\(tone) dark")
+            XCTAssertGreaterThanOrEqual(worst(tone.text.light, on: tone, over: lightSurfaces), aa, "\(tone) light")
         }
+    }
+
+    /// Why the text tokens exist: the tone colour itself as text on its own tint fails AA
+    /// somewhere in each mode (danger and info in dark; every tone in light).
+    func testToneColouredTextFailsAAOnTheTint() {
+        let darkFailing = tones.filter { worst($0.hex, on: $0, over: darkSurfaces) < aa }
+        let lightFailing = tones.filter { worst($0.hex, on: $0, over: lightSurfaces) < aa }
+        XCTAssertEqual(darkFailing, [.danger, .info])
+        XCTAssertEqual(lightFailing, [.secure, .warn, .danger, .info])
     }
 
     func testDemoBannerMeetsAA() {
@@ -55,8 +86,6 @@ final class AccessibilityPrecheckTests: XCTestCase {
     func testThemeTextTokensMeetAAOnEverySurfaceInBothModes() {
         let dark: [(String, UInt32)] = [("heading", MGToken.textHeading), ("body", MGToken.textBody),
                                         ("muted", MGToken.textMuted)]
-        let darkSurfaces = [MGToken.bgPage, MGToken.bgSunken, MGToken.surfaceCard, MGToken.surfaceRaised,
-                            MGToken.surfaceInset]
         for (name, text) in dark {
             for surface in darkSurfaces {
                 XCTAssertGreaterThanOrEqual(MGContrast.ratio(text, surface), aa, "dark \(name) on \(surface)")
@@ -64,8 +93,6 @@ final class AccessibilityPrecheckTests: XCTestCase {
         }
         let light = [("heading", MGToken.Light.textHeading.0), ("body", MGToken.Light.textBody.0),
                      ("muted", MGToken.Light.textMuted.0)]
-        let lightSurfaces = [MGToken.Light.bgPage.0, MGToken.Light.bgSunken.0, MGToken.Light.surfaceCard.0,
-                             MGToken.Light.surfaceRaised.0, MGToken.Light.surfaceInset.0]
         for (name, text) in light {
             for surface in lightSurfaces {
                 XCTAssertGreaterThanOrEqual(MGContrast.ratio(text, surface), aa, "light \(name) on \(surface)")
@@ -83,6 +110,18 @@ final class AccessibilityPrecheckTests: XCTestCase {
             XCTAssertEqual(fixedInk.numberOfMatches(in: text, range: NSRange(text.startIndex..., in: text)), 0,
                            "\(file): token-coloured text not on its own fill")
             XCTAssertFalse(text.contains("textFaint"), "\(file): text-faint is below AA")
+        }
+    }
+
+    /// The chips draw their tone's text token over their tint, outlined in the tone.
+    func testToneChipsAreTintedAndOutlined() throws {
+        let sources = Dictionary(uniqueKeysWithValues: try viewSources())
+        for file in ["StatusChipsView.swift", "SignatureBadgeView.swift"] {
+            let text = try XCTUnwrap(sources[file])
+            XCTAssertTrue(text.contains(".tone.text.light") && text.contains(".tone.text.dark"), "\(file): text token")
+            XCTAssertTrue(text.contains(".tone.tint"), "\(file): tint fill")
+            XCTAssertTrue(text.contains("strokeBorder(Color(mgHex:") && text.contains(".tone.hex"), "\(file): outline")
+            XCTAssertFalse(text.contains("MGContrast.ink(on:"), "\(file): filled-chip ink")
         }
     }
 
