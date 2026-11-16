@@ -1027,7 +1027,7 @@ One shared client core in Rust: sealed local edits, clearance checks, and confli
 
 Native applications for iOS, Android and Linux, a Tauri desktop application, a web application and a browser extension, with keys held in device hardware.
 
-**Until it is operable, say:** "Six client shells are specified in SAD_06 and scaffolded as manifests and accessibility declarations. The Apple shell has its language bindings (UniFFI) and a shared Swift package, with a key root that wraps the core's root under a Secure Enclave key, built and tested on a Mac; no application is built and no shell has been audited, so no application holds a key in device hardware. The other five shells have no application code and no language bindings."
+**Until it is operable, say:** "Six client shells are specified in SAD_06 and scaffolded as manifests and accessibility declarations. The Apple shell has its language bindings (UniFFI) and a shared Swift package, with a key root that wraps the core's root under a Secure Enclave key, built on a Mac; tested with a software key, as the Enclave path first runs in a signed app (Phase B); no application is built and no shell has been audited, so no application holds a key in device hardware. The other five shells have no application code and no language bindings."
 
 **Milestone.** RF-CL-1 to RF-CL-7.
 
