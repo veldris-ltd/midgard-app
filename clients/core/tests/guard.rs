@@ -96,9 +96,9 @@ fn has_area(errs: &[GuardError], want: &str) -> bool {
         .any(|e| matches!(e, GuardError::Area { area, .. } if *area == want))
 }
 
-fn has_hidden(errs: &[GuardError]) -> bool {
+fn has_foreign(errs: &[GuardError]) -> bool {
     errs.iter()
-        .any(|e| matches!(e, GuardError::HiddenChar { .. }))
+        .any(|e| matches!(e, GuardError::ForeignChar { .. }))
 }
 
 #[test]
@@ -134,9 +134,9 @@ fn a_combining_mark_or_an_invisible_format_char_is_refused_outright() {
         "soft\u{ad}hyphen",
         "x\u{2060}y",
     ] {
-        assert!(has_hidden(&findings(text)), "{text:?}");
+        assert!(has_foreign(&findings(text)), "{text:?}");
     }
-    assert!(!has_hidden(&findings(
+    assert!(!has_foreign(&findings(
         "plain \u{2014} \u{b7} \u{2192} text"
     )));
 }
@@ -228,8 +228,8 @@ fn a_coordinate_array_is_refused_in_either_order() {
         let errs = check(&parse(body).unwrap()).unwrap_err();
         assert!(has_area(&errs, "Mauritius EEZ"), "{body}: {errs:?}");
     }
-    // Four numbers is not a position; Paris is not in a denied area either way round.
-    assert_eq!(check(&parse("[57.5,-20.16,1,2]").unwrap()), Ok(()));
+    // An odd run longer than three is not a position; Paris is not in a denied area.
+    assert_eq!(check(&parse("[57.5,-20.16,1,2,3]").unwrap()), Ok(()));
     assert_eq!(check(&parse("[48.85,2.35]").unwrap()), Ok(()));
 }
 
@@ -289,4 +289,90 @@ fn a_key_holding_a_dot_or_bracket_is_quoted_in_the_finding_path() {
             if path == r#"$["x.y"]["a[0]"]"#)),
         "{errs:?}"
     );
+}
+
+#[test]
+fn any_character_outside_the_allowed_set_is_refused() {
+    for text in [
+        "Maur\u{fe0f}itius",
+        "Maur\u{1dc0}itius",
+        "Mauri\u{180e}tius",
+        "Mau\u{e0041}ritius",
+        "M\u{430}uritius",
+        "\u{f7}",
+    ] {
+        assert!(has_foreign(&findings(text)), "{text:?}");
+    }
+    // A key is checked like a value.
+    let v = parse("{\"M\u{430}uritius\":1}").unwrap();
+    assert!(has_foreign(&check(&v).unwrap_err()));
+    // The symbols the release fixtures use, and folded Latin letters, are allowed.
+    for text in ["\u{b1}2 \u{b7} \u{d7} \u{2014} \u{2019} \u{2026} \u{2192} \u{2212}1 \u{2265} \u{26a0} \u{2713}", "Caf\u{e9} \u{141}\u{f3}d\u{17a}"] {
+        assert_eq!(findings(text), vec![], "{text:?}");
+    }
+}
+
+#[test]
+fn a_dot_leader_or_squashed_spacing_does_not_hide_a_marker() {
+    for (text, marker) in [
+        ("seismicportal\u{2024}eu", "seismicportal.eu"),
+        ("PortLouis", "port louis"),
+        ("p o r t louis", "port louis"),
+        ("open-sky network", "opensky"),
+    ] {
+        let errs = findings(text);
+        assert!(has_marker(&errs, marker), "{text:?}: {errs:?}");
+    }
+}
+
+#[test]
+fn every_matching_key_and_the_x_y_names_are_tried_for_a_keyed_position() {
+    for body in [
+        r#"{"Lat":1,"lat":-20.16,"lon":57.5}"#,
+        r#"{"y":-20.16,"x":57.5}"#,
+        r#"{"X":"57.5","Y":"-20.16"}"#,
+    ] {
+        let errs = check(&parse(body).unwrap()).unwrap_err();
+        assert!(has_area(&errs, "Mauritius EEZ"), "{body}: {errs:?}");
+    }
+    // Picture coordinates (0 to 100) are never a denied position.
+    assert_eq!(check(&parse(r#"{"x":57.5,"y":20.16}"#).unwrap()), Ok(()));
+}
+
+#[test]
+fn an_even_run_of_numbers_is_read_as_pairs() {
+    for body in [
+        "[57.5,-20.16,57.6,-20.2]",
+        "[1,2,57.6,-20.2]",
+        "[48.85,2.35,-20.2,57.6]",
+    ] {
+        let errs = check(&parse(body).unwrap()).unwrap_err();
+        assert!(has_area(&errs, "Mauritius EEZ"), "{body}: {errs:?}");
+    }
+    assert_eq!(check(&parse("[48.85,2.35,51.5,-0.12]").unwrap()), Ok(()));
+}
+
+#[test]
+fn a_pair_with_a_short_label_or_an_exponent_between_is_refused() {
+    for text in [
+        "lat=-20.16 lon=57.5",
+        "-20.16/57.5",
+        "-2.016e1, 57.5",
+        "57.5E0 -20.16",
+    ] {
+        assert!(has_area(&findings(text), "Mauritius EEZ"), "{text:?}");
+    }
+    // More than eight characters apart is not a pair.
+    assert_eq!(findings("-20.16 is far from the 57.5"), vec![]);
+}
+
+// Pending a decision: read both ways round, the synthetic Heimdall hour (lat 51 to 56,
+// lon -10 to -2, keyed lat/lon) puts lon -10..-6 / lat 52..56 inside the Mauritius
+// box, so every committed motion sample would be refused. Either the synthetic area
+// moves east of 6 W or keyed positions stay read one way round.
+#[test]
+#[ignore = "conflicts with the committed synthetic hour; see the comment above"]
+fn a_keyed_position_with_lat_and_lon_swapped_is_refused() {
+    let errs = check(&parse(r#"{"lat":57.5,"lon":-20.16}"#).unwrap()).unwrap_err();
+    assert!(has_area(&errs, "Mauritius EEZ"), "{errs:?}");
 }

@@ -8,8 +8,11 @@
 //! Text is compared after [`normalise`]: accents and full-width forms folded to
 //! ASCII, invisible format characters dropped, case folded, and runs of whitespace,
 //! `_`, `-` and `.` read as one space, so `Port_Louis`, `ＭＡＵＲＩＴＩＵＳ` and a
-//! decomposed `Agaléga` are all found. A string holding a combining mark or an
-//! invisible format character is refused outright: the release fixtures have none.
+//! decomposed `Agaléga` are all found, and markers are also matched with every space
+//! removed (`PortLouis`). Characters are allow-listed: a string holding anything but
+//! ASCII, the folded Latin letters and a short list of symbols (another script, a
+//! combining mark, a variation selector, a tag, an invisible separator) is refused
+//! outright.
 //!
 //! What it does not catch: data encoded so it no longer reads as text (base64, hex,
 //! compressed blobs). Task A7's builder covers that by accepting only inputs whose
@@ -133,8 +136,9 @@ pub enum GuardError {
         /// Which area.
         area: &'static str,
     },
-    /// A string holds a combining mark or an invisible format character.
-    HiddenChar {
+    /// A string holds a character outside the allowed set: ASCII, the folded Latin
+    /// letters and a short list of symbols (degree, dashes, arrows, signs).
+    ForeignChar {
         /// Where.
         path: String,
         /// The first such code point.
@@ -146,7 +150,7 @@ pub enum GuardError {
 #[must_use = "a finding must stop the build"]
 pub fn check(v: &Json) -> Result<(), Vec<GuardError>> {
     let markers: Vec<(String, &'static str)> =
-        DENY_MARKERS.iter().map(|m| (normalise(m), *m)).collect();
+        DENY_MARKERS.iter().map(|m| (squash(m), *m)).collect();
     let mut found = Vec::new();
     walk(v, "$", &markers, &mut found);
     if found.is_empty() {
@@ -158,9 +162,35 @@ pub fn check(v: &Json) -> Result<(), Vec<GuardError>> {
 
 /// Fold `s` for marker matching: drop invisible format characters and combining
 /// marks, map full-width ASCII and Latin-1/Latin Extended-A letters to ASCII,
-/// lower-case, and read each run of whitespace, `_`, `-` and `.` as one space.
+/// lower-case, and read each run of whitespace, `_`, `-`, `.` and the typographic
+/// dashes, dots and bullets as one space.
 pub fn normalise(s: &str) -> String {
     fold(s, true)
+}
+
+/// [`normalise`] with the spaces removed too, so `PortLouis` and `p o r t louis`
+/// both read `portlouis`.
+fn squash(s: &str) -> String {
+    normalise(s).replace(' ', "")
+}
+
+/// Whether `c` may appear in the demo dataset at all: ASCII, the Latin letters
+/// [`FOLD`] maps, and the symbols the release fixtures use (degree to fractions,
+/// multiplication sign, general punctuation, arrows, minus, comparison signs,
+/// miscellaneous symbols and dingbats). Everything else (other scripts, variation
+/// selectors, combining marks, tags, invisible separators) is refused.
+fn is_allowed(c: char) -> bool {
+    let cp = c as u32;
+    c.is_ascii()
+        || FOLD.iter().any(|(lo, hi, _)| (*lo..=*hi).contains(&cp))
+        || matches!(cp,
+            0xb0..=0xbf | 0xd7 | 0x2010..=0x2027 | 0x2190..=0x21ff | 0x2212
+            | 0x2260..=0x2265 | 0x2600..=0x27bf)
+}
+
+fn is_separator(c: char) -> bool {
+    c.is_whitespace()
+        || matches!(c, '_' | '-' | '.' | '\u{b7}' | '\u{2010}'..='\u{2015}' | '\u{2022}' | '\u{2024}'..='\u{2027}')
 }
 
 fn is_hidden(c: char) -> bool {
@@ -236,7 +266,7 @@ fn fold(s: &str, collapse: bool) -> String {
             0x2212 => '-',
             _ => c,
         };
-        if collapse && (c.is_whitespace() || matches!(c, '_' | '-' | '.')) {
+        if collapse && is_separator(c) {
             gap = true;
             continue;
         }
@@ -258,7 +288,7 @@ fn fold(s: &str, collapse: bool) -> String {
 }
 
 fn marker_in(s: &str, markers: &[(String, &'static str)]) -> Option<&'static str> {
-    let text = normalise(s);
+    let text = squash(s);
     if let Some((_, m)) = markers.iter().find(|(n, _)| text.contains(n.as_str())) {
         return Some(m);
     }
@@ -303,11 +333,13 @@ fn pair_in_areas(a: f64, b: f64, path: &str, found: &mut Vec<GuardError>) {
     }
 }
 
-fn keyed(pairs: &[(String, Json)], keys: &[&str]) -> Option<f64> {
+/// Every number under a key whose lower case is one of `keys`.
+fn keyed(pairs: &[(String, Json)], keys: &[&str]) -> Vec<f64> {
     pairs
         .iter()
-        .find(|(k, _)| keys.contains(&k.to_lowercase().as_str()))
-        .and_then(|(_, v)| as_number(v))
+        .filter(|(k, _)| keys.contains(&k.to_lowercase().as_str()))
+        .filter_map(|(_, v)| as_number(v))
+        .collect()
 }
 
 /// Decimal numbers written in `s`, each with the text between it and the one before.
@@ -329,6 +361,19 @@ fn numbers_in(s: &str) -> Vec<(f64, String)> {
                 i += 1;
                 while i < cs.len() && cs[i].is_ascii_digit() {
                     i += 1;
+                }
+            }
+            // An exponent: e, an optional sign, digits.
+            if i + 1 < cs.len() && matches!(cs[i], 'e' | 'E') {
+                let mut j = i + 1;
+                if matches!(cs[j], '-' | '+') {
+                    j += 1;
+                }
+                if cs.get(j).is_some_and(char::is_ascii_digit) {
+                    i = j;
+                    while i < cs.len() && cs[i].is_ascii_digit() {
+                        i += 1;
+                    }
                 }
             }
             let text: String = cs[start..i].iter().collect();
@@ -354,8 +399,8 @@ fn key_path(path: &str, k: &str) -> String {
 fn walk(v: &Json, path: &str, markers: &[(String, &'static str)], found: &mut Vec<GuardError>) {
     match v {
         Json::Str(s) => {
-            if let Some(c) = s.chars().find(|c| is_hidden(*c)) {
-                found.push(GuardError::HiddenChar {
+            if let Some(c) = s.chars().find(|c| !is_allowed(*c)) {
+                found.push(GuardError::ForeignChar {
                     path: path.to_string(),
                     code: c as u32,
                 });
@@ -366,32 +411,43 @@ fn walk(v: &Json, path: &str, markers: &[(String, &'static str)], found: &mut Ve
                     marker: m,
                 });
             }
-            // "57.5 -20.16", "-20.16, 57.5", "POINT(57.5 -20.16)".
+            // "57.5 -20.16", "POINT(57.5 -20.16)", "lat=-20.16 lon=57.5": two numbers
+            // at most eight characters apart.
             for w in numbers_in(s).windows(2) {
-                let sep = &w[1].1;
-                if !sep.is_empty() && sep.chars().all(|c| matches!(c, ' ' | ',' | ';' | '\t')) {
+                if (1..=8).contains(&w[1].1.chars().count()) {
                     pair_in_areas(w[0].0, w[1].0, path, found);
                 }
             }
         }
         Json::Arr(items) => {
             let nums: Vec<f64> = items.iter().filter_map(as_number).collect();
-            if (2..=3).contains(&items.len()) && nums.len() == items.len() {
-                pair_in_areas(nums[0], nums[1], path, found);
+            // [lon, lat], [lon, lat, alt], or a run of pairs [lon, lat, lon, lat, ...].
+            if nums.len() == items.len() {
+                if nums.len() == 3 {
+                    pair_in_areas(nums[0], nums[1], path, found);
+                } else if nums.len() % 2 == 0 {
+                    for p in nums.chunks(2) {
+                        pair_in_areas(p[0], p[1], path, found);
+                    }
+                }
             }
             for (i, x) in items.iter().enumerate() {
                 walk(x, &format!("{path}[{i}]"), markers, found);
             }
         }
         Json::Obj(pairs) => {
-            if let (Some(lat), Some(lon)) = (
-                keyed(pairs, &["lat", "latitude", "latdeg", "lat_deg"]),
-                keyed(
-                    pairs,
-                    &["lon", "lng", "long", "longitude", "londeg", "lon_deg"],
-                ),
-            ) {
-                in_areas(lat, lon, path, found);
+            // Every latitude-like value against every longitude-like one. Read one
+            // way round only: swapped, the synthetic Heimdall hour (keyed, lat 51 to
+            // 56, lon -10 to -2) would fall in the Mauritius box.
+            let lats = keyed(pairs, &["lat", "latitude", "latdeg", "lat_deg", "y"]);
+            let lons = keyed(
+                pairs,
+                &["lon", "lng", "long", "longitude", "londeg", "lon_deg", "x"],
+            );
+            for lat in &lats {
+                for lon in &lons {
+                    in_areas(*lat, *lon, path, found);
+                }
             }
             for (k, x) in pairs {
                 let p = key_path(path, k);
