@@ -11,7 +11,7 @@ use attest::TrustAnchors;
 use midgard_client_core::demo::audit::SignatureStatus;
 use midgard_client_core::demo::canon;
 use midgard_client_core::demo::dataset::DatasetError;
-use midgard_client_core::demo::enclosure::{DemoEnclosure, Outcome};
+use midgard_client_core::demo::enclosure::{DemoEnclosure, Outcome, MAX_ACTION_PARAMS};
 use midgard_client_core::marking::MarkingLevel;
 use midgard_client_core::source::{action, DataSource, Delivered, SourceError};
 use midgard_client_core::sync::{Replica, SyncOp};
@@ -557,7 +557,7 @@ fn a_lost_reply_is_answered_again_on_re_push() {
 }
 
 #[test]
-fn another_persona_reusing_an_action_id_gets_a_conflict_and_nothing_of_the_first() {
+fn another_persona_reusing_an_action_id_makes_its_own_action_and_learns_nothing_of_the_first() {
     let mut e = enclosure();
     let rao = e.grant("k.rao").unwrap();
     let osei = e.grant("k.osei").unwrap();
@@ -571,32 +571,74 @@ fn another_persona_reusing_an_action_id_gets_a_conflict_and_nothing_of_the_first
         .exchange(&osei, &ping(&mut second, "action:dev-1-1", "k.osei"))
         .unwrap();
     merge(&mut second, &back);
-    assert_eq!(
-        second.get("action:dev-1-1", action::STATUS),
-        Some(&b"conflict"[..])
-    );
-    for f in [action::AUDIT, action::RESULT, action::REASON] {
-        assert_ne!(
-            second.get("action:dev-1-1", f),
-            first.get("action:dev-1-1", f),
-            "{f} leaked across personas"
+    // Not a conflict: that would tell the second persona the id was used.
+    for r in [&first, &second] {
+        assert_eq!(
+            r.get("action:dev-1-1", action::STATUS),
+            Some(&b"applied"[..])
         );
     }
-    assert_eq!(
-        second.get("action:dev-1-1", action::RESULT),
-        Some(&b"{}"[..])
+    let audit_of = |r: &Replica| r.get("action:dev-1-1", action::AUDIT).unwrap().to_vec();
+    assert_ne!(
+        audit_of(&first),
+        audit_of(&second),
+        "each persona's own audit row"
     );
-    // Each persona's re-push still gets its own answer.
-    let again = e
-        .exchange(
-            &rao,
-            &ping(&mut Replica::new("dev-1"), "action:dev-1-1", "k.rao"),
-        )
-        .unwrap();
-    let mut check = Replica::new("dev-1");
-    merge(&mut check, &again);
+    let audit = e.fetch(&osei, "midgard.audit").unwrap();
+    let actor_of = |id: &[u8]| {
+        audit.iter().find_map(|d| match d {
+            Delivered::Row { id: rid, body, .. } if rid.as_bytes() == id => {
+                parse(std::str::from_utf8(body).unwrap())
+                    .unwrap()
+                    .get("actor")
+                    .and_then(Json::as_str)
+                    .map(str::to_string)
+            }
+            _ => None,
+        })
+    };
+    assert_eq!(actor_of(&audit_of(&second)).as_deref(), Some("k.osei"));
+    assert_eq!(actor_of(&audit_of(&first)).as_deref(), Some("k.rao"));
+    // Each persona's re-push still gets its own stored answer.
+    for (g, who, r) in [(&rao, "k.rao", &first), (&osei, "k.osei", &second)] {
+        let dev = if who == "k.rao" { "dev-1" } else { "dev-2" };
+        let again = e
+            .exchange(g, &ping(&mut Replica::new(dev), "action:dev-1-1", who))
+            .unwrap();
+        let mut check = Replica::new(dev);
+        merge(&mut check, &again);
+        assert_eq!(audit_of(&check), audit_of(r));
+    }
+}
+
+#[test]
+fn params_longer_than_the_cap_are_refused_as_malformed() {
+    let mut e = enclosure();
+    let g = e.grant("k.rao").unwrap();
+    let mut client = Replica::new("dev-1");
+    let mut ops = ping(&mut client, "action:dev-1-1", "k.rao");
+    let params = format!(r#"{{"a":"{}"}}"#, "x".repeat(MAX_ACTION_PARAMS));
+    client.set("action:dev-1-1", action::PARAMS, params.into_bytes());
+    ops.extend(client.drain_pending().iter().map(SyncOp::encode));
+    merge(&mut client, &e.exchange(&g, &ops).unwrap());
     assert_eq!(
-        check.get("action:dev-1-1", action::STATUS),
+        client.get("action:dev-1-1", action::STATUS),
+        Some(&b"refused"[..])
+    );
+    assert!(client
+        .get("action:dev-1-1", action::REASON)
+        .is_some_and(|r| r.starts_with(b"malformed action: params is longer")));
+    // At the cap it is still an ordinary action.
+    let mut e = enclosure();
+    let mut client = Replica::new("dev-1");
+    let mut ops = ping(&mut client, "action:dev-1-1", "k.rao");
+    let pad = MAX_ACTION_PARAMS - r#"{"a":""}"#.len();
+    let params = format!(r#"{{"a":"{}"}}"#, "x".repeat(pad));
+    client.set("action:dev-1-1", action::PARAMS, params.into_bytes());
+    ops.extend(client.drain_pending().iter().map(SyncOp::encode));
+    merge(&mut client, &e.exchange(&g, &ops).unwrap());
+    assert_eq!(
+        client.get("action:dev-1-1", action::STATUS),
         Some(&b"applied"[..])
     );
 }

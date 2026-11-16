@@ -2191,6 +2191,8 @@ demo-dataset:
 
 **Step 3d: Make the key and the dataset.** The key directory location is an open question for the owner (the default below is outside the repository and outside every backup the suite makes); confirm before running. Do not print or copy the passphrase.
 
+Both demo keys (`demo-key.sh dataset` and, from A8, `demo-key.sh audit`) are unlocked by the one passphrase file in the key directory. That is acceptable for demo keys only (it is no separation between the two); a real signing key never shares a passphrase.
+
 ```bash
 ( umask 077; mkdir -p ~/.midgard/demo-keys; openssl rand -base64 32 > ~/.midgard/demo-keys/passphrase )
 bash clients/demo/tools/demo-key.sh          # expect: "demo-key: pinned ML-DSA-65 midgard-demo-dataset-2026"
@@ -2231,6 +2233,8 @@ At the tag, `clients/enclosure` (`EnclosureClient::connect`) is a PQ-mTLS **tran
 **Actions travel as CRDT edits.** An action is an object `action:<replica>-<n>` whose fields `verb`, `target`, `params` (canonical JSON), `by` are set with `ClientCore::edit_field`, so it queues offline like any edit. On exchange the enclosure merges the ops, runs the handler registered for `verb` once (an action that already has a `status` is skipped, so a re-push is idempotent), appends an audit row, and answers with ops that set `status` (`applied` | `refused` | `conflict`), `reason`, `audit` and `result`. The client merges them. Phase A registers one handler, `demo.ping`; each console phase registers its own.
 
 **Review amendments (16 Nov).** Decisions are kept per `(persona, action id)` and a re-push answers with the stored ops again; another persona reusing an action id gets `conflict` and nothing of the first persona's result. The audit row names the signed-in persona (a different claimed `by` goes into the action text) and goes to the registered handler's console (unknown verbs to `midgard.audit`). An audit row for an action whose target the actor may not see — hidden or missing alike — is marked at the actor's own level (at least `restricted`) with no compartment. Unchecked signature claims outside audit rows are delivered as "not checked (demo)". `open`/`from_body` are behind the non-default `demo-unpinned` feature; production code opens with `open_pinned`.
+
+**Re-review amendments (16 Nov).** The enclosure keeps no global owner per action id: decisions are keyed by `(persona, action id)` and each persona has its own replica, so another persona reusing an id makes its own action (applied, refused or in conflict on its own merits) and learns nothing about the first, not even that the id was used. `params` longer than 4 KiB (`MAX_ACTION_PARAMS`) is refused as malformed. Mimir's `feedback.prov = "verified"` is a provenance label, not a signature; the threat model lists it, and shells render it with a demo qualifier, never as a check mark.
 
 **Files:**
 - Create: `clients/core/src/source.rs`, `clients/core/src/demo/enclosure.rs`

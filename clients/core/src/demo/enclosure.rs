@@ -164,6 +164,9 @@ pub type Handler = fn(&mut DemoState, &Grant, &ActionRequest) -> Outcome;
 /// The longest `verb`, `target` or `by` an action may carry, in bytes.
 pub const MAX_ACTION_FIELD: usize = 256;
 
+/// The longest `params` an action may carry, in bytes (canonical JSON).
+pub const MAX_ACTION_PARAMS: usize = 4096;
+
 /// A registered handler and the console whose audit collection records it.
 #[derive(Clone, Copy)]
 struct Registered {
@@ -179,10 +182,10 @@ pub struct DemoEnclosure {
     /// One replica per persona: action objects are that persona's, so another
     /// persona reusing an action id never reads its fields.
     replicas: BTreeMap<String, Replica>,
-    /// The ops that decided `(persona, action id)`, kept to answer a re-push.
+    /// The ops that decided `(persona, action id)`, kept to answer a re-push. Keyed
+    /// by persona as well, so another persona reusing an action id makes its own
+    /// action and learns nothing about the first (not even that the id was used).
     decisions: BTreeMap<(String, String), Vec<Vec<u8>>>,
-    /// The persona that first decided each action id.
-    owners: BTreeMap<String, String>,
     online: bool,
     handlers: BTreeMap<&'static str, Registered>,
 }
@@ -335,8 +338,8 @@ fn collection_of(
 }
 
 /// The action `id` as `replica` holds it: `Ok(None)` while a field is missing, `Err`
-/// when one is malformed (not UTF-8, longer than [`MAX_ACTION_FIELD`], or `params`
-/// not a canonical JSON object of strings).
+/// when one is malformed (not UTF-8, longer than [`MAX_ACTION_FIELD`], `params`
+/// longer than [`MAX_ACTION_PARAMS`] or not a canonical JSON object of strings).
 fn request(replica: &Replica, id: &str) -> Result<Option<ActionRequest>, String> {
     let mut fields = Vec::with_capacity(action::CLIENT_FIELDS.len());
     for f in action::CLIENT_FIELDS {
@@ -344,8 +347,13 @@ fn request(replica: &Replica, id: &str) -> Result<Option<ActionRequest>, String>
             return Ok(None);
         };
         let text = std::str::from_utf8(bytes).map_err(|_| format!("{f} is not UTF-8"))?;
-        if f != action::PARAMS && text.len() > MAX_ACTION_FIELD {
-            return Err(format!("{f} is longer than {MAX_ACTION_FIELD} bytes"));
+        let max = if f == action::PARAMS {
+            MAX_ACTION_PARAMS
+        } else {
+            MAX_ACTION_FIELD
+        };
+        if text.len() > max {
+            return Err(format!("{f} is longer than {max} bytes"));
         }
         fields.push(text.to_string());
     }
@@ -477,7 +485,6 @@ impl DemoEnclosure {
             state,
             replicas: BTreeMap::new(),
             decisions: BTreeMap::new(),
-            owners: BTreeMap::new(),
             online: true,
             handlers: BTreeMap::new(),
         };
@@ -640,19 +647,8 @@ impl DataSource for DemoEnclosure {
             let (outcome, req) = match request(replica, &id) {
                 Ok(None) => continue, // incomplete: wait for its other fields
                 Err(why) => (Outcome::Refused(format!("malformed action: {why}")), None),
-                Ok(Some(req)) => {
-                    let outcome = match self.owners.get(&id) {
-                        Some(owner) if *owner != persona => {
-                            Outcome::Conflict("this action id is already in use".into())
-                        }
-                        _ => self.decide(&grant, &req),
-                    };
-                    (outcome, Some(req))
-                }
+                Ok(Some(req)) => (self.decide(&grant, &req), Some(req)),
             };
-            self.owners
-                .entry(id.clone())
-                .or_insert_with(|| persona.clone());
             let (status, reason, result) = match outcome {
                 Outcome::Applied(r) => ("applied", String::new(), canon::encode(&r)),
                 Outcome::Refused(why) => ("refused", why, "{}".into()),

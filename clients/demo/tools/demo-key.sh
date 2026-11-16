@@ -15,6 +15,10 @@
 # 0600), apart from every real key and outside the repository. Only the public keys
 # are committed.
 #
+# Both demo keys (dataset and audit) are unlocked by that one passphrase file. That
+# is acceptable for demo keys only: whoever reads the directory can use both, so it
+# is no separation between them. A real signing key never shares a passphrase.
+#
 # What these keys may sign, and only through `just demo-dataset`
 # (clients/core/examples/build_demo_dataset.rs): the dataset key, wrapped in
 # demo::dataset::DemoDatasetOnly, signs preimage(DEMO_DATASET, ...) messages; the

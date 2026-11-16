@@ -137,5 +137,6 @@ the trust boundaries, with each threat mapped to the implemented, tested control
 | No deployment-tier (real cluster/HSM/GPU) acceptance yet | Tracked | RT-40 |
 | Product-console HTTP transports (non-Midgard) not built | Tracked | RT-37/45 |
 | Demo clients: collection names, and the number and levels of withheld rows, are visible to every persona (a withheld row carries no id, body or compartment) | Accepted (demo, as the web consoles) | `clients/core/src/source.rs` |
+| Demo clients: Mimir feedback rows carry `prov = "verified"` from the mocks; it is a provenance label, not a signature, and nothing checks it. Shells render it with a demo qualifier, never as a check mark | Accepted (demo); shells must qualify it | `clients/core/src/consoles/mimir.rs`, `clients/core/src/demo/audit.rs` |
 
 Review this document each release and whenever a trust boundary changes.
