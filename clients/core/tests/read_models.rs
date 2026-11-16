@@ -115,3 +115,128 @@ fn every_literal_union_field_publishes_its_allowed_values() {
     // The marking words the web contract allows; A8's level table must cover each.
     assert!(MIDGARD_MARKING_LEVEL_VALUES.contains(&"confidential"));
 }
+
+#[test]
+fn every_marking_level_field_publishes_only_words_the_core_reads() {
+    use midgard_client_core::consoles::common::POLICY_CONTEXT_CLEARANCE_VALUES;
+    use midgard_client_core::consoles::forge::{
+        FORGE_DATASET_MARKING_VALUES, FORGE_PIPELINE_MARKING_VALUES,
+        FORGE_PROJECTION_MARKING_VALUES,
+    };
+    use midgard_client_core::consoles::heimdall::HEIMDALL_ENTITY_MARKING_VALUES;
+    use midgard_client_core::consoles::midgard::{
+        MIDGARD_GRAPH_NODE_MARKING_VALUES, MIDGARD_IDENTITY_CLEARANCE_VALUES,
+        MIDGARD_MARKING_LEVEL_VALUES, MIDGARD_OBJECT_TYPE_MARKING_VALUES,
+        MIDGARD_POLICY_RULE_MARKING_VALUES,
+    };
+    use midgard_client_core::marking::MarkingLevel;
+    for values in [
+        POLICY_CONTEXT_CLEARANCE_VALUES,
+        FORGE_DATASET_MARKING_VALUES,
+        FORGE_PIPELINE_MARKING_VALUES,
+        FORGE_PROJECTION_MARKING_VALUES,
+        HEIMDALL_ENTITY_MARKING_VALUES,
+        MIDGARD_GRAPH_NODE_MARKING_VALUES,
+        MIDGARD_IDENTITY_CLEARANCE_VALUES,
+        MIDGARD_MARKING_LEVEL_VALUES,
+        MIDGARD_OBJECT_TYPE_MARKING_VALUES,
+        MIDGARD_POLICY_RULE_MARKING_VALUES,
+    ] {
+        for word in values {
+            assert!(
+                MarkingLevel::parse(word).is_some(),
+                "{word:?} does not parse"
+            );
+        }
+        // Every level the core knows is in the contract, and nothing else.
+        let mut parsed: Vec<MarkingLevel> = values
+            .iter()
+            .filter_map(|w| MarkingLevel::parse(w))
+            .collect();
+        parsed.sort();
+        assert_eq!(parsed, MarkingLevel::ALL);
+    }
+}
+
+#[test]
+fn heimdall_motion_decodes_strictly() {
+    use midgard_client_core::consoles::motion::{HeimdallMotion, MotionSample};
+    let m: HeimdallMotion = decode(
+        r#"{"id":"E-1","provenance":"synthetic","samples":[{"lat":54.5,"lon":-3.74,"t":0},{"lat":54.6,"lon":-3.7,"t":10}]}"#,
+    )
+    .unwrap();
+    assert_eq!(m.id, "E-1");
+    assert_eq!(
+        m.samples[1],
+        MotionSample {
+            t: 10,
+            lat: 54.6,
+            lon: -3.7
+        }
+    );
+    for (bad, at) in [
+        (r#"{"id":"E-1","provenance":"p","samples":[],"x":1}"#, "$"),
+        (r#"{"id":"E-1","samples":[]}"#, "$"),
+        (
+            r#"{"id":"E-1","provenance":"p","samples":[{"lat":1,"lon":2}]}"#,
+            "$.samples[0]",
+        ),
+        (
+            r#"{"id":"E-1","provenance":"p","samples":[{"lat":91,"lon":2,"t":0}]}"#,
+            "$.samples[0].lat",
+        ),
+        (
+            r#"{"id":"E-1","provenance":"p","samples":[{"lat":1,"lon":-180.5,"t":0}]}"#,
+            "$.samples[0].lon",
+        ),
+        (
+            r#"{"id":"E-1","provenance":"p","samples":[{"lat":1,"lon":2,"t":-1}]}"#,
+            "$.samples[0].t",
+        ),
+        (
+            r#"{"id":"E-1","provenance":"p","samples":[{"lat":1,"lon":2,"t":10},{"lat":1,"lon":2,"t":10}]}"#,
+            "$.samples[1].t",
+        ),
+    ] {
+        let e = decode::<HeimdallMotion>(bad).unwrap_err();
+        assert_eq!(e.path, at, "{bad}: {e}");
+    }
+}
+
+#[test]
+fn the_type_registry_knows_every_dataset_type_and_refuses_others() {
+    use attest::json::parse;
+    use midgard_client_core::consoles::check_item;
+    let audit =
+        parse(r#"{"id":"A","actor":"a","action":"b","resource":"c","ts":"d","pqSignature":"e"}"#)
+            .unwrap();
+    check_item("AuditRecord", &audit, "$").unwrap();
+    assert!(check_item("AuditRecord", &parse("{}").unwrap(), "$").is_err());
+    let e = check_item("NoSuchType", &audit, "$.x").unwrap_err();
+    assert_eq!(e.path, "$.x");
+    // Each type the committed fixtures name decodes through the registry.
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../demo/fixtures/0.1.0-rc.3");
+    let mut types = 0;
+    for console in ["admin", "bifrost", "forge", "heimdall", "midgard", "mimir"] {
+        let v =
+            parse(&std::fs::read_to_string(dir.join(format!("{console}.json"))).unwrap()).unwrap();
+        let attest::json::Json::Obj(colls) = v.get("collections").unwrap() else {
+            panic!()
+        };
+        for (name, c) in colls {
+            let ty = c.get("type").and_then(|t| t.as_str()).unwrap();
+            for (i, r) in c
+                .get("rows")
+                .and_then(|r| r.as_array())
+                .unwrap()
+                .iter()
+                .enumerate()
+            {
+                check_item(ty, r.get("item").unwrap(), &format!("{name}[{i}]"))
+                    .unwrap_or_else(|e| panic!("{ty}: {e}"));
+            }
+            types += 1;
+        }
+    }
+    assert_eq!(types, 53);
+}

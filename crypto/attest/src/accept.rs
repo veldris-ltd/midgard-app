@@ -70,6 +70,10 @@ pub const MIMIR_MODEL_FILE: Domain = Domain::new(b"midgard-mimir-model-file-v2")
 /// a demonstration app serves instead of a gateway. Its own domain, so a demo-dataset
 /// signature can never stand for a release artefact. [NFR-PQ-3] [AC-C-13]
 pub const DEMO_DATASET: Domain = Domain::new(b"midgard-demo-dataset-v1");
+/// One audit row inside a client demo dataset, signed on its own (by a demo-audit key,
+/// never the dataset key), so a row's check mark rests on a check of that row and an
+/// audit-row signature can never stand for a dataset or a release. [NFR-PQ-3] [AC-C-13]
+pub const DEMO_AUDIT: Domain = Domain::new(b"midgard-demo-audit-v1");
 
 /// Build the canonical preimage for `body` in `domain`.
 pub fn preimage(domain: &Domain, body: &[u8]) -> Vec<u8> {
@@ -292,6 +296,7 @@ mod tests {
             BIFROST_BUNDLE,
             MIMIR_MODEL,
             MIMIR_MODEL_FILE,
+            DEMO_AUDIT,
         ] {
             assert_ne!(DEMO_DATASET.label(), other.label());
             assert_ne!(preimage(&DEMO_DATASET, b"x"), preimage(&other, b"x"));
@@ -307,6 +312,7 @@ mod tests {
             MIMIR_MODEL,
             MIMIR_MODEL_FILE,
             DEMO_DATASET,
+            DEMO_AUDIT,
         ];
         for (i, a) in all.iter().enumerate() {
             for b in &all[i + 1..] {
