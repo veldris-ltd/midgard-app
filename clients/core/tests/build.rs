@@ -4,6 +4,7 @@
 //! [NFR-PRV-1] [NFR-PQ-3]
 
 use std::fs;
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -13,8 +14,24 @@ use midgard_client_core::demo::build::{self, BuildError, InputOrigin};
 use midgard_client_core::demo::guard::GuardError;
 use pqc_agility::sha256;
 
+/// A temporary directory, removed when dropped.
+struct TempDir(PathBuf);
+
+impl Deref for TempDir {
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
 /// A fresh fixture directory holding `files` (name, text) and a manifest naming them.
-fn fixtures(files: &[(&str, &str)]) -> PathBuf {
+fn fixtures(files: &[(&str, &str)]) -> TempDir {
     static N: AtomicUsize = AtomicUsize::new(0);
     let dir = std::env::temp_dir().join(format!(
         "midgard-demo-build-{}-{}",
@@ -23,6 +40,7 @@ fn fixtures(files: &[(&str, &str)]) -> PathBuf {
     ));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
+    let dir = TempDir(dir);
     let mut listed = Vec::new();
     for (name, text) in files {
         fs::write(dir.join(name), text).unwrap();
@@ -34,6 +52,15 @@ fn fixtures(files: &[(&str, &str)]) -> PathBuf {
     );
     fs::write(dir.join("manifest.json"), manifest).unwrap();
     dir
+}
+
+#[test]
+fn fixture_directories_are_removed_when_dropped() {
+    let dir = fixtures(&[("personas.json", PERSONAS)]);
+    let path = dir.to_path_buf();
+    assert!(path.is_dir());
+    drop(dir);
+    assert!(!path.exists());
 }
 
 const PERSONAS: &str = r#"[{"clearance":"internal","id":"a.holt"}]"#;
@@ -137,6 +164,8 @@ fn a_number_not_in_its_one_spelling_is_refused() {
         "0.0",
         "1e+2",
         "0.0000001",
+        // Not a double: JSON.stringify gives 9007199254740992.
+        "9007199254740993",
     ] {
         let rows = format!(r#"[{{"id":"1","item":{{"n":{bad}}}}}]"#);
         let dir = fixtures(&[
@@ -157,6 +186,7 @@ fn a_number_not_in_its_one_spelling_is_refused() {
         "1.5e-7",
         "1e+21",
         "123456789012345680000",
+        "0.30000000000000004",
     ] {
         let rows = format!(r#"[{{"id":"1","item":{{"n":{good}}}}}]"#);
         let dir = fixtures(&[

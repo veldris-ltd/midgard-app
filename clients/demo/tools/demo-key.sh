@@ -33,12 +33,24 @@ if [ -e "$dir/demo-dataset.keystore" ]; then
     exit 2
 fi
 mkdir -p clients/demo/trust
-rm -f "$anchor"
+# Generate into temporary names and move into place only when keygen succeeded, so a
+# failed run leaves the tracked anchor (and the key directory) as they were.
+tmp_key="$dir/.demo-dataset.keystore.tmp.$$"
+tmp_anchor="clients/demo/trust/.demo-dataset.pub.tmp.$$"
+cleanup() { rm -f "$tmp_key" "$tmp_anchor"; }
+trap cleanup EXIT
+rm -f "$tmp_key" "$tmp_anchor"
 cargo run --offline --locked -q -p mg-sign -- keygen \
-    --keystore "$dir/demo-dataset.keystore" \
+    --keystore "$tmp_key" \
     --key-id "midgard-demo-dataset-$(date +%Y)" --alg ML-DSA-65 \
     --keystore-passphrase-file "$dir/passphrase" \
-    --export-verifying-key "$anchor"
-chmod 600 "$dir/demo-dataset.keystore"
-chmod 644 "$anchor"
+    --export-verifying-key "$tmp_anchor"
+if [ ! -s "$tmp_key" ] || [ ! -s "$tmp_anchor" ]; then
+    echo "demo-key: keygen produced no key; nothing replaced" >&2
+    exit 1
+fi
+chmod 600 "$tmp_key"
+chmod 644 "$tmp_anchor"
+mv "$tmp_key" "$dir/demo-dataset.keystore"
+mv -f "$tmp_anchor" "$anchor"
 echo "demo-key: pinned $(cut -d' ' -f1,2 "$anchor")"

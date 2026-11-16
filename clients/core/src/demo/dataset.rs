@@ -45,7 +45,9 @@ pub enum DatasetError {
     Malformed(String),
     /// The envelope names another signing domain.
     WrongDomain,
-    /// The signing key is not pinned.
+    /// The signing key is not pinned. The id comes from an unverified file, so it
+    /// holds at most [`KEY_ID_SHOWN`] characters of it, followed by `…` when cut
+    /// (see [`DatasetError::unknown_key`]); `Debug` and `Display` are both bounded.
     UnknownKey(String),
     /// The signature does not verify under the pinned key.
     Signature(AcceptError),
@@ -68,14 +70,11 @@ impl std::fmt::Display for DatasetError {
             DatasetError::Malformed(d) => write!(f, "malformed demo dataset: {d}"),
             DatasetError::WrongDomain => write!(f, "not signed as a demo dataset"),
             DatasetError::UnknownKey(k) => {
-                // The id comes from an unverified file: echo a bounded prefix only.
-                let shown: String = k.chars().take(KEY_ID_SHOWN).collect();
-                let more = if k.chars().count() > KEY_ID_SHOWN {
-                    "…"
-                } else {
-                    ""
-                };
-                write!(f, "signing key {shown:?}{more} is not pinned")
+                // Already bounded where it was made (see `unknown_key`).
+                match k.strip_suffix('…') {
+                    Some(shown) => write!(f, "signing key {shown:?}… is not pinned"),
+                    None => write!(f, "signing key {k:?} is not pinned"),
+                }
             }
             DatasetError::Signature(e) => write!(f, "demo dataset signature refused: {e}"),
             DatasetError::WrongRelease { found, expected } => {
@@ -88,6 +87,18 @@ impl std::fmt::Display for DatasetError {
 }
 
 impl std::error::Error for DatasetError {}
+
+impl DatasetError {
+    /// An [`DatasetError::UnknownKey`] for `key_id`, cut to [`KEY_ID_SHOWN`]
+    /// characters (and `…`) so no error representation carries the whole id.
+    pub fn unknown_key(key_id: &str) -> Self {
+        let mut shown: String = key_id.chars().take(KEY_ID_SHOWN).collect();
+        if key_id.chars().count() > KEY_ID_SHOWN {
+            shown.push('…');
+        }
+        DatasetError::UnknownKey(shown)
+    }
+}
 
 /// A verified dataset.
 #[derive(Debug)]
@@ -184,9 +195,7 @@ impl<S: SigningBackend> SigningBackend for DemoDatasetOnly<S> {
     }
 
     fn sign(&self, msg: &[u8]) -> Result<Signature, SignError> {
-        let mut head = MAGIC.to_vec();
-        head.push(VERSION);
-        if !msg.starts_with(&preimage(&DEMO_DATASET, &head)) {
+        if !is_dataset_preimage(msg) {
             return Err(SignError::Custodian(
                 "the demo key signs demo-dataset preimages only".into(),
             ));
@@ -197,6 +206,25 @@ impl<S: SigningBackend> SigningBackend for DemoDatasetOnly<S> {
     fn verifying_key(&self) -> &VerifyingKey {
         self.inner.verifying_key()
     }
+}
+
+/// Whether `msg` is exactly `preimage(DEMO_DATASET, signed_bytes(release, body))`
+/// for a UTF-8 `release` and a canonical JSON `body`: the prefix, then each field
+/// consumed exactly to the end, with nothing after the body.
+fn is_dataset_preimage(msg: &[u8]) -> bool {
+    let mut head = MAGIC.to_vec();
+    head.push(VERSION);
+    let Some(rest) = msg.strip_prefix(preimage(&DEMO_DATASET, &head).as_slice()) else {
+        return false;
+    };
+    let mut c = Cursor { b: rest, at: 0 };
+    let Ok(release) = c.field("release") else {
+        return false;
+    };
+    let Ok(body) = c.field("body") else {
+        return false;
+    };
+    c.at == rest.len() && std::str::from_utf8(release).is_ok() && canonical_body(body).is_ok()
 }
 
 /// A cursor that fails closed rather than panicking on a short read.
@@ -251,7 +279,7 @@ pub fn verify(
     }
     let anchor = anchors
         .get(&env.key_id)
-        .ok_or_else(|| DatasetError::UnknownKey(env.key_id.clone()))?;
+        .ok_or_else(|| DatasetError::unknown_key(&env.key_id))?;
     accept(
         &DEMO_DATASET,
         &file[..signed_len],

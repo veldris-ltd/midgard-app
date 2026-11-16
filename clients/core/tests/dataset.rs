@@ -393,3 +393,59 @@ fn the_demo_only_signer_signs_demo_dataset_preimages_and_nothing_else() {
         );
     }
 }
+
+#[test]
+fn the_demo_only_signer_refuses_a_dataset_prefix_that_is_not_a_whole_dataset() {
+    let s = dataset::DemoDatasetOnly::new(TestSigner::new("demo-test"));
+    let signed = dataset::signed_bytes(RELEASE, BODY).unwrap();
+    s.sign(&preimage(&DEMO_DATASET, &signed)).unwrap();
+    let mut head = dataset::MAGIC.to_vec();
+    head.push(dataset::VERSION);
+    let with = |tail: &[u8]| {
+        let mut m = signed.clone();
+        m.extend_from_slice(tail);
+        m
+    };
+    let not_canonical = dataset::signed_bytes(RELEASE, br#"{"version":1,"format":"x"}"#).unwrap();
+    let not_json = dataset::signed_bytes(RELEASE, b"not json").unwrap();
+    let mut bad_release = head.clone();
+    bad_release.extend_from_slice(&2u32.to_le_bytes());
+    bad_release.extend_from_slice(&[0xff, 0xfe]);
+    bad_release.extend_from_slice(&(BODY.len() as u32).to_le_bytes());
+    bad_release.extend_from_slice(BODY);
+    for inner in [
+        head.clone(),
+        with(b"x"),
+        with(&[0, 0, 0, 0]),
+        signed[..signed.len() - 1].to_vec(),
+        not_canonical,
+        not_json,
+        bad_release,
+    ] {
+        assert!(
+            matches!(
+                s.sign(&preimage(&DEMO_DATASET, &inner)),
+                Err(SignError::Custodian(_))
+            ),
+            "signed {inner:?}"
+        );
+    }
+}
+
+#[test]
+fn an_unpinned_key_id_is_bounded_in_the_error_value_itself() {
+    let long = "k".repeat(10_000);
+    let s = TestSigner::new(&long);
+    let file = dataset::sign(RELEASE, BODY, &s).unwrap();
+    let err = dataset::verify(&file, &TrustAnchors::new(), RELEASE).unwrap_err();
+    let DatasetError::UnknownKey(ref held) = err else {
+        panic!("{err:?}")
+    };
+    assert_eq!(held.chars().count(), dataset::KEY_ID_SHOWN + 1);
+    assert!(held.ends_with('…'));
+    let debug = format!("{err:?}");
+    assert!(
+        !debug.contains(&"k".repeat(dataset::KEY_ID_SHOWN + 1)),
+        "{debug}"
+    );
+}
