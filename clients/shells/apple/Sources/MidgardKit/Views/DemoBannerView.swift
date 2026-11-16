@@ -10,7 +10,7 @@ public struct DemoBannerView: View {
         Text(text)
             .font(MGFonts.sans(.caption).weight(.semibold))
             .multilineTextAlignment(.center)
-            .foregroundStyle(Color(mgHex: MGToken.ink950))
+            .foregroundStyle(Color(mgHex: MGContrast.ink(on: MGToken.warn)))
             .padding(.horizontal, MGSpace.s4)
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity)

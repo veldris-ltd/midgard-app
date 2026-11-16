@@ -14,6 +14,9 @@ let package = Package(
     platforms: [.macOS(.v14), .iOS(.v17)],
     products: [
         .library(name: "MidgardKit", targets: ["MidgardKit"]),
+        // The accessibility audit's base class; each app's UI-test target subclasses it
+        // (Task A14, clients/shells/apple/audit.sh). Links XCTest: UI-test targets only.
+        .library(name: "MidgardAuditKit", targets: ["MidgardAuditKit"]),
     ],
     targets: [
         .binaryTarget(name: "MidgardCoreFFI", path: "Frameworks/MidgardCoreFFI.xcframework"),
@@ -21,7 +24,8 @@ let package = Package(
                 exclude: [".gitkeep"]),
         .target(name: "MidgardKit", dependencies: ["MidgardCore"], path: "Sources/MidgardKit",
                 resources: [.copy("Resources/Fonts")]),
-        .testTarget(name: "MidgardKitTests", dependencies: ["MidgardKit", "MidgardCore"],
+        .target(name: "MidgardAuditKit", path: "Sources/MidgardAuditKit"),
+        .testTarget(name: "MidgardKitTests", dependencies: ["MidgardKit", "MidgardCore", "MidgardAuditKit"],
                     path: "Tests/MidgardKitTests"),
     ]
 )

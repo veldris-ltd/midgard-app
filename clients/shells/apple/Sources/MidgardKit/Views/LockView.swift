@@ -17,11 +17,9 @@ public struct LockView: View {
         VStack(spacing: MGSpace.s4) {
             Text("Locked").font(MGFonts.display(.title)).accessibilityAddTraits(.isHeader)
             Text(persona.display).font(MGFonts.sans(.body))
-            Button("Unlock") { Task { await model.signIn(persona) } }
-                .frame(minWidth: 44, minHeight: 44)
+            Button { Task { await model.signIn(persona) } } label: { HitTarget("Unlock") }
                 .accessibilityIdentifier("mg.0.unlock")
-            Button("Reset demo", role: .destructive) { confirmingReset = true }
-                .frame(minWidth: 44, minHeight: 44)
+            Button(role: .destructive) { confirmingReset = true } label: { HitTarget("Reset demo") }
                 .accessibilityIdentifier("mg.1.reset")
                 .confirmationDialog("Reset the demo?", isPresented: $confirmingReset) {
                     Button("Reset demo", role: .destructive) { Task { await model.resetDemo() } }
@@ -44,8 +42,7 @@ public struct EnrolView: View {
             Text("Set up this device").font(MGFonts.display(.title)).accessibilityAddTraits(.isHeader)
             Text(model.custodyLabel.map { "Keys are protected by: \($0)" } ?? "")
                 .font(MGFonts.sans(.footnote))
-            Button("Set up") { Task { await model.enrol() } }
-                .frame(minWidth: 44, minHeight: 44)
+            Button { Task { await model.enrol() } } label: { HitTarget("Set up") }
                 .accessibilityIdentifier("mg.0.enrol")
             MessageView(message: model.message)
         }
@@ -89,5 +86,17 @@ public struct SessionRootView<Content: View>: View {
                 Text(text).font(MGFonts.sans(.body)).padding(MGSpace.s5).accessibilityIdentifier("mg.failed")
             }
         }
+    }
+}
+
+/// A button label at least 44 × 44 pt where it can be hit: the frame sits inside the
+/// button, so it is the button's hit region (a `.frame` outside a button only pads it).
+/// [RC-49] [AC-C-11]
+struct HitTarget: View {
+    let title: String
+    init(_ title: String) { self.title = title }
+
+    var body: some View {
+        Text(title).frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
     }
 }
