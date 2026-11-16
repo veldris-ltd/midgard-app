@@ -22,7 +22,9 @@ use midgard_client_core::keystore::sealed_root::{RootSealer, SealedRootKeystore}
 use midgard_client_core::keystore::{KeystoreError, SoftwareKeystore};
 use midgard_client_core::marking::{MarkingLevel, RowMarking, Visible};
 use midgard_client_core::session::{ActionState, Session, SessionError, SyncPhase};
-use midgard_client_core::source::{action, DataSource, Delivered, Grant, Persona, SourceError};
+use midgard_client_core::source::{
+    action, DataSource, Delivered, Grant, Persona, Seal, SourceError, VerifiedDigest,
+};
 use midgard_client_core::sync::{Replica, SyncOp};
 use midgard_client_core::{CoreError, CORE_VERSION};
 use pqc_agility::backend::fips::provider;
@@ -438,11 +440,21 @@ enum Mode {
     AlterAction,
     /// Reports the audit collection as another type.
     HideAuditType,
+    /// Changes the actor of the first verified row.
+    AlterVerified,
+    /// Exchange also swaps the audit ids of the first two actions pushed.
+    SwapAudit,
+    /// Exchange also points the second action pushed at the first one's audit id.
+    SameAudit,
+    /// Exchange drops the audit ids from its answer.
+    DropAudit,
 }
 
 struct Wrapped {
     inner: DemoEnclosure,
     mode: Cell<Mode>,
+    /// Pass the session's seal on to the enclosure inside (as a wrapper can).
+    forward: Cell<bool>,
 }
 
 impl DataSource for Wrapped {
@@ -467,6 +479,7 @@ impl DataSource for Wrapped {
             return Err(SourceError::Offline);
         }
         let rows = self.inner.fetch(grant, collection)?;
+        let mut first_verified = true;
         Ok(rows
             .into_iter()
             .map(|d| match (mode, d) {
@@ -555,12 +568,51 @@ impl DataSource for Wrapped {
                         .into_bytes(),
                     signature: Some(SignatureStatus::Unsigned),
                 },
+                (
+                    Mode::AlterVerified,
+                    Delivered::Row {
+                        id,
+                        marking,
+                        body,
+                        signature: Some(SignatureStatus::Verified),
+                    },
+                ) if first_verified => {
+                    first_verified = false;
+                    let v = parse(std::str::from_utf8(&body).unwrap()).unwrap();
+                    let Json::Obj(pairs) = v else { unreachable!() };
+                    let pairs = pairs
+                        .into_iter()
+                        .map(|(k, v)| {
+                            if k == "actor" {
+                                (k, Json::Str("m.mallory".into()))
+                            } else {
+                                (k, v)
+                            }
+                        })
+                        .collect();
+                    Delivered::Row {
+                        id,
+                        marking,
+                        body: canon::encode(&Json::Obj(pairs)).into_bytes(),
+                        signature: Some(SignatureStatus::Verified),
+                    }
+                }
                 (_, d) => d,
             })
             .collect())
     }
     fn exchange(&mut self, grant: &Grant, ops: &[Vec<u8>]) -> Result<Vec<Vec<u8>>, SourceError> {
         let mut back = self.inner.exchange(grant, ops)?;
+        // The audit id the enclosure answered for each action, in action order.
+        let audits: Vec<(String, Vec<u8>)> = back
+            .iter()
+            .map(|b| SyncOp::decode(b).unwrap())
+            .filter(|o| o.field == action::AUDIT)
+            .map(|o| (o.object, o.value.unwrap_or_default()))
+            .collect();
+        if self.mode.get() == Mode::DropAudit {
+            back.retain(|b| SyncOp::decode(b).unwrap().field != action::AUDIT);
+        }
         let mut evil = Replica::new("evil");
         evil.observe(1 << 40);
         match self.mode.get() {
@@ -576,6 +628,13 @@ impl DataSource for Wrapped {
                 ] {
                     evil.set(made_up, f, v.as_bytes().to_vec());
                 }
+            }
+            Mode::SwapAudit if audits.len() >= 2 => {
+                evil.set(&audits[0].0, action::AUDIT, audits[1].1.clone());
+                evil.set(&audits[1].0, action::AUDIT, audits[0].1.clone());
+            }
+            Mode::SameAudit if audits.len() >= 2 => {
+                evil.set(&audits[1].0, action::AUDIT, audits[0].1.clone());
             }
             Mode::Overwrite => {
                 let ids: BTreeSet<String> = ops
@@ -598,6 +657,19 @@ impl DataSource for Wrapped {
     fn set_online(&mut self, online: bool) {
         self.inner.set_online(online)
     }
+    fn in_core_verified(
+        &self,
+        seal: &Seal,
+        grant: &Grant,
+        collection: &str,
+        id: &str,
+    ) -> Option<VerifiedDigest> {
+        if self.forward.get() {
+            self.inner.in_core_verified(seal, grant, collection, id)
+        } else {
+            None
+        }
+    }
 }
 
 fn wrapped() -> Wrapped {
@@ -608,6 +680,7 @@ fn wrap(inner: DemoEnclosure) -> Wrapped {
     Wrapped {
         inner,
         mode: Cell::new(Mode::Honest),
+        forward: Cell::new(false),
     }
 }
 
@@ -768,11 +841,39 @@ fn only_an_in_core_source_may_say_verified() {
     let mut s = Session::open(ks, device, pinned(), "k.osei", "dev-1").unwrap();
     assert!(statuses(&audit_rows(&mut s)).contains("verified"));
 
+    let direct = audit_rows(&mut s);
+
     // The same rows through a source outside the core: not believed.
     let dev = Device::new();
     let mut s = dev.open(wrap(pinned()), "k.osei");
     let st = statuses(&audit_rows(&mut s));
     assert!(!st.contains("verified"), "{st:?}");
+
+    // A wrapper that passes the seal on: each row is believed only as the
+    // enclosure verified it, so unaltered rows stay verified and an altered one
+    // does not.
+    let mut s = dev.open(wrap(pinned()), "k.osei");
+    s.source().forward.set(true);
+    assert_eq!(audit_rows(&mut s), direct);
+    s.source().mode.set(Mode::AlterVerified);
+    let altered = audit_rows(&mut s);
+    let mut changed = 0;
+    for (a, d) in altered.iter().zip(&direct) {
+        match (a, d) {
+            (Visible::Shown { item: a, .. }, Visible::Shown { item: d, .. })
+                if a.actor != d.actor =>
+            {
+                assert_eq!(d.pq_signature, "verified");
+                assert_eq!(a.pq_signature, "none");
+                changed += 1;
+            }
+            _ => assert_eq!(a, d),
+        }
+    }
+    assert_eq!(changed, 1);
+    // Offline, the cache keeps what was decided online.
+    s.set_online(false);
+    assert_eq!(s.rows::<AuditRecord>("midgard.audit").unwrap(), altered);
 
     // Nor a claim on rows nobody signed.
     let mut s = dev.open(wrapped(), "k.rao");
@@ -803,4 +904,67 @@ fn unsent_actions_lost_on_import_are_reported() {
     let report = s.import_state(&saved.file, saved.generation).unwrap();
     assert!(report.pending_dropped);
     assert_eq!(s.sync_status().pending, 0);
+}
+
+/// Two `demo.ping` actions on AUD-1, synced together; the two newest audit rows.
+fn two_actions(mode: Mode) -> (Vec<Visible<AuditRecord>>, (usize, usize, usize)) {
+    let dev = Device::new();
+    let mut s = dev.open(wrapped(), "k.rao");
+    let _ = audit_rows(&mut s);
+    s.request_action("demo.ping", "midgard.audit/AUD-1", &[])
+        .unwrap();
+    s.request_action("demo.ping", "midgard.audit/AUD-1", &[])
+        .unwrap();
+    s.source().mode.set(mode);
+    s.sync().unwrap();
+    s.source().mode.set(Mode::Honest);
+    let rows = audit_rows(&mut s);
+    (rows[..2].to_vec(), s.device_record_sizes_for_tests())
+}
+
+#[test]
+fn two_actions_bound_honestly_are_both_device() {
+    let (rows, sizes) = two_actions(Mode::Honest);
+    assert_eq!(statuses(&rows), BTreeSet::from(["device".to_string()]));
+    // Decided actions leave the record; the two signatures stay.
+    assert_eq!(sizes, (0, 0, 2));
+}
+
+#[test]
+fn swapped_audit_ids_get_neither_row_signed() {
+    let (rows, sizes) = two_actions(Mode::SwapAudit);
+    assert_eq!(statuses(&rows), BTreeSet::from(["none".to_string()]));
+    assert_eq!(sizes, (0, 0, 0));
+}
+
+#[test]
+fn one_audit_id_claimed_by_two_actions_gets_neither_signed() {
+    let (rows, sizes) = two_actions(Mode::SameAudit);
+    assert_eq!(statuses(&rows), BTreeSet::from(["none".to_string()]));
+    assert_eq!(sizes, (0, 0, 0));
+}
+
+#[test]
+fn decided_actions_leave_the_record() {
+    // Answered without an audit row.
+    let dev = Device::new();
+    let mut s = dev.open(wrapped(), "k.rao");
+    let _ = audit_rows(&mut s);
+    s.request_action("demo.ping", "midgard.audit/AUD-1", &[])
+        .unwrap();
+    assert_eq!(s.device_record_sizes_for_tests(), (1, 0, 0));
+    s.source().mode.set(Mode::DropAudit);
+    s.sync().unwrap();
+    assert_eq!(s.device_record_sizes_for_tests(), (0, 0, 0));
+
+    // Consumed without a match.
+    let mut s = dev.open(wrapped(), "k.rao");
+    s.source().mode.set(Mode::AlterAction);
+    let _ = act_and_sync(&mut s);
+    assert_eq!(s.device_record_sizes_for_tests(), (0, 0, 0));
+
+    // Signed.
+    let mut s = dev.open(wrapped(), "k.rao");
+    let _ = act_and_sync(&mut s);
+    assert_eq!(s.device_record_sizes_for_tests(), (0, 0, 1));
 }

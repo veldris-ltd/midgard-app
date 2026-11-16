@@ -11,10 +11,12 @@
 //!   the cached delivery is returned ([`ClientCore::cached_delivery`], all or
 //!   nothing). Either way rows decode into the generated read model.
 //! - **Audit status.** Only rows of a collection the source serves as `AuditRecord`
-//!   carry a status; every other row carries none. `verified` is believed only from
-//!   a source that checked it inside the core (the demo enclosure, under the pinned
-//!   demo-audit anchor: [`DataSource::in_core_audit_check`]); a source's `device`
-//!   claim is never believed. An audit row is shown as `device` only when this
+//!   carry a status; every other row carries none. `verified` is believed for a row
+//!   only when the source gives that row's [`VerifiedDigest`] (asked with a
+//!   [`Seal`] only this crate can make: [`DataSource::in_core_verified`]) and the
+//!   digest matches the row exactly as delivered, so only rows an in-core source
+//!   checked (the demo enclosure, under the pinned demo-audit anchor), unchanged
+//!   since, stay `verified`; a source's `device` claim is never believed. An audit row is shown as `device` only when this
 //!   session holds a device signature for it, the row is still the one owed for the
 //!   recorded action, and the statement verifies under this device's key, checked
 //!   on every read, online or offline.
@@ -28,7 +30,13 @@
 //!   exactly `"<status> · <verb>"`; what is signed is a device statement (the row
 //!   plus the recorded action and the status, [`crate::device_audit`]), not the
 //!   bare row. A row not found yet is signed when it is next read; a row signed once
-//!   is never signed again.
+//!   is never signed again. One action binds to at most one audit row id and one
+//!   id to at most one action: an action answered with two ids, and every action
+//!   claiming an id another one claims, is refused and its owed row or signature
+//!   dropped. An action leaves the record once decided (signed, answered with no
+//!   audit row, or its row seen and not matching, or refused); a signature keeps
+//!   its own copy of the action's fields. At most [`MAX_DEVICE_SIGS`] signatures
+//!   are kept, the oldest dropped first (their rows then show `none`).
 //! - **Actions** ([`Session::request_action`]): the target's marking comes from the
 //!   persona's cached delivery, never from the caller, so acting on a row that is
 //!   withheld, missing or never read is refused before anything is queued; then four
@@ -57,8 +65,10 @@ use crate::demo::audit::{self, SignatureStatus};
 use crate::demo::canon;
 use crate::device_audit::{DeviceAuditKey, DeviceKeyError, DeviceStatement};
 use crate::keystore::{Keystore, SecurityFloor, TrustRoot};
-use crate::marking::{may_see, Visible};
-use crate::source::{action, decode_rows, DataSource, Delivered, Grant, SourceError};
+use crate::marking::{may_see, RowMarking, Visible};
+use crate::source::{
+    action, decode_rows, DataSource, Delivered, Grant, Seal, SourceError, VerifiedDigest,
+};
 use crate::store::StoreError;
 use crate::sync::SyncOp;
 use crate::{ClientCore, CoreError, ExportedState, ImportReport};
@@ -210,13 +220,21 @@ struct Owed {
     status: String,
 }
 
-/// A device signature over a statement about one row.
+/// A device signature over a statement about one row, with the statement's fields
+/// (the action's record is dropped once the action is decided), and its place in
+/// signing order.
 #[derive(Debug, Clone, PartialEq)]
 struct Signed {
     action: String,
+    record: ActionRecord,
     status: String,
     sig: String,
+    seq: u64,
 }
+
+/// The most device signatures a persona's record keeps; beyond it the oldest are
+/// dropped (their rows then show `none`).
+pub const MAX_DEVICE_SIGS: usize = 1024;
 
 /// This persona's device-audit record, sealed in its cache: the actions this device
 /// made, the audit rows owed a signature (by audit row id: the source decides which
@@ -291,8 +309,12 @@ impl DeviceRecord {
                     .map(|(k, s)| {
                         let v = obj(&[
                             ("action", &s.action),
+                            ("paramsSha256", &s.record.params_sha256),
+                            ("seq", &s.seq.to_string()),
                             ("sig", &s.sig),
                             ("status", &s.status),
+                            ("target", &s.record.target),
+                            ("verb", &s.record.verb),
                         ]);
                         (k.clone(), v)
                     })
@@ -332,38 +354,97 @@ impl DeviceRecord {
             r.owed.insert(k.clone(), Owed { action, status });
         }
         for (k, e) in entries("sigs")? {
-            let [action, sig, status] = fields(e, ["action", "sig", "status"])?;
+            let [action, params_sha256, seq, sig, status, target, verb] = fields(
+                e,
+                [
+                    "action",
+                    "paramsSha256",
+                    "seq",
+                    "sig",
+                    "status",
+                    "target",
+                    "verb",
+                ],
+            )?;
+            let seq: u64 = seq.parse().ok()?;
             r.sigs.insert(
                 k.clone(),
                 Signed {
                     action,
+                    record: ActionRecord {
+                        verb,
+                        target,
+                        params_sha256,
+                    },
                     status,
                     sig,
+                    seq,
                 },
             );
         }
         Some(r)
     }
 
-    /// Whether a signature is held for audit row `id` in any collection (a
-    /// collection name never holds `/`, so the first one ends it).
-    fn signed(&self, id: &str) -> bool {
-        self.sigs
-            .keys()
-            .any(|k| k.split_once('/').is_some_and(|(_, i)| i == id))
+    /// Keep `signed` for `key`, numbered after every signature kept so far; drop
+    /// the oldest beyond [`MAX_DEVICE_SIGS`].
+    fn insert_sig(&mut self, key: String, mut signed: Signed) {
+        signed.seq = self.sigs.values().map(|s| s.seq + 1).max().unwrap_or(0);
+        self.sigs.insert(key, signed);
+        while self.sigs.len() > MAX_DEVICE_SIGS {
+            let Some(oldest) = self
+                .sigs
+                .iter()
+                .min_by_key(|(_, s)| s.seq)
+                .map(|(k, _)| k.clone())
+            else {
+                break;
+            };
+            self.sigs.remove(&oldest);
+        }
     }
 
-    /// The statement about `action` answered with `status`, from this record only.
-    fn statement(&self, action: &str, status: &str) -> Option<(DeviceStatement, &ActionRecord)> {
-        let a = self.actions.get(action)?;
-        let st = DeviceStatement {
-            action_id: action.to_string(),
-            verb: a.verb.clone(),
-            target: a.target.clone(),
-            params_sha256: a.params_sha256.clone(),
-            status: status.to_string(),
-        };
-        Some((st, a))
+    /// The audit row ids bound to `action`: owed, or signed (a collection name never
+    /// holds `/`, so the first one in a signature key ends it).
+    fn bound_to(&self, action: &str) -> BTreeSet<String> {
+        let owed = self
+            .owed
+            .iter()
+            .filter(|(_, o)| o.action == action)
+            .map(|(k, _)| k.clone());
+        let signed = self
+            .sigs
+            .iter()
+            .filter(|(_, s)| s.action == action)
+            .filter_map(|(k, _)| k.split_once('/').map(|(_, i)| i.to_string()));
+        owed.chain(signed).collect()
+    }
+
+    /// Every action bound to an audit row id: `(audit id, action)`.
+    fn bindings(&self) -> Vec<(String, String)> {
+        let owed = self.owed.iter().map(|(k, o)| (k.clone(), o.action.clone()));
+        let signed = self.sigs.iter().filter_map(|(k, s)| {
+            k.split_once('/')
+                .map(|(_, i)| (i.to_string(), s.action.clone()))
+        });
+        owed.chain(signed).collect()
+    }
+
+    /// Refuse `action`: forget its record and every binding of it.
+    fn refuse(&mut self, action: &str) {
+        self.actions.remove(action);
+        self.owed.retain(|_, o| o.action != action);
+        self.sigs.retain(|_, s| s.action != action);
+    }
+}
+
+/// The statement about `action` (as `record` describes it) answered with `status`.
+fn statement(action: &str, record: &ActionRecord, status: &str) -> DeviceStatement {
+    DeviceStatement {
+        action_id: action.to_string(),
+        verb: record.verb.clone(),
+        target: record.target.clone(),
+        params_sha256: record.params_sha256.clone(),
+        status: status.to_string(),
     }
 }
 
@@ -381,9 +462,14 @@ fn restamp(body: &[u8], status: SignatureStatus) -> Option<(Json, Vec<u8>)> {
 
 /// A delivery as the session uses it. Rows of a collection that is not an audit
 /// collection carry no signature status at all. In an audit collection a source's
-/// `device` claim becomes `none`, so does `verified` from a source outside the core,
-/// and every row's `pqSignature` text says what its status says.
-fn normalise(rows: Vec<Delivered>, audit_collection: bool, in_core: bool) -> Vec<Delivered> {
+/// `device` claim becomes `none`, so does a `verified` claim `verified` does not
+/// confirm for that row, and every row's `pqSignature` text says what its status
+/// says.
+fn normalise(
+    rows: Vec<Delivered>,
+    audit_collection: bool,
+    verified: &dyn Fn(&str, &RowMarking, &[u8]) -> bool,
+) -> Vec<Delivered> {
     rows.into_iter()
         .map(|d| match d {
             Delivered::Row {
@@ -401,7 +487,9 @@ fn normalise(rows: Vec<Delivered>, audit_collection: bool, in_core: bool) -> Vec
                 signature,
             } => {
                 let s = match signature {
-                    Some(SignatureStatus::Verified) if in_core => SignatureStatus::Verified,
+                    Some(SignatureStatus::Verified) if verified(&id, &marking, &body) => {
+                        SignatureStatus::Verified
+                    }
                     _ => SignatureStatus::Unsigned,
                 };
                 let body = restamp(&body, s).map_or(body, |(_, b)| b);
@@ -500,12 +588,25 @@ impl<K: Keystore + TrustRoot, S: DataSource> Session<K, S> {
             .any(|(n, t)| n == collection && t == audit::AUDIT_TYPE)
     }
 
+    /// A delivery from the source: `verified` stands only where the source's
+    /// in-core digest matches the row exactly as delivered.
     fn normalised(&self, collection: &str, rows: Vec<Delivered>) -> Vec<Delivered> {
-        normalise(
-            rows,
-            self.is_audit(collection),
-            self.source.in_core_audit_check().is_some(),
-        )
+        let seal = Seal::new();
+        let check = |id: &str, marking: &RowMarking, body: &[u8]| {
+            let Some(item) = std::str::from_utf8(body).ok().and_then(|t| parse(t).ok()) else {
+                return false;
+            };
+            self.source
+                .in_core_verified(&seal, &self.grant, collection, id)
+                .is_some_and(|d| d == VerifiedDigest::of(collection, id, marking, &item))
+        };
+        normalise(rows, self.is_audit(collection), &check)
+    }
+
+    /// A delivery from this persona's sealed cache: written only after the checks
+    /// above, so its `verified` stands; `device` is still decided on every read.
+    fn normalised_cached(&self, collection: &str, rows: Vec<Delivered>) -> Vec<Delivered> {
+        normalise(rows, self.is_audit(collection), &|_, _, _| true)
     }
 
     /// The rows of `collection`, decoded into `T`: shown rows in full, rows above
@@ -528,7 +629,7 @@ impl<K: Keystore + TrustRoot, S: DataSource> Session<K, S> {
 
     fn cached(&self, collection: &str) -> Result<Vec<Delivered>, SessionError> {
         match self.core.cached_delivery(collection) {
-            Ok(d) => Ok(self.normalised(collection, d)),
+            Ok(d) => Ok(self.normalised_cached(collection, d)),
             Err(CoreError::Store(StoreError::NotFound)) => {
                 Err(SessionError::NothingCached(collection.to_string()))
             }
@@ -558,10 +659,9 @@ impl<K: Keystore + TrustRoot, S: DataSource> Session<K, S> {
                             .sigs
                             .get(&row_key(collection, &id))
                             .and_then(|signed| {
-                                let (st, rec) =
-                                    self.record.statement(&signed.action, &signed.status)?;
+                                let st = statement(&signed.action, &signed.record, &signed.status);
                                 let (item, _) = restamp(&body, SignatureStatus::Unsigned)?;
-                                if !row_is_for(&item, me, rec, &signed.status) {
+                                if !row_is_for(&item, me, &signed.record, &signed.status) {
                                     return None;
                                 }
                                 self.device
@@ -615,24 +715,28 @@ impl<K: Keystore + TrustRoot, S: DataSource> Session<K, S> {
                 continue;
             };
             changed = true;
-            let Some((st, rec)) = self.record.statement(&owed.action, &owed.status) else {
+            // Decided: the action leaves the record whether or not the row matches.
+            let Some(rec) = self.record.actions.remove(&owed.action) else {
                 continue;
             };
             let Some((item, _)) = restamp(body, SignatureStatus::Unsigned) else {
                 continue;
             };
-            if !row_is_for(&item, &me, rec, &owed.status) {
+            if !row_is_for(&item, &me, &rec, &owed.status) {
                 continue;
             }
+            let st = statement(&owed.action, &rec, &owed.status);
             let sig = self
                 .device
                 .sign_statement(collection, id, marking, &item, &st)?;
-            self.record.sigs.insert(
+            self.record.insert_sig(
                 row_key(collection, id),
                 Signed {
                     action: owed.action,
+                    record: rec,
                     status: owed.status,
                     sig,
+                    seq: 0,
                 },
             );
         }
@@ -764,38 +868,90 @@ impl<K: Keystore + TrustRoot, S: DataSource> Session<K, S> {
             .ok()
             .map(|d| d.as_secs());
 
-        // Only actions this device recorded count; for each, the merged status and
-        // audit id are owed a signature (once: a re-sent answer for a row signed
-        // already adds nothing). Verb and target come from the record, never the
-        // answer.
-        let answered: BTreeSet<&str> = answer
+        // Only actions this device recorded (or bound already) count. Verb and
+        // target come from the record, never the answer; status and audit id from
+        // the merged view. One action binds to at most one audit id and one audit
+        // id to at most one action: an action given two audit ids, and every
+        // action claiming an audit id another action claims, is refused, with any
+        // owed row or signature of it dropped.
+        let answered: BTreeSet<String> = answer
             .iter()
-            .map(|op| op.object.as_str())
-            .filter(|o| self.record.actions.contains_key(*o))
+            .map(|op| op.object.clone())
+            .filter(|o| self.record.actions.contains_key(o) || !self.record.bound_to(o).is_empty())
             .collect();
-        let mut changed = false;
-        for action_id in answered {
-            let text = |f: &str| {
-                self.core
-                    .read_field(action_id, f)
-                    .and_then(|b| String::from_utf8(b).ok())
-            };
-            let (Some(status), Some(audit_id)) = (text(action::STATUS), text(action::AUDIT)) else {
-                continue;
-            };
-            if audit_id.is_empty()
-                || self.record.signed(&audit_id)
-                || self.record.owed.contains_key(&audit_id)
+        let mut claimed: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        for (audit_id, a) in self.record.bindings() {
+            claimed.entry(a).or_default().insert(audit_id);
+        }
+        for a in &answered {
+            let ids = claimed.entry(a.clone()).or_default();
+            for op in answer
+                .iter()
+                .filter(|op| &op.object == a && op.field == action::AUDIT)
             {
+                if let Some(v) = op
+                    .value
+                    .as_deref()
+                    .and_then(|v| std::str::from_utf8(v).ok())
+                {
+                    if !v.is_empty() {
+                        ids.insert(v.to_string());
+                    }
+                }
+            }
+            if let Some(v) = self
+                .core
+                .read_field(a, action::AUDIT)
+                .and_then(|b| String::from_utf8(b).ok())
+                .filter(|v| !v.is_empty())
+            {
+                ids.insert(v);
+            }
+        }
+        let mut claimers: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+        for (a, ids) in &claimed {
+            for id in ids {
+                claimers.entry(id.as_str()).or_default().insert(a.as_str());
+            }
+        }
+        let mut refused: BTreeSet<String> = claimed
+            .iter()
+            .filter(|(_, ids)| ids.len() > 1)
+            .map(|(a, _)| a.clone())
+            .collect();
+        for actions in claimers.values().filter(|a| a.len() > 1) {
+            refused.extend(actions.iter().map(|a| a.to_string()));
+        }
+        let mut changed = !refused.is_empty();
+        for a in &refused {
+            self.record.refuse(a);
+        }
+        for a in answered.iter().filter(|a| !refused.contains(*a)) {
+            if !self.record.actions.contains_key(a) || !self.record.bound_to(a).is_empty() {
                 continue;
             }
-            self.record.owed.insert(
-                audit_id,
-                Owed {
-                    action: action_id.to_string(),
-                    status,
-                },
-            );
+            let Some(status) = self
+                .core
+                .read_field(a, action::STATUS)
+                .and_then(|b| String::from_utf8(b).ok())
+            else {
+                continue; // not decided yet
+            };
+            match claimed.get(a).and_then(|ids| ids.iter().next()) {
+                Some(audit_id) => {
+                    self.record.owed.insert(
+                        audit_id.clone(),
+                        Owed {
+                            action: a.clone(),
+                            status,
+                        },
+                    );
+                }
+                // Decided with no audit row: nothing will ever be signed for it.
+                None => {
+                    self.record.actions.remove(a);
+                }
+            }
             changed = true;
         }
         if !self.record.owed.is_empty() {
@@ -824,6 +980,17 @@ impl<K: Keystore + TrustRoot, S: DataSource> Session<K, S> {
             pushed: blobs.len(),
             merged: back.len(),
         })
+    }
+
+    /// `(actions, owed, signatures)` held in the device record. This crate's own
+    /// tests only (feature `demo-unpinned`).
+    #[cfg(any(test, feature = "demo-unpinned"))]
+    pub fn device_record_sizes_for_tests(&self) -> (usize, usize, usize) {
+        (
+            self.record.actions.len(),
+            self.record.owed.len(),
+            self.record.sigs.len(),
+        )
     }
 
     /// The sync chip.
@@ -1004,15 +1171,63 @@ mod tests {
                 status: "applied".into(),
             },
         );
-        r.sigs.insert(
-            "c/AUD-1".into(),
-            Signed {
-                action: "action:a".into(),
-                status: "applied".into(),
-                sig: "ab".into(),
-            },
-        );
+        r.insert_sig("c/AUD-1".into(), dummy("action:a"));
         assert_eq!(DeviceRecord::decode(&r.encode()), Some(r));
         assert_eq!(DeviceRecord::decode(b"{}"), None);
+    }
+
+    fn dummy(action: &str) -> Signed {
+        Signed {
+            action: action.into(),
+            record: ActionRecord {
+                verb: "demo.ping".into(),
+                target: "c/r".into(),
+                params_sha256: "00".into(),
+            },
+            status: "applied".into(),
+            sig: "ab".into(),
+            seq: 0,
+        }
+    }
+
+    #[test]
+    fn signatures_are_capped_dropping_the_oldest() {
+        let mut r = DeviceRecord::default();
+        for i in 0..=MAX_DEVICE_SIGS {
+            r.insert_sig(format!("c/AUD-{i}"), dummy(&format!("action:{i}")));
+        }
+        assert_eq!(r.sigs.len(), MAX_DEVICE_SIGS);
+        assert!(!r.sigs.contains_key("c/AUD-0"));
+        assert!(r.sigs.contains_key("c/AUD-1"));
+        assert!(r.sigs.contains_key(&format!("c/AUD-{MAX_DEVICE_SIGS}")));
+        // The order survives the sealed record.
+        let mut back = DeviceRecord::decode(&r.encode()).unwrap();
+        back.insert_sig("c/AUD-new".into(), dummy("action:new"));
+        assert!(!back.sigs.contains_key("c/AUD-1"));
+    }
+
+    #[test]
+    fn a_row_whose_signature_was_dropped_by_the_cap_shows_none() {
+        let e =
+            DemoEnclosure::from_body("test", &parse(BODY).unwrap(), &TrustAnchors::new()).unwrap();
+        let ks = SoftwareKeystore::generate(&provider(), "device-root", &mut OsRng).unwrap();
+        let (device, _) = DeviceAuditKey::create(&ks, &mut OsRng).unwrap();
+        let mut s = Session::open(ks, device, e, "k.rao", "dev-1").unwrap();
+        let _ = s.rows::<AuditRecord>("midgard.audit").unwrap();
+        let id = s
+            .request_action("demo.ping", "midgard.audit/AUD-1", &[])
+            .unwrap();
+        s.sync().unwrap();
+        let ActionState::Applied { audit, .. } = s.action_state(&id) else {
+            panic!("not applied")
+        };
+        let rows = s.rows::<AuditRecord>("midgard.audit").unwrap();
+        assert_eq!(status_of(&rows, &audit), "device");
+        for i in 0..MAX_DEVICE_SIGS {
+            s.record
+                .insert_sig(format!("other.audit/X-{i}"), dummy(&format!("action:{i}")));
+        }
+        let rows = s.rows::<AuditRecord>("midgard.audit").unwrap();
+        assert_eq!(status_of(&rows, &audit), "none");
     }
 }

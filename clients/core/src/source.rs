@@ -14,8 +14,9 @@
 
 use std::fmt;
 
-use attest::json::parse;
+use attest::json::{parse, Json};
 use policy::Clearance;
+use pqc_agility::sha256;
 
 use crate::consoles::decode::{DecodeError, FromJson};
 use crate::demo::audit::SignatureStatus;
@@ -105,11 +106,13 @@ pub enum Delivered {
         /// for every other row type. A screen shows a check mark only for
         /// [`SignatureStatus::Verified`] or [`SignatureStatus::Device`].
         ///
-        /// Only a source that checks rows inside this crate may say
-        /// [`SignatureStatus::Verified`] (the demo enclosure, under the pinned
-        /// demo-audit anchor): the session believes it only from a source whose
-        /// [`DataSource::in_core_audit_check`] returns a check, which no code outside
-        /// the crate can make, and shows `none` otherwise. No source may say
+        /// What a source says here is a claim, not a check. The session believes
+        /// [`SignatureStatus::Verified`] for a row only when
+        /// [`DataSource::in_core_verified`] gives that row's [`VerifiedDigest`] and
+        /// the digest matches the row exactly as delivered: only a source that
+        /// checked the row inside this crate (the demo enclosure, under the pinned
+        /// demo-audit anchor) can give one, and a row changed after that check no
+        /// longer matches. Otherwise the row is `none`. No source may say
         /// [`SignatureStatus::Device`]: the session decides that itself.
         signature: Option<SignatureStatus>,
     },
@@ -146,16 +149,34 @@ impl fmt::Display for SourceError {
 
 impl std::error::Error for SourceError {}
 
-/// Made only inside this crate, by a source whose `verified` audit rows were checked
-/// in the core under a pinned anchor. A source outside the crate cannot make one,
-/// so the session does not believe its `verified`. `[NFR-PQ-3]` `[AC-C-13]`
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct InCoreAuditCheck(());
+/// Handed by the session to [`DataSource::in_core_verified`]. Only this crate can
+/// make one, so code outside it cannot ask a source (its own or one it wraps) for a
+/// row's [`VerifiedDigest`]; it can only pass on a seal the session gave it.
+/// `[NFR-PQ-3]` `[AC-C-13]`
+#[derive(Debug)]
+pub struct Seal(());
 
-impl InCoreAuditCheck {
-    /// A check (in-core sources only).
+impl Seal {
+    /// A seal (the session only).
     pub(crate) fn new() -> Self {
         Self(())
+    }
+}
+
+/// The digest of one audit row as an in-core source verified it: SHA-256 of
+/// [`signed_bytes`](crate::demo::audit::signed_bytes) over the collection, id,
+/// marking and item (with `pqSignature` reading `verified`). Only this crate can make
+/// one; a copy matches only the very row it was made for. `[NFR-PQ-3]` `[AC-C-13]`
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VerifiedDigest([u8; 32]);
+
+impl VerifiedDigest {
+    /// The digest of `item` at `collection/id` marked `marking`.
+    pub(crate) fn of(collection: &str, id: &str, marking: &RowMarking, item: &Json) -> Self {
+        let item = crate::demo::audit::with_status(item, SignatureStatus::Verified);
+        Self(sha256(&crate::demo::audit::signed_bytes(
+            collection, id, marking, &item,
+        )))
     }
 }
 
@@ -180,10 +201,20 @@ pub trait DataSource {
     fn online(&self) -> bool;
     /// Simulate (demo) or record (gateway) reachability.
     fn set_online(&mut self, online: bool);
-    /// Whether this source's `verified` audit rows were checked inside the core.
-    /// `None` (the default, and the only answer code outside the crate can give):
-    /// the session shows such rows as `none`.
-    fn in_core_audit_check(&self) -> Option<InCoreAuditCheck> {
+    /// The [`VerifiedDigest`] of audit row `collection/id`, if this source checked
+    /// it inside the core and `grant` may see it. Called only by the session, with a
+    /// [`Seal`] nothing outside the crate can make. The default, and the only answer
+    /// code outside the crate can give of its own, is `None`: the session then
+    /// shows the row as `none`. A wrapper that passes the seal on to an in-core
+    /// source gets that source's digests, which match only the rows as it verified
+    /// them.
+    fn in_core_verified(
+        &self,
+        _seal: &Seal,
+        _grant: &Grant,
+        _collection: &str,
+        _id: &str,
+    ) -> Option<VerifiedDigest> {
         None
     }
 }

@@ -19,7 +19,9 @@ use crate::consoles::check_item;
 use crate::demo::audit::{self, SignatureStatus};
 use crate::demo::{canon, dataset, guard};
 use crate::marking::{clearance, may_see, MarkingLevel, RowMarking};
-use crate::source::{action, DataSource, Delivered, Grant, InCoreAuditCheck, Persona, SourceError};
+use crate::source::{
+    action, DataSource, Delivered, Grant, Persona, Seal, SourceError, VerifiedDigest,
+};
 use crate::sync::{Replica, SyncOp};
 use crate::CORE_VERSION;
 
@@ -688,8 +690,25 @@ impl DataSource for DemoEnclosure {
         self.online = online;
     }
 
-    /// Every `verified` row was checked under the pinned demo-audit anchor at load.
-    fn in_core_audit_check(&self) -> Option<InCoreAuditCheck> {
-        Some(InCoreAuditCheck::new())
+    /// Every `verified` row was checked under the pinned demo-audit anchor at load;
+    /// its digest is given only for a row the grant may see.
+    fn in_core_verified(
+        &self,
+        _seal: &Seal,
+        grant: &Grant,
+        collection: &str,
+        id: &str,
+    ) -> Option<VerifiedDigest> {
+        let grant = self.grant(&grant.persona().id).ok()?;
+        let row = self
+            .state
+            .collections
+            .get(collection)?
+            .rows
+            .iter()
+            .find(|r| r.id == id)?;
+        (row.signature == Some(SignatureStatus::Verified)
+            && may_see(grant.clearance(), &row.marking))
+        .then(|| VerifiedDigest::of(collection, &row.id, &row.marking, &row.item))
     }
 }
