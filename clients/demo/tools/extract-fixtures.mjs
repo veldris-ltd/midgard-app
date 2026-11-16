@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { join, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { LEVELS, rank, covers, show, MarkingError, readMarkingString, itemMarking, innerFloor } from './markings.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 const arg = (name, dflt) => { const i = process.argv.indexOf(name); return i > 0 ? process.argv[i + 1] : dflt; };
@@ -105,10 +106,6 @@ const C = [
 const personas = JSON.parse(readFileSync(join(ROOT, 'clients/demo/personas.json'), 'utf8'));
 const overlayPath = resolve(arg('--overlay', join(ROOT, 'clients/demo/overlay.json')));
 const overlay = JSON.parse(readFileSync(overlayPath, 'utf8'));
-const LEVELS = ['open', 'internal', 'restricted', 'confidential'];
-const rank = (level) => LEVELS.indexOf(level);
-const covers = (a, b) => rank(a.level) >= rank(b.level) && b.compartments.every((k) => a.compartments.includes(k));
-const show = (m) => (m.compartments.length ? `${m.level} [${m.compartments.join(', ')}]` : m.level);
 for (const p of personas) if (!LEVELS.includes(p.clearance)) die(`persona ${p.id}: unknown clearance ${p.clearance}`);
 
 // The overlay is checked whole before anything is marked with it: every marking a
@@ -132,75 +129,24 @@ for (const [name, c] of Object.entries(overlay.collections ?? {})) {
   };
 }
 
-// The marking a row carries itself: null when it has none, { unknown } when it has one
-// this extractor does not recognise. A `markings` list yields its highest level and the
-// union of its compartments.
-function itemMarking(x) {
-  const comps = (v) => {
-    if (v === undefined || v === null) return []; // the contract's `compartment: string | null`
-    if (typeof v === 'string' && v !== '') return [v];
-    if (Array.isArray(v) && v.every((k) => typeof k === 'string' && k !== '')) return v;
-    return null;
-  };
-  if (x.marking !== undefined) {
-    if (!LEVELS.includes(x.marking)) return { unknown: x.marking };
-    const cs = [...(comps(x.compartment) ?? [null]), ...(comps(x.compartments) ?? [null])];
-    if (cs.includes(null)) return { unknown: { compartment: x.compartment, compartments: x.compartments } };
-    return { level: x.marking, compartments: [...new Set(cs)].sort() };
-  }
-  if (x.markings !== undefined) {
-    const ms = x.markings;
-    if (!Array.isArray(ms) || ms.length === 0) return { unknown: ms };
-    let level = null; const cs = new Set();
-    for (const m of ms) {
-      if (!m || !LEVELS.includes(m.level)) return { unknown: ms };
-      const c = comps(m.compartments);
-      if (c === null) return { unknown: ms };
-      c.forEach((k) => cs.add(k));
-      if (level === null || rank(m.level) > rank(level)) level = m.level;
-    }
-    return { level, compartments: [...cs].sort() };
-  }
-  return null;
-}
-
-// The highest level named anywhere inside a row (`marking`/`level` values only).
-function innerFloor(v) {
-  let top = null;
-  const walk = (x) => {
-    if (Array.isArray(x)) { x.forEach(walk); return; }
-    if (!x || typeof x !== 'object') return;
-    for (const [k, y] of Object.entries(x)) {
-      if ((k === 'marking' || k === 'level') && LEVELS.includes(y) && (top === null || rank(y) > rank(top))) top = y;
-      walk(y);
-    }
-  };
-  walk(v);
-  return top;
-}
-
-// A display marking string in a common form ("C // OPS-N", "RESTRICTED"): a level
-// word or letter, then "//"-separated compartments. null when it is not one of these.
-const WORDS = {
-  C: 'confidential', CONFIDENTIAL: 'confidential', R: 'restricted', RESTRICTED: 'restricted',
-  I: 'internal', INTERNAL: 'internal', O: 'open', U: 'open', OPEN: 'open', UNCLASSIFIED: 'open',
-};
-function parseMarkingString(s) {
-  const [head, ...rest] = s.split('//').map((t) => t.trim());
-  const level = Object.hasOwn(WORDS, head.toUpperCase()) ? WORDS[head.toUpperCase()] : undefined;
-  if (!level || rest.some((k) => k === '')) return null;
-  return { level, compartments: [...new Set(rest)].sort() };
-}
-
 function markingOf(name, id, x, entities) {
+  try {
+    return markRow(name, id, x, entities);
+  } catch (e) {
+    if (e instanceof MarkingError) die(`${name}/${id}: ${e.message}`);
+    throw e;
+  }
+}
+
+function markRow(name, id, x, entities) {
   const own = itemMarking(x);
   const c = ov.collections[name] ?? { ids: {} };
   const named = c.ids[id];
   let m;
   if (own?.unknown !== undefined) {
-    if (!named) die(`${name}/${id}: unrecognised marking ${JSON.stringify(own.unknown)}; name the row in overlay.json`);
     // A string the extractor can read still binds: the overlay may raise it, never lower it.
-    const parsed = typeof own.unknown === 'string' ? parseMarkingString(own.unknown) : null;
+    const parsed = typeof own.unknown === 'string' ? readMarkingString(own.unknown) : null;
+    if (!named) die(`${name}/${id}: unrecognised marking ${JSON.stringify(own.unknown)}; name the row in overlay.json`);
     if (parsed && !covers(named, parsed)) die(`${name}/${id}: overlay marks it ${show(named)}, below its own marking ${show(parsed)}`);
     m = named;
   } else if (named) {
@@ -284,6 +230,6 @@ for (const [c, collections] of byConsole) {
   write(`${c}.json`, { console: c, sources: Object.fromEntries(SOURCE[c].map((p) => [p, blob(p)])), collections });
 }
 const inputs = Object.fromEntries([...Object.values(SOURCE).flat(), 'clients/demo/personas.json',
-  relative(ROOT, overlayPath), 'clients/demo/tools/extract-fixtures.mjs'].map((p) => [p, blob(p)]));
+  relative(ROOT, overlayPath), 'clients/demo/tools/extract-fixtures.mjs', 'clients/demo/tools/markings.mjs'].map((p) => [p, blob(p)]));
 writeFileSync(join(out, 'manifest.json'), canon({ format: 'midgard-demo-fixtures', version: 1, release, files, inputs }));
 console.log(`extract-fixtures: ${C.length} collections + motion -> ${relative(ROOT, out) || out}`);

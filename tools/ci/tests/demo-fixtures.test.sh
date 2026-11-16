@@ -70,6 +70,40 @@ refused "an overlay id below a marking string the row carries" \
     "heimdall.syncSites/SITE-ALPHA (this): overlay marks it internal, below its own marking confidential [OPS-N]" \
     'o.collections["heimdall.syncSites"].ids["SITE-ALPHA (this)"] = { level: "internal", compartments: [] };'
 
+# marking <name> <expected: a message fragment, or "=" and the JSON result> <js using m>
+# Calls the extractor's marking rules (clients/demo/tools/markings.mjs) directly: the
+# release mocks hold no SECRET row to extract, so these cases cannot come from them.
+marking() {
+    out="$(node -e 'import(require("url").pathToFileURL(process.argv[1]).href)
+                      .then((m) => console.log(JSON.stringify(eval(process.argv[2]))))
+                      .catch((e) => { console.log("threw: " + e.message); })' \
+               clients/demo/tools/markings.mjs "$3" 2>&1)"
+    case "$2" in
+        =*) if [ "$out" = "${2#=}" ]; then pass "$1"; else fail "$1: got $out"; fi ;;
+        *) if printf '%s' "$out" | grep -qF -- "threw: " && printf '%s' "$out" | grep -qF -- "$2"; then
+               pass "$1 is refused"
+           else
+               fail "$1: not refused with \"$2\": $out"
+           fi ;;
+    esac
+}
+above="level above confidential cannot ship in the demo"
+marking "SECRET as a marking string" "$above" 'm.readMarkingString("SECRET")'
+marking "S // OPS-N" "$above" 'm.readMarkingString("S // OPS-N")'
+marking "TOP-SECRET" "$above" 'm.readMarkingString("TOP-SECRET")'
+marking "NATO SECRET" "$above" 'm.readMarkingString("NATO SECRET")'
+marking "OFFICIAL-SENSITIVE" "$above" 'm.readMarkingString("official-sensitive")'
+marking "COSMIC (in brackets)" "$above" 'm.readMarkingString("C (COSMIC)")'
+marking "a markings list with level secret" "$above" 'm.itemMarking({ markings: [{ level: "secret", compartments: [] }] })'
+marking "a marking field TOP SECRET" "$above" 'm.itemMarking({ marking: "TOP SECRET" })'
+marking "a nested level TS" "$above" 'm.innerFloor({ a: [{ level: "TS" }] })'
+marking "C/OPS-N" "unreadable marking" 'm.readMarkingString("C/OPS-N")'
+marking "C // OPS-N // (trailing empty compartment)" "unreadable marking" 'm.readMarkingString("C // OPS-N //")'
+marking "CONFIDENTIAL:OPS-N" "unreadable marking" 'm.readMarkingString("CONFIDENTIAL:OPS-N")'
+marking "C // OPS-N reads" '={"level":"confidential","compartments":["OPS-N"]}' 'm.readMarkingString("C // OPS-N")'
+marking "RESTRICTED reads" '={"level":"restricted","compartments":[]}' 'm.readMarkingString("RESTRICTED")'
+marking "a string without a level word is left to the overlay" '=null' 'm.readMarkingString("NORTH-2 feed")'
+
 # visible <persona> <console>: rows of that console the persona's clearance admits.
 visible() {
     node -e 'const fs = require("fs"); const [dir, who, c] = process.argv.slice(1);
