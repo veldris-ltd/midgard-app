@@ -66,7 +66,7 @@ public struct SessionRootView<Content: View>: View {
             if let banner = model.demoBanner { DemoBannerView(banner) }
             switch model.phase {
             case .loading:
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                LoadingView().frame(maxWidth: .infinity, maxHeight: .infinity)
             case .needsEnrolment:
                 EnrolView(model: model)
             case .locked:

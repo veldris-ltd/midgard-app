@@ -3,6 +3,7 @@
   {"name":"test_affordance_dynamic_type()","nodeType":"Test Case","result":"Passed"},
   {"name":"test_affordance_screen_reader_labels()","nodeType":"Test Case","result":"Passed"},
   {"name":"test_affordance_contrast_aa()","nodeType":"Test Case","result":"Failed"},
+  {"name":"test_affordance_focus_order()","nodeType":"Test Case","result":"Failed"},
   {"name":"test_affordance_focus_order()","nodeType":"Test Case","result":"Passed"},
-  {"name":"test_affordance_reduced_motion()","nodeType":"Test Case","result":"Passed"},
-  {"name":"test_affordance_hit_target_size()","nodeType":"Test Case","result":"Passed"}]}]}]}
+  {"name":"test_affordance_reduced_motion()","nodeType":"Test Case","result":"Skipped"},
+  {"name":"test_affordance_hit_target_size()","nodeType":"Test Case","result":"Expected Failure"}]}]}]}

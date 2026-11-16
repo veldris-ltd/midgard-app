@@ -93,8 +93,9 @@ open class AccessibilityAuditBase: XCTestCase {
             XCTAssertEqual(indices, indices.sorted(), "accessibility order must follow mg.<n>. order")
             let frames = ordered.map(\.frame)
             for (a, b) in zip(frames, frames.dropFirst()) {
-                XCTAssertTrue(a.minY < b.minY + 1 || (abs(a.minY - b.minY) < 1 && a.minX <= b.minX),
-                              "elements must be in reading order")
+                // Reading order: a clearly higher row first, or the same row left to right.
+                XCTAssertTrue(a.minY < b.minY - 1 || (abs(a.minY - b.minY) < 1 && a.minX <= b.minX),
+                              "elements must be in reading order: \(a) before \(b)")
             }
             if ordered.count > 1 { measured += 1 }
         }
@@ -102,21 +103,34 @@ open class AccessibilityAuditBase: XCTestCase {
     }
 
     public func test_affordance_reduced_motion() throws {
+        let list = auditedScreens()
+        guard !list.isEmpty else { return }
         let app = launch(environment: ["MIDGARD_REDUCE_MOTION": "1"])
         let motion = app.descendants(matching: .any)["mg.motion"]
         XCTAssertTrue(motion.waitForExistence(timeout: 5), "no mg.motion element")
         XCTAssertEqual(motion.value as? String, "reduced")
-        for go in screens {
+        for go in list {
             go(app)
             let animated = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'mg.anim.'"))
             XCTAssertEqual(animated.count, 0, "an animation runs with Reduce Motion on")
+            #if os(iOS)
+            XCTAssertEqual(app.activityIndicators.count, 0, "a spinner runs with Reduce Motion on")
+            #else
+            XCTAssertEqual(app.progressIndicators.count, 0, "a spinner runs with Reduce Motion on")
+            #endif
         }
     }
 
     public func test_affordance_keyboard_navigation() throws {
         let list = auditedScreens()
         guard let signIn = list.first else { return }
+        #if os(iOS)
+        // Needs a hardware keyboard and Full Keyboard Access on the simulator (Phase B).
         let app = launch()
+        #else
+        // Tab reaches every control only with keyboard navigation on (AppleKeyboardUIMode 2).
+        let app = launch(["-AppleKeyboardUIMode", "2"])
+        #endif
         signIn(app)
         // Tab reaches the first numbered control of the sign-in screen.
         let first = numbered(app).first

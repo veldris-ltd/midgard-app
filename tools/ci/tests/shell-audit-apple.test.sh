@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # The Apple audit hook fails closed without an app, reports failed affordances from an
-# xcresult summary, never lets the macOS run claim Dynamic Type, and record-audit.sh
+# xcresult summary, needs both apps (owner decision 4), never lets the macOS run claim
+# Dynamic Type, refuses UI tests that rewrite their own results, and record-audit.sh
 # stamps `overall` on BSD and GNU sed alike. Runs on /bin/bash 3.2 and on Linux (the
 # Xcode tools are stubbed; the JavaScript parser is checked only where osascript exists).
 # [RC-49] [AC-C-11]
@@ -28,8 +29,8 @@ if [ "$rc" -ne 0 ] && [ -z "$out" ]; then pass "no app: fails closed"; else fail
 # 2. The xcresult parser (macOS only: JavaScript for Automation).
 if command -v osascript >/dev/null 2>&1; then
     got="$(osascript -l JavaScript "$root/clients/shells/apple/tools/audit-failures.js" "$here/fixtures/xcresult-tests.json")"
-    if [ "$got" = "contrast_aa keyboard_navigation" ]; then
-        pass "parser lists failed and missing affordances"
+    if [ "$got" = "contrast_aa focus_order reduced_motion keyboard_navigation hit_target_size" ]; then
+        pass "parser: failed, skipped, expected-failure, missing and failed-once-then-passed are not passes"
     else
         fail "parser said '$got'"
     fi
@@ -87,6 +88,11 @@ exit 65
 STUB
 cat > "$stubs/xcrun" <<'STUB'
 #!/usr/bin/env bash
+if [ "$1" = simctl ]; then
+    printf '%s\n' '== Devices ==' '-- iOS 18.5 --' '    iPhone 15 (AAAA) (Shutdown)' '-- iOS 26.2 --' \
+        '    iPhone 16 (BBBB) (Shutdown)' '    iPhone 16 Pro (CCCC) (Shutdown)'
+    exit 0
+fi
 while [ $# -gt 0 ] && [ "$1" != --path ]; do shift; done
 [ -n "${STUB_NO_TESTS:-}" ] && { echo '{"testNodes":[]}'; exit 0; }
 echo '{"name":"test_affordance_stub()"}'
@@ -96,7 +102,9 @@ cat > "$stubs/osascript" <<'STUB'
 #!/usr/bin/env bash
 sed -n 2p "$4"
 STUB
-chmod +x "$stubs/xcodebuild" "$stubs/xcrun" "$stubs/osascript"
+printf '#!/usr/bin/env bash\necho 15.5\n' > "$stubs/sw_vers"
+printf '#!/usr/bin/env bash\necho arm64\n' > "$stubs/uname"
+chmod +x "$stubs/xcodebuild" "$stubs/xcrun" "$stubs/osascript" "$stubs/sw_vers" "$stubs/uname"
 
 # apps TREE APP...: an Apple shell holding the given app projects and a stub framework build.
 apps() {
@@ -105,7 +113,11 @@ apps() {
     cp "$root/clients/shells/apple/audit.sh" "$t/clients/shells/apple/"
     printf '#!/usr/bin/env bash\nexit 0\n' > "$t/clients/shells/apple/tools/build-xcframework.sh"
     local a
-    for a in "$@"; do mkdir -p "$t/clients/shells/apple/Apps/$a/$a.xcodeproj"; done
+    for a in "$@"; do
+        mkdir -p "$t/clients/shells/apple/Apps/$a/$a.xcodeproj" "$t/clients/shells/apple/Apps/$a/UITests"
+        printf 'final class AccessibilityAudit: AccessibilityAuditBase {}\n' \
+            > "$t/clients/shells/apple/Apps/$a/UITests/AccessibilityAudit.swift"
+    done
     echo "$t"
 }
 run_audit() { # run_audit TREE [VAR=value...]: stdout of audit.sh; rc in $rc
@@ -115,14 +127,29 @@ run_audit() { # run_audit TREE [VAR=value...]: stdout of audit.sh; rc in $rc
     rc=$?
 }
 
-t="$(apps maconly MidgardMac)"
-run_audit "$t" STUB_FAIL_MidgardMac=dynamic_type
-if [ "$rc" -eq 0 ] && [ "$out" = "dynamic_type " ]; then
-    pass "macOS alone: dynamic_type is reported failed (not measured there)"
-else
-    fail "macOS alone: rc=$rc out='$out' $(cat "$t/stderr")"
-fi
-if [ -f "$t/shell-audit/apple-0.0.0-test.json" ]; then pass "the raw report is kept"; else fail "no report written"; fi
+for one in MidgardMac MidgardiOS; do
+    t="$(apps "only-$one" "$one")"
+    run_audit "$t" STUB_FAIL_MidgardMac=dynamic_type
+    if [ "$rc" -ne 0 ] && [ -z "$out" ] && [ ! -f "$t/calls" ] && grep -q 'needs both apps' "$t/stderr"; then
+        pass "$one alone: refused before anything runs (the record needs both apps)"
+    else
+        fail "$one alone: rc=$rc out='$out' $(cat "$t/stderr")"
+    fi
+done
+
+n=0
+for hook in 'override func record(_ issue: XCTIssue) {}' 'override func invokeTest() {}' \
+    'public override func record(_ issue: XCTIssue) { }'; do
+    n=$((n + 1))
+    t="$(apps "hook-$n" MidgardiOS MidgardMac)"
+    printf 'extension AccessibilityAudit {\n    %s\n}\n' "$hook" >> "$t/clients/shells/apple/Apps/MidgardMac/UITests/AccessibilityAudit.swift"
+    run_audit "$t"
+    if [ "$rc" -ne 0 ] && [ -z "$out" ] && [ ! -f "$t/calls" ] && grep -q 'rewrite' "$t/stderr"; then
+        pass "a UI test that can rewrite its results is refused: $hook"
+    else
+        fail "hook '$hook': rc=$rc out='$out' $(cat "$t/stderr")"
+    fi
+done
 
 t="$(apps both MidgardiOS MidgardMac)"
 run_audit "$t" STUB_FAIL_MidgardiOS=contrast_aa "STUB_FAIL_MidgardMac=dynamic_type keyboard_navigation"
@@ -130,6 +157,24 @@ if [ "$rc" -eq 0 ] && [ "$out" = "contrast_aa keyboard_navigation " ]; then
     pass "iOS and macOS: the iOS run stands for dynamic_type; other failures add up"
 else
     fail "iOS and macOS: rc=$rc out='$out' $(cat "$t/stderr")"
+fi
+ev="$t/shell-audit/apple-0.0.0-test"
+if [ -s "$ev-ios.json" ] && [ -s "$ev-mac.json" ] && grep -q '^{"ios":' "$ev.json" && grep -q ',"mac":' "$ev.json"; then
+    pass "both apps' reports are kept, and merged in the report"
+else
+    fail "reports: $(ls "$t/shell-audit" 2>/dev/null)"
+fi
+if [ "$(cat "$ev.device" 2>/dev/null)" = "iPhone 16 simulator (iOS 26.2) + macOS 15.5 (arm64)" ]; then
+    pass "the device sidecar names the simulator, its runtime and the Mac"
+else
+    fail "device sidecar: '$(cat "$ev.device" 2>/dev/null)'"
+fi
+t2="$(apps nosim MidgardiOS MidgardMac)"
+run_audit "$t2" MIDGARD_AUDIT_SIMULATOR="iPhone 99"
+if [ "$rc" -ne 0 ] && [ -z "$out" ]; then
+    pass "a simulator simctl does not list: fails closed"
+else
+    fail "unknown simulator: rc=$rc out='$out'"
 fi
 if [ "$(tr '\n' ' ' < "$t/calls")" = "MidgardiOS MidgardMac " ]; then
     pass "both apps are tested"
@@ -145,11 +190,11 @@ else
     fail "all pass: rc=$rc out='$out'"
 fi
 
-t="$(apps nobundle MidgardiOS)"
+t="$(apps nobundle MidgardiOS MidgardMac)"
 run_audit "$t" STUB_NO_BUNDLE=1
 if [ "$rc" -ne 0 ] && [ -z "$out" ]; then pass "no result bundle: fails closed"; else fail "no bundle: rc=$rc out='$out'"; fi
 
-t="$(apps notests MidgardiOS)"
+t="$(apps notests MidgardiOS MidgardMac)"
 run_audit "$t" STUB_NO_TESTS=1
 if [ "$rc" -ne 0 ] && [ -z "$out" ]; then
     pass "no affordance test ran: fails closed"
@@ -185,18 +230,27 @@ else
 fi
 t="$(job_tree job-mac MidgardMac)"
 job "$t" STUB_FAIL_MidgardMac=dynamic_type
-rec="$t/clients/shells/apple/audits/0.0.0-test.toml"
-if [ "$rc" -ne 0 ] && grep -q '^dynamic_type *= "fail"' "$rec" 2>/dev/null && grep -q '^overall *= "fail"' "$rec" \
-    && grep -q '^tool_version = "Xcode 26.2"' "$rec" && grep -q '^runner *= "test-runner"' "$rec"; then
-    pass "CI job, macOS app alone: record says dynamic_type fail, overall fail"
+if [ "$rc" -ne 0 ] && [ -z "$(ls "$t/clients/shells/apple/audits" 2>/dev/null)" ]; then
+    pass "CI job, macOS app alone: fails, no record"
 else
-    fail "CI job, macOS alone: rc=$rc $(cat "$rec" 2>/dev/null) $(cat "$t/stdout")"
+    fail "CI job, macOS alone: rc=$rc $(ls "$t/clients/shells/apple/audits" 2>/dev/null) $(cat "$t/stdout")"
+fi
+t="$(job_tree job-fail MidgardiOS MidgardMac)"
+job "$t" STUB_FAIL_MidgardiOS=contrast_aa STUB_FAIL_MidgardMac=dynamic_type
+rec="$t/clients/shells/apple/audits/0.0.0-test.toml"
+if [ "$rc" -ne 0 ] && grep -q '^contrast_aa *= "fail"' "$rec" 2>/dev/null && grep -q '^overall *= "fail"' "$rec" \
+    && grep -q '^dynamic_type *= "pass"' "$rec" && grep -q '^tool_version = "Xcode 26.2"' "$rec" \
+    && grep -q '^runner *= "test-runner"' "$rec"; then
+    pass "CI job, a failed affordance: the record says so, overall fail"
+else
+    fail "CI job, failed affordance: rc=$rc $(cat "$rec" 2>/dev/null) $(cat "$t/stdout")"
 fi
 t="$(job_tree job-both MidgardiOS MidgardMac)"
 job "$t" STUB_FAIL_MidgardMac=dynamic_type
 rec="$t/clients/shells/apple/audits/0.0.0-test.toml"
-if [ "$rc" -eq 0 ] && grep -q '^overall *= "pass"' "$rec" 2>/dev/null && [ "$(grep -c '= "pass"$' "$rec")" -eq 8 ]; then
-    pass "CI job, both apps measured pass: record says pass for all seven"
+if [ "$rc" -eq 0 ] && grep -q '^overall *= "pass"' "$rec" 2>/dev/null && [ "$(grep -c '= "pass"$' "$rec")" -eq 8 ] \
+    && grep -q '^device *= "iPhone 16 simulator (iOS 26.2) + macOS 15.5 (arm64)"' "$rec"; then
+    pass "CI job, both apps measured pass: record says pass for all seven and names both devices"
 else
     fail "CI job, both apps: rc=$rc $(cat "$rec" 2>/dev/null) $(cat "$t/stdout")"
 fi

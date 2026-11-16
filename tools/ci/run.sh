@@ -676,8 +676,9 @@ job_shell_audit() {
             [ -e "$root/Package.swift" ] || compgen -G "$root/*.xcodeproj" >/dev/null || no_project "an Xcode project in $root"
             need xcodebuild "shell-audit: the apple audit needs a macOS runner with Xcode"
             failed="$(bash "$root/audit.sh" "$release" "$report")"
+            # audit.sh names the devices it audited (simulator and runtime, and the Mac).
             bash clients/shells/tools/record-audit.sh "$shell" "$release" "$(ci_runner)" \
-                "${MIDGARD_AUDIT_DEVICE:-iOS simulator}" "XCUITest + XCUIAccessibilityAudit" \
+                "${MIDGARD_AUDIT_DEVICE:-$(cat "${report%.json}.device")}" "XCUITest + XCUIAccessibilityAudit" \
                 "$(xcodebuild -version | head -1)" "$report" $failed
             ;;
         android)

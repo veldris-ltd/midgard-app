@@ -6,12 +6,17 @@
 #
 #   bash clients/shells/apple/audit.sh <release> <report-path>
 #
-# Each app's UI-test target runs `AccessibilityAudit` (a subclass of MidgardAuditKit's
+# The record covers both apps (owner decision 4: it is written from a merge of
+# clients_mac and clients_iphone), so a tree with only one of them is refused. Each
+# app's UI-test target runs `AccessibilityAudit` (a subclass of MidgardAuditKit's
 # AccessibilityAuditBase); tools/audit-failures.js reads the result bundle. An
-# affordance whose test failed, was skipped or did not run is reported failed. Dynamic
-# Type is measured on iOS only: the macOS run never claims it, and its failure there
-# is dropped only when the iOS app was audited in the same run. Derived data and result
-# bundles go to ~/Library/Caches/midgard-build/clients-derived.
+# affordance whose test failed, was skipped or did not run is reported failed. UI-test
+# sources that override `record(_:)` or `invokeTest` could rewrite their own results,
+# so they are refused. Dynamic Type is measured on iOS only: the macOS run never claims
+# it, and the iOS result stands for it. Next to <report> (both apps' result summaries,
+# merged) it keeps <report>-ios.json, <report>-mac.json and <report>.device, the
+# devices audited, which `run.sh` records. Derived data and result bundles go to
+# ~/Library/Caches/midgard-build/clients-derived.
 set -euo pipefail
 release="${1:?release}"; report="${2:?report path}"
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -26,6 +31,32 @@ if [ -z "$apps" ]; then
     echo "audit: no app project under clients/shells/apple/Apps; nothing was audited" >&2
     exit 1
 fi
+case "$apps" in
+    " ios mac") ;;
+    *)
+        echo "audit: the record needs both apps (owner decision 4); found:$apps" >&2
+        exit 1
+        ;;
+esac
+# A test that overrides record(_:) or invokeTest can drop or rewrite its own failures.
+hooks="$(grep -rlE '(func[[:space:]]+record[[:space:]]*\(|invokeTest)' "$here/Apps" --include='*.swift' || true)"
+if [ -n "$hooks" ]; then
+    echo "audit: UI-test sources could rewrite their own results (record(_:) or invokeTest):" >&2
+    echo "$hooks" >&2
+    exit 1
+fi
+
+# The devices audited, for the record: the simulator with its runtime, and this Mac.
+sim="${MIDGARD_AUDIT_SIMULATOR:-iPhone 16}"
+sims="$(xcrun simctl list devices available)"
+runtime="$(awk -v name="$sim" '
+    /^-- / { rt = $0; sub(/^-- /, "", rt); sub(/ --$/, "", rt); next }
+    { line = $0; sub(/^ +/, "", line); if (index(line, name " (") == 1) { print rt; exit } }' <<<"$sims")"
+if [ -z "$runtime" ]; then
+    echo "audit: no available simulator named '$sim'" >&2
+    exit 1
+fi
+device="$sim simulator ($runtime) + macOS $(sw_vers -productVersion) ($(uname -m))"
 
 # On a CI runner, provision the pinned toolchain's Apple targets (the workflow has no
 # build logic of its own; see .github/workflows/shell-audit.yml).
@@ -38,11 +69,10 @@ bash "$here/tools/build-xcframework.sh" >&2
 
 mkdir -p "$derived"
 failed=""
-first=""
 for app in $apps; do
     case "$app" in
         ios) proj="$here/Apps/MidgardiOS/MidgardiOS.xcodeproj"; scheme=MidgardiOS
-             dest="platform=iOS Simulator,name=${MIDGARD_AUDIT_SIMULATOR:-iPhone 16}" ;;
+             dest="platform=iOS Simulator,name=$sim" ;;
         mac) proj="$here/Apps/MidgardMac/MidgardMac.xcodeproj"; scheme=MidgardMac; dest="platform=macOS" ;;
     esac
     bundle="$derived/$app-$release.xcresult"
@@ -60,16 +90,18 @@ for app in $apps; do
         exit 1
     }
     f="$(osascript -l JavaScript "$here/tools/audit-failures.js" "$derived/$app-tests.json")"
-    # Dynamic Type is measured on iOS only; the macOS run does not claim it. When the
-    # iOS app was audited too, its result stands for the affordance.
-    if [ "$app" = mac ]; then
-        case "$apps" in *ios*) f="$(echo " $f " | sed 's/ dynamic_type / /')" ;; esac
-    fi
+    # Dynamic Type is measured on iOS only; the macOS run does not claim it, and the
+    # iOS app, always audited in the same run, stands for the affordance.
+    [ "$app" = mac ] && f="$(echo " $f " | sed 's/ dynamic_type / /')"
     failed="$failed $f"
-    [ -n "$first" ] || first="$derived/$app-tests.json"
 done
 
-mkdir -p "$(dirname "$root/$report")"
-cp "$first" "$root/$report"
+# Evidence: each app's summary, and both merged at <report>.
+base="$root/${report%.json}"
+mkdir -p "$(dirname "$base")"
+cp "$derived/ios-tests.json" "$base-ios.json"
+cp "$derived/mac-tests.json" "$base-mac.json"
+{ printf '{"ios":'; cat "$base-ios.json"; printf ',"mac":'; cat "$base-mac.json"; printf '}\n'; } > "$root/$report"
+echo "$device" > "$base.device"
 # Each affordance once, in a stable order.
 for a in $failed; do echo "$a"; done | sort -u | tr '\n' ' '

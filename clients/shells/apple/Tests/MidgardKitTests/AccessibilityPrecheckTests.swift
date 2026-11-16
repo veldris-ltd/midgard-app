@@ -12,8 +12,11 @@ import XCTest
 /// - contrast_aa: measured from the tokens (WCAG 2.x ratio, AA 4.5:1 for text), for every
 ///   pair the shared views draw themselves and the theme's text tokens on its surfaces.
 /// - hit_target_size: measured on macOS from the laid-out controls of the shared screens.
-/// - dynamic_type, reduced_motion, screen_reader_labels: source rules on MidgardKit (macOS
-///   has no Dynamic Type, so scaling itself is measured only by the iOS audit).
+/// - reduced_motion: the loading view measured on macOS (no spinner when reduced), plus
+///   source rules.
+/// - dynamic_type, screen_reader_labels: source rules on MidgardKit (macOS has no Dynamic
+///   Type, so scaling itself is measured only by the iOS audit). The rules read one line
+///   or one file at a time: a modifier split across lines or files is not seen.
 /// - focus_order, keyboard_navigation: not measurable here; the XCUITest audit only.
 /// [RC-49] [AC-C-11] [DD-7]
 @MainActor
@@ -132,6 +135,32 @@ final class AccessibilityPrecheckTests: XCTestCase {
         }
     }
 
+    /// A spinner is motion too: every `ProgressView(` carries an `mg.anim.` identifier on
+    /// its line, so the audit can see it, and only runs when motion is not reduced.
+    func testEverySpinnerIsTaggedAsAnAnimation() throws {
+        var spinners = 0
+        for (file, text) in try kitSources() {
+            for line in text.split(separator: "\n") where line.contains("ProgressView(") {
+                spinners += 1
+                XCTAssertTrue(line.contains("\"mg.anim."), "\(file): an untagged spinner: \(line)")
+            }
+        }
+        XCTAssertGreaterThan(spinners, 0)
+    }
+
+    func testReduceMotionFollowsTheSystemOrTheAuditEnvironment() {
+        XCTAssertFalse(MotionPolicy.reduced(system: false, environment: [:]))
+        XCTAssertTrue(MotionPolicy.reduced(system: true, environment: [:]))
+        XCTAssertTrue(MotionPolicy.reduced(system: false, environment: ["MIDGARD_REDUCE_MOTION": "1"]))
+        XCTAssertFalse(MotionPolicy.reduced(system: false, environment: ["MIDGARD_REDUCE_MOTION": "0"]))
+    }
+
+    /// Loading under Reduce Motion is static text; otherwise a spinner.
+    func testLoadingIsStaticUnderReduceMotion() {
+        XCTAssertEqual(spinners(in: LoadingView(reduced: true)), 0)
+        XCTAssertEqual(spinners(in: LoadingView(reduced: false)), 1)
+    }
+
     // MARK: screen_reader_labels
 
     /// Every image is hidden from VoiceOver or labelled, and every chip and row speaks a
@@ -182,11 +211,20 @@ final class AccessibilityPrecheckTests: XCTestCase {
         return model
     }
 
-    /// Lays the view out in a window and measures each control's focus ring (the frame
-    /// AppKit hit-tests). Fails when it finds fewer controls than `expected`, so a
-    /// change in how SwiftUI draws controls cannot turn this into a vacuous pass.
-    private func assertControlsAtLeast44<V: View>(_ view: V, expected: Int, _ name: String,
-                                                  file: StaticString = #filePath, line: UInt = #line) throws {
+    /// The progress indicators AppKit draws for a laid-out view.
+    private func spinners<V: View>(in view: V) -> Int {
+        let (host, window) = laidOut(view)
+        defer { window.close() }
+        var count = 0
+        func walk(_ view: NSView) {
+            if view is NSProgressIndicator { count += 1 }
+            view.subviews.forEach(walk)
+        }
+        walk(host)
+        return count
+    }
+
+    private func laidOut<V: View>(_ view: V) -> (NSView, NSWindow) {
         let host = NSHostingView(rootView: view.frame(width: 390, height: 700))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 390, height: 700), styleMask: [.titled],
                               backing: .buffered, defer: false)
@@ -194,6 +232,15 @@ final class AccessibilityPrecheckTests: XCTestCase {
         window.contentView = host
         host.layoutSubtreeIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        return (host, window)
+    }
+
+    /// Lays the view out in a window and measures each control's focus ring (the frame
+    /// AppKit hit-tests). Fails when it finds fewer controls than `expected`, so a
+    /// change in how SwiftUI draws controls cannot turn this into a vacuous pass.
+    private func assertControlsAtLeast44<V: View>(_ view: V, expected: Int, _ name: String,
+                                                  file: StaticString = #filePath, line: UInt = #line) throws {
+        let (host, window) = laidOut(view)
         var controls: [NSRect] = []
         func walk(_ view: NSView) {
             if String(describing: type(of: view)).contains("FocusRing") || view is NSControl { controls.append(view.frame) }
