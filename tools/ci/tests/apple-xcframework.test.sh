@@ -29,6 +29,27 @@ for s in $f $c $v; do
     check "$s: parses under /bin/bash" "[ -f $s ] && /bin/bash -n $s"
 done
 check "build outputs are gitignored" "[ -f $g ] && grep -qx '/Frameworks/' $g && grep -qx '/Sources/MidgardCore/midgard_client_ffi.swift' $g"
-check "clean.sh only deletes clients-* and package outputs" \
-    "[ -f $c ] && ! grep -E '^[^#]*rm -rf' $c | grep -Ev 'clients-|Frameworks|midgard_client_ffi.swift|\\.build|target-clients' | grep -q ."
+check "strips local paths from the libraries" "grep -q -- '--remap-path-prefix=\$HOME=' $f && grep -q -- '--remap-path-prefix=\$root=' $f"
+check "builds into clients-xcframework.new and swaps it in after verifying" "grep -q 'clients-xcframework.new' $f"
+for s in $f $c; do
+    check "$s: refuses a relative MIDGARD_BUILD_CACHE" \
+        "[ -f $s ] && (MIDGARD_BUILD_CACHE=relative/cache bash $s --no-such-flag >/dev/null 2>&1; [ \$? -eq 2 ]) && grep -q 'must be an absolute path' $s"
+done
+
+# clean.sh deletes the build outputs and nothing else. It runs from a copy in a scratch
+# package, so the real package's linked framework is untouched.
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+mkdir -p "$tmp/cache/clients-xcframework/x" "$tmp/cache/clients-derived" "$tmp/cache/target-clients/release" \
+    "$tmp/pkg/tools" "$tmp/pkg/Frameworks" "$tmp/pkg/Sources/MidgardCore" "$tmp/pkg/.build" "$tmp/pkg/.swiftpm"
+echo keep >"$tmp/cache/sentinel"
+mkdir -p "$tmp/cache/other-build"
+echo keep >"$tmp/pkg/Sources/MidgardCore/Keep.swift"
+echo gen >"$tmp/pkg/Sources/MidgardCore/midgard_client_ffi.swift"
+[ -f $c ] && cp $c "$tmp/pkg/tools/clean.sh"
+check "clean.sh --target runs" "[ -f $c ] && MIDGARD_BUILD_CACHE=$tmp/cache bash $tmp/pkg/tools/clean.sh --target >/dev/null"
+check "clean.sh keeps what is not a build output" \
+    "[ -f $tmp/cache/sentinel ] && [ -d $tmp/cache/other-build ] && [ -f $tmp/pkg/Sources/MidgardCore/Keep.swift ] && [ -f $tmp/pkg/tools/clean.sh ]"
+check "clean.sh removes the build outputs" \
+    "[ ! -e $tmp/cache/clients-xcframework ] && [ ! -e $tmp/cache/clients-derived ] && [ ! -e $tmp/cache/target-clients ] && [ ! -e $tmp/pkg/Frameworks ] && [ ! -e $tmp/pkg/Sources/MidgardCore/midgard_client_ffi.swift ] && [ ! -e $tmp/pkg/.build ] && [ ! -e $tmp/pkg/.swiftpm ]"
 [ "$failures" -eq 0 ] || exit 1

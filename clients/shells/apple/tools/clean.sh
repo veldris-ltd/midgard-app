@@ -8,6 +8,13 @@
 # target directory (~/Library/Caches/midgard-build/target-clients).
 set -euo pipefail
 cache="${MIDGARD_BUILD_CACHE:-$HOME/Library/Caches/midgard-build}"
+case "$cache" in
+    /*) ;;
+    *)
+        echo "clean: MIDGARD_BUILD_CACHE must be an absolute path" >&2
+        exit 2
+        ;;
+esac
 case "${1:-}" in
     '') ;;
     --target) rm -rf "$cache/target-clients" ;;
@@ -16,7 +23,7 @@ case "${1:-}" in
         exit 2
         ;;
 esac
-rm -rf "$cache/clients-xcframework" "$cache/clients-derived" "$cache/clients-archive"
+rm -rf "$cache/clients-xcframework" "$cache/clients-xcframework.new" "$cache/clients-derived" "$cache/clients-archive"
 cd "$(dirname "$0")/.."
-rm -rf Frameworks Sources/MidgardCore/midgard_client_ffi.swift .build
+rm -rf Frameworks Sources/MidgardCore/midgard_client_ffi.swift .build .swiftpm
 echo "clean: done"

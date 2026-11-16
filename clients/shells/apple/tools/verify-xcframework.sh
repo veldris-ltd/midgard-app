@@ -11,16 +11,24 @@
 #      midgard_client_ffi objects are built for exactly macOS 14 / iOS 17;
 #   3. every slice carries the generated header and module map unchanged, and the
 #      module map is a plain (not a framework) module;
-#   4. the generated Swift typechecks against each slice's headers, and on an arm64
+#   4. no library carries a path of this machine: no "$HOME/", no repository path and
+#      no other "/Users/" string (build-xcframework.sh remaps them). The one exception
+#      is Rust's own prebuilt compiler_builtins, whose panic locations name the Rust
+#      project's macOS CI runner (/Users/runner/.cargo/registry/...); it ships inside
+#      the rust-std component and cannot be remapped without rebuilding std;
+#   5. the generated Swift typechecks against each slice's headers, and on an arm64
 #      Mac a small program linked against the macOS slice runs and calls the core
 #      (UniFFI's contract-version and checksum checks run on that first call).
 # Scratch files go to <out-dir>/verify and are deleted on exit.
 set -euo pipefail
+root="$(cd "$(dirname "$0")/../../../.." && pwd)"
 out="${1:-${MIDGARD_BUILD_CACHE:-$HOME/Library/Caches/midgard-build}/clients-xcframework}"
 xcf="$out/MidgardCoreFFI.xcframework"
 swift_src="$out/swift/midgard_client_ffi.swift"
 lib=libmidgard_client_ffi.a
 scratch="$out/verify"
+# Panic locations in the prebuilt rust-std component (see 4. above).
+upstream_ci='/Users/runner/\.cargo/registry/src/index\.crates\.io-[0-9a-f]*/compiler_builtins-'
 failures=0
 ok() { echo "ok    $1"; }
 fail() {
@@ -100,7 +108,18 @@ while IFS='|' read -r slice archs platform minos target sdk; do
         fail "$slice: module map is a framework module (Clang cannot resolve its header in a library slice)"
     fi
 
-    # 4a. The bindings typecheck against this slice's headers.
+    # 4. No local paths.
+    strings -a "$a" | grep -F -e "$HOME/" -e "$root" -e "/Users/" >"$scratch/paths" || true
+    upstream="$(grep -c "^$upstream_ci" "$scratch/paths" || true)"
+    hits="$(grep -c -v "^$upstream_ci" "$scratch/paths" || true)"
+    if [ "$hits" = 0 ]; then
+        ok "$slice: no local paths ($upstream from the prebuilt Rust std)"
+    else
+        grep -v "^$upstream_ci" "$scratch/paths" | sort -u | awk 'n++ < 3' >&2
+        fail "$slice: $hits string(s) with a local path (\$HOME, the repository or /Users/)"
+    fi
+
+    # 5a. The bindings typecheck against this slice's headers.
     if xcrun --sdk "$sdk" swiftc -typecheck -swift-version 5 -target "$target" \
         -I "$xcf/$slice/Headers" "$swift_src" >"$scratch/swiftc.log" 2>&1; then
         ok "$slice: bindings typecheck ($target)"
@@ -112,7 +131,7 @@ done <<EOF
 $slices
 EOF
 
-# 4b. Link against the macOS slice and call the core once.
+# 5b. Link against the macOS slice and call the core once.
 if [ "$(uname -m)" = arm64 ]; then
     printf '%s\n' 'let v = coreVersion()' 'precondition(!v.isEmpty)' 'print("core \(v)")' >"$scratch/main.swift"
     mac="$xcf/macos-arm64_x86_64"
