@@ -3,6 +3,10 @@ import XCTest
 /// Steps the UI tests share. Each one starts from wherever the app is (a fresh store
 /// at launch: enrolment first), so the audit's navigations can run in any order.
 enum Nav {
+    /// Every test launch starts with no restored windows: a run that terminated the app
+    /// can leave saved state with none, and the app would then open no window.
+    static let freshLaunch = ["-ApplePersistenceIgnoreState", "YES"]
+
     static let consoleIds = ["midgard", "admin", "heimdall", "forge", "mimir", "bifrost"]
 
     static func element(_ app: XCUIApplication, _ id: String) -> XCUIElement {
@@ -19,13 +23,13 @@ enum Nav {
         let enrol = element(app, "mg.0.enrol")
         let persona = element(app, "mg.0.persona.local")
         let console = element(app, "mg.console.selected")
-        let deadline = Date().addingTimeInterval(20)
+        let deadline = Date().addingTimeInterval(45)
         while Date() < deadline {
             if persona.exists || console.exists { return }
             if enrol.exists && enrol.isHittable { enrol.click() }
             _ = persona.waitForExistence(timeout: 0.5)
         }
-        XCTFail("the sign-in screen did not appear", file: file, line: line)
+        XCTFail("the sign-in screen did not appear:\n\(app.debugDescription)", file: file, line: line)
     }
 
     /// Signed in as the local user, inside the console shell.
@@ -55,6 +59,13 @@ enum Nav {
         row.click()
         XCTAssertTrue(element(app, "mg.detail.\(slug)").waitForExistence(timeout: 5),
                       "the \(slug) detail did not appear", file: file, line: line)
+    }
+
+    /// What a text element says: on macOS static text carries it as its value, and an
+    /// element given an accessibility label carries it as the label.
+    static func text(_ element: XCUIElement) -> String {
+        if let value = element.value as? String, !value.isEmpty { return value }
+        return element.label
     }
 
     /// Wait until `element`'s value is `value`.

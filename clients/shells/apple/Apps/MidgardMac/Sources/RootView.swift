@@ -1,11 +1,13 @@
+import AppKit
 @preconcurrency import MidgardCore
 import MidgardKit
 import SwiftUI
 
 /// A window's root: the session's screens by phase (MidgardKit's `SessionRootView`:
 /// the source banner, enrolment, sign-in, lock, the status chips) and, signed in, the
-/// console shell. Carries the audit's hooks: `mg.motion` (reduced/full) in every phase,
-/// with every animation disabled when motion is reduced. [FR-C-1] [RC-49] [AC-C-11]
+/// console shell, over a status line that carries the audit's hooks: `mg.motion`
+/// (reduced/full) in every phase, with every animation disabled when motion is
+/// reduced, and `mg.console.selected` (1…6) once signed in. [FR-C-1] [RC-49] [AC-C-11]
 struct RootView: View {
     @ObservedObject var model: AppModel
     @Binding var route: ConsoleRoute
@@ -13,13 +15,17 @@ struct RootView: View {
 
     var body: some View {
         let reduced = MotionPolicy.reduced(system: systemReduceMotion)
-        SessionRootView(model: model) { persona in
-            ConsoleShell(model: model, persona: persona, route: $route)
+        VStack(spacing: 0) {
+            SessionRootView(model: model) { persona in
+                ConsoleShell(model: model, persona: persona, route: $route)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            Divider()
+            StatusLine(reduced: reduced, console: model.isUnlocked ? route.clamped : nil)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(alignment: .topLeading) {
-            HiddenMarker(id: "mg.motion", label: "Motion", value: reduced ? "reduced" : "full")
-        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text("Midgard"))
+        .background(WindowSetup())
         .transaction { transaction in
             if reduced {
                 transaction.animation = nil
@@ -30,20 +36,72 @@ struct RootView: View {
     }
 }
 
-/// An element the UI tests read (`mg.motion`, `mg.console.selected`): one point, no
-/// drawing, a label and a value.
-struct HiddenMarker: View {
-    let id: String
-    let label: String
-    let value: String
+/// The window's status line: which console is shown ("Console 1 of 6",
+/// `mg.console.selected` = 1…6) and whether animations run ("Animations off (Reduce
+/// Motion)", `mg.motion` = reduced/full). Visible text, so VoiceOver and the contrast
+/// audit see what the UI tests read. [RC-49] [AC-C-11]
+struct StatusLine: View {
+    let reduced: Bool
+    let console: ConsoleRoute?
 
     var body: some View {
-        Color.clear
-            .frame(width: 1, height: 1)
-            .accessibilityElement()
-            .accessibilityLabel(Text(label))
-            .accessibilityValue(Text(value))
-            .accessibilityIdentifier(id)
+        HStack(spacing: MGSpace.s4) {
+            if let console {
+                Text("Console \(console.selectedValue) of \(ConsoleCatalog.consoles.count): \(ConsoleCatalog.console(console).name)")
+                    .accessibilityValue(Text(console.selectedValue))
+                    .accessibilityIdentifier("mg.console.selected")
+            }
+            Spacer(minLength: MGSpace.s2)
+            Text(reduced ? "Animations off (Reduce Motion)" : "Animations on")
+                .accessibilityValue(Text(reduced ? "reduced" : "full"))
+                .accessibilityIdentifier("mg.motion")
+        }
+        .font(MGFonts.sans(.footnote))
+        .padding(.horizontal, MGSpace.s3)
+        .padding(.vertical, MGSpace.s1)
+    }
+}
+
+/// Window set-up SwiftUI on macOS 14 has no modifier for: hide the title text (the
+/// title itself stays; `.toolbar(removing: .title)` is macOS 15), and name the AppKit
+/// containers NavigationSplitView makes, which VoiceOver otherwise announces as bare
+/// groups (the screen-reader audit's "Element has no description").
+struct WindowSetup: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        // Once the shell is in its window, and again once the split view has laid out
+        // its columns.
+        DispatchQueue.main.async { Self.setUp(view.window) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { Self.setUp(view.window) }
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {}
+
+    static let columnNames = ["Consoles", "Screen", "Details"]
+
+    static func setUp(_ window: NSWindow?) {
+        guard let window, let content = window.contentView else { return }
+        window.titleVisibility = .hidden
+        name(content, "Midgard window")
+        for split in descendants(of: content).compactMap({ $0 as? NSSplitView }) {
+            name(split, "Console columns")
+            for (index, column) in split.arrangedSubviews.enumerated() {
+                let label = index < columnNames.count ? columnNames[index] : "Column"
+                name(column, label)
+                for inner in descendants(of: column) { name(inner, label) }
+            }
+        }
+    }
+
+    /// Label an unlabelled group; leave everything else as it is.
+    private static func name(_ view: NSView, _ label: String) {
+        guard view.accessibilityRole() == .group, (view.accessibilityLabel() ?? "").isEmpty else { return }
+        view.setAccessibilityLabel(label)
+    }
+
+    private static func descendants(of view: NSView) -> [NSView] {
+        view.subviews + view.subviews.flatMap { descendants(of: $0) }
     }
 }
 
@@ -67,18 +125,24 @@ struct ConsoleShell: View {
             NavigationSplitView {
                 ConsoleSidebar(route: $route)
                     .navigationSplitViewColumnWidth(min: 200, ideal: 230)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel(Text("Consoles"))
             } content: {
                 ScreenContent(route: route.clamped)
                     .navigationSplitViewColumnWidth(min: 280, ideal: 360)
             } detail: {
                 ScreenDetail(route: route.clamped)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel(Text("Details"))
             }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(Text("Console"))
         }
-        .background(alignment: .topLeading) {
-            HiddenMarker(id: "mg.console.selected", label: "Selected console", value: route.selectedValue)
-        }
+        // The window keeps its title (Window menu, Mission Control) but does not draw
+        // it: the titlebar's grey title text fails the contrast audit, and the sidebar
+        // and the screen heading already say where the window is.
         .navigationTitle(ConsoleCatalog.console(route).name)
-        .navigationSubtitle(ConsoleCatalog.screenName(route))
+        .background(WindowSetup())
     }
 }
 
@@ -176,6 +240,10 @@ struct ConsoleSidebar: View {
             }
         }
         .listStyle(.sidebar)
+        // Opaque: over the translucent sidebar material the rows' contrast depends on
+        // whatever is behind the window.
+        .scrollContentBackground(.hidden)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     @ViewBuilder private func row(_ entry: SidebarEntry) -> some View {
@@ -201,7 +269,6 @@ struct ScreenContent: View {
     let route: ConsoleRoute
 
     var body: some View {
-        let console = ConsoleCatalog.console(route)
         let name = ConsoleCatalog.screenName(route)
         VStack(alignment: .leading, spacing: MGSpace.s3) {
             Text(name).font(MGFonts.display(.title2)).accessibilityAddTraits(.isHeader)
@@ -213,7 +280,6 @@ struct ScreenContent: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("mg.content.\(ConsoleCatalog.slug(name))")
-        .navigationTitle(console.name)
     }
 }
 
@@ -236,6 +302,11 @@ struct ScreenDetail: View {
 }
 
 extension AppModel {
+    var isUnlocked: Bool {
+        if case .unlocked = phase { return true }
+        return false
+    }
+
     /// Whether the session is offline, from the sync chip.
     var isOffline: Bool { chips?.sync.phase == .offline }
 }

@@ -20,10 +20,7 @@ struct MidgardCommands: Commands {
     @ObservedObject var model: AppModel
     @FocusedBinding(\.consoleRoute) private var route: ConsoleRoute?
 
-    private var unlocked: Bool {
-        if case .unlocked = model.phase { return true }
-        return false
-    }
+    private var unlocked: Bool { model.isUnlocked }
 
     var body: some Commands {
         CommandMenu("Console") {

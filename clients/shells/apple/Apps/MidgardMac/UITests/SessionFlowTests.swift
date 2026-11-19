@@ -9,7 +9,7 @@ final class SessionFlowTests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
         app = XCUIApplication()
-        app.launchArguments = ["-MidgardUITesting"]
+        app.launchArguments = ["-MidgardUITesting"] + Nav.freshLaunch
         app.launch()
     }
 
@@ -28,8 +28,8 @@ final class SessionFlowTests: XCTestCase {
 
         // The banner says there is no source.
         let banner = Nav.element(app, "mg.banner.nosource")
-        XCTAssertTrue(banner.waitForExistence(timeout: 20))
-        XCTAssertEqual(banner.label, "No data source connected")
+        XCTAssertTrue(banner.waitForExistence(timeout: 20), app.debugDescription)
+        XCTAssertEqual(Nav.text(banner), "No data source connected")
         XCTAssertFalse(Nav.element(app, "mg.banner.demo").exists)
 
         // Each console, from the sidebar, shows its first screen's placeholder.

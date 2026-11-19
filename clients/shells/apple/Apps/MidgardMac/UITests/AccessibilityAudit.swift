@@ -7,6 +7,8 @@ import XCTest
 /// `xcodebuild test` stays green while audit.sh still reads it as not measured here.
 /// [RC-49] [AC-C-11]
 final class AccessibilityAudit: AccessibilityAuditBase {
+    override var launchArguments: [String] { super.launchArguments + Nav.freshLaunch }
+
     override var screens: [(XCUIApplication) -> Void] {
         var list: [(XCUIApplication) -> Void] = [{ Nav.toSignIn($0) }]
         for n in 1...6 { list.append { Nav.openConsole($0, n) } }

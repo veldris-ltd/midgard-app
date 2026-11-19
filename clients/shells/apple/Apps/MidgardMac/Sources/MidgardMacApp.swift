@@ -12,10 +12,13 @@ struct MidgardMacApp: App {
     var body: some Scene {
         WindowGroup(for: ConsoleRoute.self) { $route in
             RootView(model: delegate.model, route: $route)
-                .frame(minWidth: 900, minHeight: 600)
+                // Tall enough for Midgard's eleven screens under the six consoles: a
+                // row cut by the window's bottom edge fails the contrast audit.
+                .frame(minWidth: 900, minHeight: 760)
         } defaultValue: {
             ConsoleRoute()
         }
+        .defaultSize(width: 1100, height: 820)
         .commands { MidgardCommands(model: delegate.model) }
 
         Settings {
@@ -56,6 +59,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         })
         let model = model
         Task { await model.start(making: Launch.environment) }
+        #if DEBUG
+        if UITesting.isActive { NSApp.activate(ignoringOtherApps: true) }
+        #endif
+        // SwiftUI sometimes opens no window at launch (seen under XCUITest, launched in
+        // the background): open one, as File ▸ New Window would.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { MainActor.assumeIsolated { Self.ensureWindow() } }
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { Self.ensureWindow() }
+        return false
+    }
+
+    /// Open a console window when none is visible, through the window group's own
+    /// File ▸ New Window command (⌘N).
+    static func ensureWindow() {
+        guard !NSApp.windows.contains(where: { $0.isVisible && $0.canBecomeMain }) else { return }
+        guard let file = NSApp.mainMenu?.items.first(where: { $0.submenu?.items.contains { $0.keyEquivalent == "n" } ?? false }),
+              let menu = file.submenu,
+              let index = menu.items.firstIndex(where: { $0.keyEquivalent == "n" && $0.keyEquivalentModifierMask == .command })
+        else { return }
+        menu.performActionForItem(at: index)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
