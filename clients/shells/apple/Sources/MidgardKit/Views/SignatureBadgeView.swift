@@ -19,6 +19,7 @@ public struct SignatureBadgeView: View {
         .overlay(Capsule().strokeBorder(Color(mgHex: badge.tone.hex), lineWidth: 1))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(badge.accessibilityLabel))
+        .accessibilityAddTraits(.isStaticText)
         .accessibilityIdentifier("mg.signature")
     }
 }

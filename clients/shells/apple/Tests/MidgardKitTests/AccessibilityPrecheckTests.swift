@@ -216,6 +216,28 @@ final class AccessibilityPrecheckTests: XCTestCase {
         }
     }
 
+    /// A combined element (`children: .ignore`) has no role of its own: AppKit reports it
+    /// with none and the XCUITest audit fails it as "Unknown role" (the status chips,
+    /// mg.chip.*). Each such modifier chain also adds a trait that gives it a role. A
+    /// source rule: SwiftUI builds its accessibility tree only for a connected assistive
+    /// client, which `swift test` cannot be without a TCC grant, so the role itself is
+    /// measured by the XCUITest audit.
+    func testCombinedElementsHaveARole() throws {
+        let combined = try NSRegularExpression(
+            pattern: #"\.accessibilityElement\(children: \.ignore\)(?:\s*\.accessibility\w+\([^\n]*\))*"#)
+        var found = 0
+        for (file, text) in try viewSources() {
+            for match in combined.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+                found += 1
+                let chain = String(text[Range(match.range, in: text)!])
+                XCTAssertTrue(chain.contains(".accessibilityAddTraits("), "\(file): a combined element without a role: \(chain)")
+            }
+        }
+        XCTAssertGreaterThan(found, 0, "no combined element found: the rule checked nothing")
+        let chips = try XCTUnwrap(Dictionary(uniqueKeysWithValues: try viewSources())["StatusChipsView.swift"])
+        XCTAssertTrue(chips.contains(".accessibilityAddTraits(.isStaticText)"), "status chips are static text")
+    }
+
     // MARK: helpers
 
     private func sourceRoot() -> URL {

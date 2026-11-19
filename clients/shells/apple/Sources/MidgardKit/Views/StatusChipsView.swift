@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// The header chips — sync, AI tier, key custody — each spelled out for VoiceOver. Each
+/// The header chips — sync, AI tier, key custody — each spelled out for VoiceOver as
+/// static text (a combined element needs a role, or the audit reports it unknown). Each
 /// chip is outlined in its tone over the tone's tint, lettered in the tone's text token
 /// for the mode, which meets AA on the tint over every surface. [FR-C-9] [AC-C-13] [RC-49]
 public struct StatusChipsView: View {
@@ -25,6 +26,7 @@ public struct StatusChipsView: View {
             .overlay(Capsule().strokeBorder(Color(mgHex: chip.tone.hex), lineWidth: 1))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text(chip.accessibilityLabel))
+            .accessibilityAddTraits(.isStaticText)
             .accessibilityIdentifier(id)
     }
 }

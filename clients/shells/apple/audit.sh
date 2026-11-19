@@ -67,8 +67,39 @@ if [ -n "${CI:-}" ]; then
 fi
 bash "$here/tools/build-xcframework.sh" >&2
 
+# Keyboard navigation: Tab moves focus to every control (SwiftUI's included) only with
+# the system setting on (System Settings > Keyboard > Keyboard navigation), the global
+# default AppleKeyboardUIMode with its 2 bit set (the toggle writes 2; older "All controls"
+# wrote 3); a launch argument does not turn it on. A CI runner turns it on for this run
+# and puts the previous value back (or removes the key) on exit. Elsewhere the setting
+# is the user's: it is not changed, and keyboard_navigation is reported failed, as not
+# measured. Every read and write of the global domain goes through kbd_mode.
+kbd_mode() { # kbd_mode read | write N | delete: AppleKeyboardUIMode in the global domain
+    case "$1" in
+        read) defaults read -g AppleKeyboardUIMode 2>/dev/null ;;
+        write) defaults write -g AppleKeyboardUIMode -int "$2" ;;
+        delete) defaults delete -g AppleKeyboardUIMode 2>/dev/null ;;
+    esac
+}
+kbd_on() { case "$1" in '' | *[!0-9]*) return 1 ;; esac; [ $(($1 & 2)) -ne 0 ]; }
+kbd_unmeasured=""
+kbd_before="$(kbd_mode read || true)"
+if ! kbd_on "$kbd_before"; then
+    if [ "${GITHUB_ACTIONS:-}" = true ] || [ "${CI:-}" = true ]; then
+        if [ -n "$kbd_before" ]; then
+            trap 'kbd_mode write "$kbd_before" || true' EXIT
+        else
+            trap 'kbd_mode delete || true' EXIT
+        fi
+        kbd_mode write 2
+    else
+        echo "audit: turn on System Settings > Keyboard > Keyboard navigation; keyboard_navigation is not measured and reported failed" >&2
+        kbd_unmeasured=keyboard_navigation
+    fi
+fi
+
 mkdir -p "$derived"
-failed=""
+failed="$kbd_unmeasured"
 for app in $apps; do
     case "$app" in
         ios) proj="$here/Apps/MidgardiOS/MidgardiOS.xcodeproj"; scheme=MidgardiOS

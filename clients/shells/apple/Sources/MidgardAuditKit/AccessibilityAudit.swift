@@ -40,7 +40,11 @@ open class AccessibilityAuditBase: XCTestCase {
         let app = launch(extra)
         for go in list {
             go(app)
-            try app.performAccessibilityAudit(for: types)
+            try app.performAccessibilityAudit(for: types) { issue in
+                let ignored = AuditIssueFilter.ignores(onMac: AuditIssueFilter.isMac, elementType: issue.element?.elementType)
+                if ignored { print("audit: ignored on macOS, Touch Bar element: \(issue.compactDescription)") }
+                return ignored
+            }
         }
         app.terminate()
     }
@@ -128,7 +132,11 @@ open class AccessibilityAuditBase: XCTestCase {
         // Needs a hardware keyboard and Full Keyboard Access on the simulator (Phase B).
         let app = launch()
         #else
-        // Tab reaches every control only with keyboard navigation on (AppleKeyboardUIMode 2).
+        // Tab reaches every control only with the system's Keyboard navigation on (global
+        // AppleKeyboardUIMode with its 2 bit): audit.sh turns it on for a CI run and, off
+        // CI, reports this affordance failed when it is off. The argument below alone does
+        // not do it for SwiftUI controls; it is kept as the app-domain form of the same
+        // setting, harmless, for AppKit code that reads the app's defaults.
         let app = launch(["-AppleKeyboardUIMode", "2"])
         #endif
         signIn(app)
@@ -156,5 +164,22 @@ open class AccessibilityAuditBase: XCTestCase {
             .matching(NSPredicate(format: "hasKeyboardFocus == true AND identifier MATCHES 'mg\\\\.[0-9]+\\\\..*'"))
             .count > 0
         #endif
+    }
+}
+
+/// The issues the audit lets pass, fixed in source: no environment variable, launch
+/// argument or default can widen it, and `audit(_:extra:)`, which applies it, cannot be
+/// overridden outside this module. Only an issue on the Touch Bar element on macOS: every
+/// Mac app has one (with or without the hardware) and no app can label it. Each ignored
+/// issue is printed to the test log. [RC-49] [AC-C-11]
+public enum AuditIssueFilter {
+    #if os(macOS)
+    static let isMac = true
+    #else
+    static let isMac = false
+    #endif
+
+    public static func ignores(onMac: Bool, elementType: XCUIElement.ElementType?) -> Bool {
+        onMac && elementType == .touchBar
     }
 }
