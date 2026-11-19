@@ -25,9 +25,30 @@ case "${1:-}" in
         exit 2
         ;;
 esac
+# ensure-xcframework.sh's lock (pid and start time of its holder and of the build): while
+# either runs, the lock and the by-stamp builds are left alone.
+alive() {
+    local pid start
+    [ -f "$1" ] || return 1
+    pid="$(sed -n 1p "$1")"
+    start="$(sed -n 2p "$1")"
+    case "$pid" in '' | *[!0-9]*) return 1 ;; esac
+    [ -n "$start" ] && [ "$(TZ=UTC0 LC_ALL=C ps -o lstart= -p "$pid" 2>/dev/null | sed -e 's/^ *//' -e 's/ *$//')" = "$start" ]
+}
+lock="$cache/clients-xcframework.lock"
+if alive "$lock/owner" || alive "$lock/child"; then
+    echo "clean: a framework build is running (lock $lock, pid $(head -n 1 "$lock/owner" 2>/dev/null || echo unknown)): left it and clients-xcframework-by-stamp" >&2
+    kept=1
+else
+    rm -rf "$lock" "$cache/clients-xcframework-by-stamp"
+    kept=0
+fi
 rm -rf "$cache/clients-xcframework" "$cache/clients-xcframework.new" "$cache/clients-derived" "$cache/clients-archive" \
-    "$cache/clients-swift" "$cache/clients-xcframework-by-stamp" "$cache/clients-xcframework.lock" \
-    "$cache"/clients-xcframework.lock.stale.*
+    "$cache/clients-swift" "$cache"/clients-xcframework.lock.stale.*
 cd "$(dirname "$0")/.."
 rm -rf Frameworks Sources/MidgardCore/midgard_client_ffi.swift .build .swiftpm
-echo "clean: done"
+if [ "$kept" = 1 ]; then
+    echo "clean: done, except the running build's lock and builds"
+else
+    echo "clean: done"
+fi

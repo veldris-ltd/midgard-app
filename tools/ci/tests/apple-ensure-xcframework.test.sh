@@ -94,7 +94,8 @@ done
 echo '# stand-in' >"$a/tools/verify-xcframework.sh"
 # Behaves like `build-xcframework.sh --out <dir>` (builds in <dir>.new, renames it to
 # <dir>, links nothing) and logs each build. Controlled by files, as ensure-xcframework.sh
-# runs it in a clean environment: $cache/fake-sleep (seconds), $cache/fake-fail.
+# runs it in a clean environment: $cache/fake-sleep (seconds), $cache/fake-fail,
+# $cache/fake-hang (waits on a grandchild, as cargo would run under the build).
 cat >"$a/tools/build-xcframework.sh" <<'FAKE'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -104,6 +105,11 @@ dest="$2"
 [ ! -e "$dest" ] || { echo "fake build: $dest exists" >&2; exit 2; }
 if [ -n "${SDKROOT:-}${ARCHS:-}" ]; then echo "fake build: Xcode's environment reached the build" >&2; exit 3; fi
 echo "$$" >>"$cache/builds.log"
+if [ -f "$cache/fake-hang" ]; then
+    sleep 60 &
+    echo "$!" >"$cache/grandchild"
+    wait
+fi
 [ ! -f "$cache/fake-sleep" ] || sleep "$(cat "$cache/fake-sleep")"
 if [ -f "$cache/fake-fail" ]; then echo "fake build: failing" >&2; exit 1; fi
 n="$(wc -l <"$cache/builds.log" | tr -d ' ')"
@@ -136,7 +142,7 @@ target() { readlink "${1:-$link}" 2>/dev/null; }
 entries() { ls -1 "$bs" 2>/dev/null | wc -l | tr -d ' '; }
 # What the script prints apart from the cache-root and test-mode notes.
 said() { grep -v -e 'cache root' -e 'TEST MODE' <<<"$out"; }
-start_of() { LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null | sed -e 's/^ *//' -e 's/ *$//'; }
+start_of() { TZ=UTC0 LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null | sed -e 's/^ *//' -e 's/ *$//'; }
 # mklock <pid> <start>: a lock as the script writes it (owner: pid, then start time).
 mklock() { mkdir "$lock" && printf '%s\n%s\n' "$1" "$2" >"$lock/owner"; }
 
@@ -145,6 +151,13 @@ e1="$(target)"
 check "missing link: builds (exit 0)" "[ $rc -eq 0 ] && [ \$(builds) -eq 1 ] && grep -q ': built' <<<\"\$out\""
 check "the build's environment is clean (no SDKROOT or ARCHS from Xcode)" "! grep -q 'environment reached the build' <<<\"\$out\""
 check "says it is in test mode (stand-in toolchain)" "grep -q 'TEST MODE: toolchain from' <<<\"\$out\""
+check "test-mode and cache notices are warning: lines (Xcode shows them)" \
+    "grep -q '^warning: ensure-xcframework: TEST MODE' <<<\"\$out\" && grep -q '^warning: ensure-xcframework: cache root' <<<\"\$out\""
+mkdir -p "$tmp/home"
+out="$(cd / && env -i PATH=/usr/bin:/bin HOME="$tmp/home" MIDGARD_TEST_LOCK_TIMEOUT=2 /bin/bash "$a/tools/ensure-xcframework.sh" 2>&1)"; rc=$?
+check "a MIDGARD_TEST_* variable with the default cache: refused, nothing touched" \
+    "[ $rc -ne 0 ] && grep -q '^error: .*MIDGARD_TEST_LOCK_TIMEOUT is set' <<<\"\$out\" && [ ! -e $tmp/home/Library ] && [ \"\$(target)\" = \"\$e1\" ]"
+out="$(en)"
 check "links a by-stamp build, named by its stamp" \
     "[[ \"\$e1\" =~ ^$bs/[0-9a-f]{64}/MidgardCoreFFI.xcframework\$ ]] && [ \"\$(cat \$(dirname \$e1)/inputs.sha256)\" = \"\$(basename \$(dirname \$e1))\" ]"
 check "copies the bindings of that build" "cmp -s $a/Sources/MidgardCore/midgard_client_ffi.swift \$(dirname \$e1)/swift/midgard_client_ffi.swift"
@@ -241,12 +254,25 @@ check "a build in the other worktree: its own entry" "[ \$(builds) -eq 10 ] && [
 check "... and this checkout's link and framework are unchanged" "[ \"\$(target)\" = \"\$e1\" ] && [ \"\$(cat \$e1/Info.plist)\" = \"\$before\" ]"
 w2="$(target "$l2")"
 
-# Pruning: the 3 most recently used entries are kept, plus every entry a worktree links.
-for k in 1 2 3 4 5; do
+# Pruning: beyond the 3 most recently used entries, those unused for over 10 minutes go,
+# except any a worktree links.
+n0=$(entries)
+for k in 1 2 3; do
     echo "// prune $k" >>"$r/clients/ffi/src/lib.rs"
     out="$(en)"
 done
-check "prunes to the 3 most recent entries, plus the linked ones" "[ \$(builds) -eq 15 ] && [ \$(entries) -le 4 ]"
+check "entries used in the last 10 minutes are kept, beyond the 3 most recent" "[ \$(entries) -eq $((n0 + 3)) ]"
+i=10
+for d in "$bs"/*; do
+    touch -t "2020010100$i" "$d"
+    i=$((i + 1))
+done
+for k in 4 5; do
+    echo "// prune $k" >>"$r/clients/ffi/src/lib.rs"
+    out="$(en)"
+done
+check "entries unused for over 10 minutes are pruned to the 3 most recent, plus the linked ones" \
+    "[ \$(builds) -eq 15 ] && [ \$(entries) -le 4 ] && grep -q 'pruned the build' <<<\"\$out\""
 check "... never the entry another worktree links" "[ -d \"\$w2\" ]"
 check "... never the entry this checkout links" "[ -d \"\$(target)\" ]"
 g checkout -q -- clients/ffi/src/lib.rs
@@ -281,7 +307,7 @@ relock() {
     k=$((k + 1))
     echo "// lock case $k" >>"$r/clients/ffi/src/lib.rs"
     n=$(builds)
-    out="$(en MIDGARD_TEST_LOCK_TIMEOUT=2)"; rc=$?
+    out="$(en MIDGARD_TEST_LOCK_TIMEOUT=2 "${@:3}")"; rc=$?
     if [ "$1" = recovered ]; then
         check "$2: recovered and built" "[ $rc -eq 0 ] && [ \$(builds) -eq $((n + 1)) ] && grep -q 'removed a stale lock' <<<\"\$out\" && [ ! -e $lock ]"
     else
@@ -296,6 +322,8 @@ mklock $$ "Thu Jan  1 00:00:00 1970"
 relock recovered "reused pid (alive, another start time)"
 mklock $$ "$me_start"
 relock waits "live holder"
+mklock $$ "$me_start"
+relock waits "live holder recorded in UTC, waiter in another time zone" TZ=Pacific/Kiritimati
 mklock "$dead" "$me_start" && printf '%s\n%s\n' $$ "$me_start" >"$lock/child"
 relock waits "dead holder whose build is still running"
 mkdir "$lock"
@@ -320,4 +348,22 @@ n=$(builds)
 out="$(en)"
 check "... the next call builds and cleans the failed build's leftovers" \
     "[ \$(builds) -eq $((n + 1)) ] && grep -q ': built' <<<\"\$out\" && [ -z \"\$(ls -A $bs | grep '^\\.')\" ]"
+
+# A signal stops the whole build, which runs in its own process group (cargo included).
+echo "// hang" >>"$r/clients/ffi/src/lib.rs"
+rm -f "$c/grandchild"
+touch "$c/fake-hang"
+en >"$tmp/o3" & p3=$!
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    [ -s "$c/grandchild" ] && break
+    sleep 0.5
+done
+gc="$(cat "$c/grandchild" 2>/dev/null || echo 0)"
+kill -TERM "$(head -n 1 "$lock/owner" 2>/dev/null || echo 0)" 2>/dev/null
+wait $p3; r3=$?
+sleep 1
+check "TERM during a build: exits non-zero, the build's grandchild is stopped, no lock" \
+    "[ $r3 -ne 0 ] && [ $gc -gt 0 ] && ! ps -p $gc >/dev/null 2>&1 && [ ! -e $lock ]"
+[ "$gc" -gt 0 ] && kill "$gc" 2>/dev/null
+rm -f "$c/fake-hang"
 [ "$failures" -eq 0 ] || exit 1

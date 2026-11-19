@@ -37,18 +37,20 @@
 # scripts. vendor/ is left out: Cargo.lock pins every vendored crate.
 #
 # Builds are serialised by a lock directory (clients-xcframework.lock) holding the
-# holder's pid and process start time, and its build's. A lock is stale when neither
+# holder's pid and process start time (UTC), and its build's. A lock is stale when neither
 # process (pid and start time together) is running, or when it has had no owner record
 # for over a minute; it is moved aside atomically, checked again there, and deleted only
 # if still stale. A waiter re-checks the stamp once it holds the lock; the wait gives up
-# after 30 minutes. The 3 most recently used builds are kept, and any build a worktree of
-# this repository links; older ones are deleted after each build.
+# after 30 minutes. The build runs in its own process group, and a signal stops the group.
+# After each build, builds beyond the 3 most recently used are deleted, except any a
+# worktree of this repository links and any used in the last 10 minutes.
 #
 # Xcode run-script phases start with a minimal PATH and an environment meant for the app
 # (SDKROOT, ARCHS, deployment targets...): rustup's directory is put on PATH here, and the
 # build runs in a clean environment. Paths are resolved from this script's location, so
 # the working directory does not matter. MIDGARD_BUILD_CACHE (an absolute path) moves the
-# cache root, as for build-xcframework.sh. For the tests only, and said when set:
+# cache root, as for build-xcframework.sh. Notices Xcode should show are "warning:" lines.
+# For the tests only, refused with the default cache, and said when set:
 # MIDGARD_TEST_LOCK_TIMEOUT (seconds) and MIDGARD_TEST_TOOLCHAIN_BIN (a directory put
 # before rustup's, for the stamp and the build).
 set -euo pipefail
@@ -110,19 +112,24 @@ case "$cache" in
         exit 2
         ;;
 esac
-[ "$cache" = "$default_cache" ] || echo "$me: cache root $cache (MIDGARD_BUILD_CACHE)"
+# Test-only variables never act on the real cache.
+if [ "$cache" = "$default_cache" ] && [ -n "$(compgen -v MIDGARD_TEST_ || true)" ]; then
+    echo "error: $me: $(compgen -v MIDGARD_TEST_ | tr '\n' ' ')is set: MIDGARD_TEST_* variables are for the tests only, and need a scratch MIDGARD_BUILD_CACHE" >&2
+    exit 2
+fi
+[ "$cache" = "$default_cache" ] || echo "warning: $me: cache root $cache (MIDGARD_BUILD_CACHE)"
 timeout=1800
 if [ -n "${MIDGARD_TEST_LOCK_TIMEOUT:-}" ]; then
     case "$MIDGARD_TEST_LOCK_TIMEOUT" in
         *[!0-9]*) die "MIDGARD_TEST_LOCK_TIMEOUT must be a number of seconds" ;;
     esac
     timeout="$MIDGARD_TEST_LOCK_TIMEOUT"
-    echo "$me: TEST MODE: lock timeout ${timeout}s (MIDGARD_TEST_LOCK_TIMEOUT)"
+    echo "warning: $me: TEST MODE: lock timeout ${timeout}s (MIDGARD_TEST_LOCK_TIMEOUT)"
 fi
 toolchain_path="$rustup_bin:$PATH"
 if [ -n "${MIDGARD_TEST_TOOLCHAIN_BIN:-}" ]; then
     toolchain_path="$MIDGARD_TEST_TOOLCHAIN_BIN:$toolchain_path"
-    echo "$me: TEST MODE: toolchain from $MIDGARD_TEST_TOOLCHAIN_BIN first (MIDGARD_TEST_TOOLCHAIN_BIN)"
+    echo "warning: $me: TEST MODE: toolchain from $MIDGARD_TEST_TOOLCHAIN_BIN first (MIDGARD_TEST_TOOLCHAIN_BIN)"
 fi
 keep=3
 
@@ -147,9 +154,11 @@ cleanup() {
     fi
     rm -rf "$work"
 }
+# The build runs in its own process group (see below): a signal stops all of it, cargo
+# and rustc included.
 on_signal() {
     if [ -n "$child" ]; then
-        kill -TERM "$child" 2>/dev/null || true
+        kill -TERM -- "-$child" 2>/dev/null || kill -TERM "$child" 2>/dev/null || true
         wait "$child" 2>/dev/null || true
     fi
     exit "$1"
@@ -265,11 +274,16 @@ use_entry() {
 }
 
 # --- the lock ---------------------------------------------------------------------------
-proc_start() { LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null | sed -e 's/^ *//' -e 's/ *$//'; }
-# record <file> <pid>: pid and process start time, written atomically.
+# In UTC and the C locale, so that runs with different TZ or LANG agree.
+proc_start() { TZ=UTC0 LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null | sed -e 's/^ *//' -e 's/ *$//'; }
+# record <file> <pid>: pid and process start time, written atomically. Returns 1 when
+# either cannot be written (the caller decides; set -e does not reach here from `if`).
 record() {
-    printf '%s\n%s\n' "$2" "$(proc_start "$2")" >"$1.tmp.$$"
-    mv "$1.tmp.$$" "$1"
+    local start
+    start="$(proc_start "$2")"
+    [ -n "$start" ] || return 1
+    printf '%s\n%s\n' "$2" "$start" >"$1.tmp.$$" 2>/dev/null || return 1
+    mv "$1.tmp.$$" "$1" 2>/dev/null || return 1
 }
 # alive <record file>: the recorded process (same pid, same start time) is running.
 # 0 alive, 1 not running, 2 no readable record.
@@ -298,7 +312,20 @@ lock_holder() { head -n 1 "$lock/owner" 2>/dev/null || echo unknown; }
 acquire_lock() {
     mkdir -p "$cache"
     local waited=0 said="-" holder aside before
-    while ! mkdir "$lock" 2>/dev/null; do
+    while :; do
+        if mkdir "$lock" 2>/dev/null; then
+            # Ours only once the owner record is written; otherwise remove it and retry.
+            if record "$lock/owner" "$$"; then
+                lock_owned=1
+                return 0
+            fi
+            rm -rf "$lock"
+            echo "warning: $me: could not write the lock's owner record; retrying"
+            [ "$waited" -lt "$timeout" ] || die "gave up after ${timeout}s: cannot write $lock/owner"
+            sleep 1
+            waited=$((waited + 1))
+            continue
+        fi
         holder="$(lock_holder)"
         if [ -d "$lock" ] && lock_stale "$lock"; then
             # Move it aside (atomic), so two waiters cannot both delete it, and check it
@@ -328,13 +355,12 @@ acquire_lock() {
         sleep 1
         waited=$((waited + 1))
     done
-    lock_owned=1
-    record "$lock/owner" "$$"
 }
 
 # --- pruning ----------------------------------------------------------------------------
-# Keep the $keep most recently used builds, the one just linked, and every build a
-# worktree of this repository links.
+# Keep the $keep most recently used builds, the one just linked, every build a worktree
+# of this repository links, and every build used in the last 10 minutes (a concurrent run
+# may be between finding it current and linking it).
 prune() {
     local protect=" $(basename "$1") " wt t n count=0
     while IFS= read -r wt; do
@@ -350,6 +376,7 @@ prune() {
         count=$((count + 1))
         [ "$count" -gt "$keep" ] || continue
         case "$protect" in *" $n "*) continue ;; esac
+        [ -z "$(find "$bystamp/$n" -maxdepth 0 -mmin -10 2>/dev/null)" ] || continue
         if mv "$bystamp/$n" "$bystamp/.trash.$n.$$" 2>/dev/null; then
             rm -rf "$bystamp/.trash.$n.$$"
             echo "$me: pruned the build $n"
@@ -363,6 +390,8 @@ if ! compute_stamp; then
     stamp=""
 fi
 entry="$bystamp/${stamp:-none}"
+# Mark it used before checking it, so a concurrent prune keeps it.
+[ -z "$stamp" ] || touch -c "$entry" 2>/dev/null || true
 if [ -n "$stamp" ] && entry_ok "$entry"; then
     use_entry "$entry"
     echo "$me: current (${stamp:0:12}): $entry/MidgardCoreFFI.xcframework"
@@ -384,9 +413,12 @@ rm -rf "$bystamp"/.tmp.* "$bystamp"/.trash.*
 rm -rf "$link" "$bindings"
 name="${stamp:-nostamp-$(date +%Y%m%d%H%M%S)-$$}"
 tmpd="$bystamp/.tmp.$name.$$"
+# Its own process group (job control on for the fork), so that a signal reaches cargo too.
+set -m
 env -i "${env_keep[@]}" /bin/bash "$here/build-xcframework.sh" --out "$tmpd" &
 child=$!
-record "$lock/child" "$child"
+set +m
+record "$lock/child" "$child" || echo "warning: $me: could not record the build's pid in the lock"
 rc=0
 wait "$child" || rc=$?
 child=""
