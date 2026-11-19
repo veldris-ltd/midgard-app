@@ -86,6 +86,8 @@ aarch64-apple-ios-sim --toolchain 1.82.0`), Node 22 (token generation only).
 cd clients/shells/apple
 bash tools/build-xcframework.sh   # 4 slices (macOS arm64+x86_64, iOS, iOS simulator) + bindings, offline and locked;
                                   # runs tools/verify-xcframework.sh before linking anything
+bash tools/ensure-xcframework.sh  # the apps' pre-build step: links a build of the Rust sources as they
+                                  # stand, building only when their content changed (stamp in clients-xcframework/)
 swift test --scratch-path ~/Library/Caches/midgard-build/clients-swift
 bash tools/check-contract.sh      # every exported function is exercised by ContractTests.swift
 bash tools/check-bindings.sh      # the bindings are a fresh uniffi-bindgen run's; acknowledgement; licence expiry
@@ -96,7 +98,11 @@ bash tools/clean.sh [--target]    # delete every clients-* output (and the cargo
 
 `tools/ci/tests/apple-xcframework.test.sh` checks these scripts statically (and
 `check-bindings.sh` and `clean.sh` against scratch trees) in CI `selftest`;
-`tools/ci/tests/shell-audit-apple.test.sh` checks `audit.sh` with stub tools.
+`tools/ci/tests/shell-audit-apple.test.sh` checks `audit.sh` with stub tools;
+`tools/ci/tests/apple-ensure-xcframework.test.sh` checks `ensure-xcframework.sh` (stamp,
+lock, stale lock, input list) with a stand-in build; `tools/ci/tests/apple-projects.test.sh`
+checks that each committed `Apps/<App>/<App>.xcodeproj` is what its `project.yml` generates
+(skipped where XcodeGen is not installed).
 
 **Accessibility audit.** `clients/shells/apple/audit.sh <release> <report>` builds
 both apps, runs each app's `AccessibilityAudit` UI test (XCUITest +
