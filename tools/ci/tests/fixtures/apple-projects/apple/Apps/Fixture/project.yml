@@ -1,0 +1,25 @@
+# Fixture for tools/ci/tests/apple-projects.test.sh: a committed XcodeGen project that
+# matches this spec, referencing its package as a local package the way the apps do (the
+# package's folder reference is named after the package directory, "apple"). Regenerate
+# with `xcodegen generate --spec project.yml` here.
+name: Fixture
+options:
+  bundleIdPrefix: org.example.fixture
+  deploymentTarget:
+    macOS: "14.0"
+packages:
+  FixtureKit:
+    path: ../..
+targets:
+  Fixture:
+    type: tool
+    platform: macOS
+    sources: [Sources]
+    dependencies:
+      - package: FixtureKit
+        product: FixtureKit
+schemes:
+  Fixture:
+    build:
+      targets:
+        Fixture: all

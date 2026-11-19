@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
 # ensure-xcframework.sh (the app projects' pre-build step) builds the XCFramework only
-# when the Rust sources changed, decides that by content and not by modification times,
-# serialises concurrent builds, recovers a stale lock, and its input list covers what the
-# Rust build of clients/ffi reads. No real build: the script runs from a copy in a scratch
-# git repository, beside a stand-in build-xcframework.sh, against a scratch cache, so the
+# when the Rust sources or the toolchain changed, decides that by content (not by
+# modification times, the index or HEAD), keeps each build immutable under
+# clients-xcframework-by-stamp/<stamp>/, serialises concurrent builds, recovers a stale
+# lock and no other, and its input list covers what the Rust build of clients/ffi reads.
+# No real build: the script runs from a copy in a scratch git repository, beside a
+# stand-in build-xcframework.sh and stand-in rustc/cargo, against a scratch cache, so the
 # real package's linked framework and the real cache are untouched. [DD-6] [FR-C-1]
 #
 #   bash tools/ci/tests/apple-ensure-xcframework.test.sh
 set -uo pipefail
 cd "$(dirname "$0")/../../.." || exit 2
+# As the script finds the toolchain.
+export PATH="/opt/homebrew/opt/rustup/bin:$PATH"
 e=clients/shells/apple/tools/ensure-xcframework.sh
 failures=0
 check() { if eval "$2"; then echo "ok    $1"; else echo "FAIL  $1"; failures=$((failures + 1)); fi; }
@@ -18,10 +22,10 @@ check "no in-place sed" "[ -f $e ] && ! grep -Eq 'sed -i( |\$)' $e"
 check "parses under /bin/bash" "[ -f $e ] && /bin/bash -n $e"
 check "the default cache is the real one" "grep -q '^default_cache=\"\$HOME/Library/Caches/midgard-build\"' $e"
 check "finds rustup and Homebrew itself" "grep -q '^export PATH=\"/opt/homebrew/opt/rustup/bin:/opt/homebrew/bin:' $e"
+check "resolves the toolchain from rustup's directory, as the build does" "grep -q '^rustup_bin=/opt/homebrew/opt/rustup/bin\$' $e"
 check "refuses a relative MIDGARD_BUILD_CACHE" "(MIDGARD_BUILD_CACHE=relative bash $e >/dev/null 2>&1; [ \$? -eq 2 ])"
 
-# Every input is in the tree, and the inputs cover clients/ffi's path dependencies (the
-# normal and build closure, as cargo resolves it) and the trust anchors core includes.
+# --- the input list ---------------------------------------------------------------------
 inputs="$(bash $e --inputs 2>/dev/null)"
 missing=""
 for i in $inputs; do
@@ -29,109 +33,224 @@ for i in $inputs; do
 done
 check "every input is tracked${missing:+ (missing:$missing)}" "[ -n \"\$inputs\" ] && [ -z \"\$missing\" ]"
 check "inputs leave out the shells and the datasets" "! grep -Eq '^clients/(shells/apple/(Apps|Sources)|demo/datasets)' <<<\"\$inputs\""
-# (Test-only includes of tests/fixtures are not part of the library build.)
-for a in $(grep -rhoE 'include_(str|bytes)!\("(\.\./)+demo/[^/"]+/' clients/core/src clients/ffi/src 2>/dev/null | sed -E 's|.*/demo/([^/]+)/$|clients/demo/\1|' | sort -u); do
-    check "inputs include $a (read by include_str!)" "grep -qx '$a' <<<\"\$inputs\""
-done
-if command -v cargo >/dev/null 2>&1 && deps="$(cargo tree --offline --locked -p midgard-client-ffi -e normal,build --target all --prefix none 2>/dev/null)"; then
-    here="$(pwd)"
-    for d in $(sed -n "s|.*($here/\\([^)]*\\)).*|\\1|p" <<<"$deps" | sort -u); do
+# in_inputs <repo-relative path>: the path is an input or inside one.
+in_inputs() {
+    local i
+    for i in $inputs; do
+        case "$1" in "$i" | "$i"/*) return 0 ;; esac
+    done
+    return 1
+}
+# Every include_str!/include_bytes! with a literal path, in every input crate, reads a
+# file inside the inputs.
+top="$(pwd -P)"
+outside=""
+nincl=0
+crates=""
+for i in $inputs; do [ -f "$i/Cargo.toml" ] && crates="$crates $i"; done
+while IFS= read -r hit; do
+    [ -n "$hit" ] || continue
+    f="${hit%%:*}"
+    rel="$(sed -E 's/.*include_(str|bytes)!\([[:space:]]*"([^"]*)".*/\2/' <<<"$hit")"
+    t="$(dirname "$f")/$rel"
+    d="$(cd "$(dirname "$t")" 2>/dev/null && pwd -P)" || d=""
+    nincl=$((nincl + 1))
+    if [ -z "$d" ] || [ ! -e "$d/$(basename "$t")" ]; then
+        outside="$outside $f->$rel(missing)"
+        continue
+    fi
+    p="${d#"$top"/}/$(basename "$t")"
+    in_inputs "$p" || outside="$outside $f->$p"
+done <<<"$(grep -rHoE 'include_(str|bytes)!\([[:space:]]*"[^"]*"' $crates --include='*.rs' 2>/dev/null)"
+check "every literal include_str!/include_bytes! ($nincl) reads inside the inputs${outside:+ (outside:$outside)}" \
+    "[ $nincl -gt 0 ] && [ -z \"\$outside\" ]"
+# ... and the inputs cover clients/ffi's path dependencies (the normal and build closure,
+# as cargo resolves it). On a Mac with the vendored crates, cargo must be there.
+if deps="$(cargo tree --offline --locked -p midgard-client-ffi -e normal,build --target all --prefix none 2>/dev/null)"; then
+    for d in $(sed -n "s|.*($top/\\([^)]*\\)).*|\\1|p" <<<"$deps" | sort -u); do
         check "inputs include path dependency $d" "grep -qx '$d' <<<\"\$inputs\""
     done
+elif [ "$(uname -s)" = Darwin ] && [ -d vendor ]; then
+    check "cargo tree runs (needed for the dependency-closure check on macOS)" "false"
 else
-    echo "SKIP  inputs cover cargo's dependency closure (cargo or the vendored crates not available)"
+    echo "SKIP  inputs cover cargo's dependency closure (no cargo or no vendored crates here)"
 fi
 
 # --- behaviour, in a scratch repository -------------------------------------------------
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
+tmp="$(cd "$tmp" && pwd -P)"
 r="$tmp/repo"
 c="$tmp/cache"
 a="$r/clients/shells/apple"
-mkdir -p "$a/tools" "$r/.cargo" "$r/clients/core/src" "$r/clients/ffi/src" "$r/clients/demo/datasets" "$c"
+bs="$c/clients-xcframework-by-stamp"
+lock="$c/clients-xcframework.lock"
+mkdir -p "$a/tools" "$r/.cargo" "$r/clients/core/src" "$r/clients/ffi/src" "$r/clients/demo/datasets" "$c" "$tmp/bin" "$tmp/cargohome"
 for f in Cargo.toml Cargo.lock rust-toolchain.toml .cargo/config.toml clients/core/src/lib.rs clients/ffi/src/lib.rs \
     clients/demo/datasets/d.mgdemo; do
     echo "// $f" >"$r/$f"
 done
 [ -f $e ] && cp $e "$a/tools/ensure-xcframework.sh"
 echo '# stand-in' >"$a/tools/verify-xcframework.sh"
-# Behaves like build-xcframework.sh (unlinks, builds into the cache, swaps, links) and
-# logs each build. Controlled by files, as ensure-xcframework.sh runs it in a clean
-# environment: $cache/fake-sleep (seconds), $cache/fake-fail.
+# Behaves like `build-xcframework.sh --out <dir>` (builds in <dir>.new, renames it to
+# <dir>, links nothing) and logs each build. Controlled by files, as ensure-xcframework.sh
+# runs it in a clean environment: $cache/fake-sleep (seconds), $cache/fake-fail.
 cat >"$a/tools/build-xcframework.sh" <<'FAKE'
 #!/usr/bin/env bash
 set -euo pipefail
-cd "$(dirname "$0")/../../../.."
 cache="$MIDGARD_BUILD_CACHE"
+[ "${1:-}" = --out ] && [ -n "${2:-}" ] || { echo "fake build: expected --out <dir>" >&2; exit 2; }
+dest="$2"
+[ ! -e "$dest" ] || { echo "fake build: $dest exists" >&2; exit 2; }
 if [ -n "${SDKROOT:-}${ARCHS:-}" ]; then echo "fake build: Xcode's environment reached the build" >&2; exit 3; fi
-rm -rf clients/shells/apple/Frameworks/MidgardCoreFFI.xcframework
 echo "$$" >>"$cache/builds.log"
 [ ! -f "$cache/fake-sleep" ] || sleep "$(cat "$cache/fake-sleep")"
 if [ -f "$cache/fake-fail" ]; then echo "fake build: failing" >&2; exit 1; fi
-rm -rf "$cache/clients-xcframework.new"
-mkdir -p "$cache/clients-xcframework.new/MidgardCoreFFI.xcframework" "$cache/clients-xcframework.new/swift"
-echo "plist" >"$cache/clients-xcframework.new/MidgardCoreFFI.xcframework/Info.plist"
-echo "// bindings $(wc -l <"$cache/builds.log")" >"$cache/clients-xcframework.new/swift/midgard_client_ffi.swift"
-rm -rf "$cache/clients-xcframework"
-mv "$cache/clients-xcframework.new" "$cache/clients-xcframework"
-mkdir -p clients/shells/apple/Frameworks clients/shells/apple/Sources/MidgardCore
-ln -sfn "$cache/clients-xcframework/MidgardCoreFFI.xcframework" clients/shells/apple/Frameworks/MidgardCoreFFI.xcframework
-cp "$cache/clients-xcframework/swift/midgard_client_ffi.swift" clients/shells/apple/Sources/MidgardCore/
+n="$(wc -l <"$cache/builds.log" | tr -d ' ')"
+mkdir -p "$dest.new/MidgardCoreFFI.xcframework" "$dest.new/swift"
+echo "build $n" >"$dest.new/MidgardCoreFFI.xcframework/Info.plist"
+echo "// bindings $n" >"$dest.new/swift/midgard_client_ffi.swift"
+mv "$dest.new" "$dest"
 FAKE
-printf '/clients/shells/apple/Frameworks/\n/clients/shells/apple/Sources/MidgardCore/midgard_client_ffi.swift\n' >"$r/.gitignore"
+# Stand-in toolchain: rustc -vV reports $cache/fake-rustc (a version line).
+printf '#!/bin/sh\necho "rustc stand-in"\ncat "%s/fake-rustc" 2>/dev/null || true\n' "$c" >"$tmp/bin/rustc"
+printf '#!/bin/sh\necho "cargo stand-in"\n' >"$tmp/bin/cargo"
+chmod +x "$tmp/bin/rustc" "$tmp/bin/cargo"
+echo "release: 1.82.0" >"$c/fake-rustc"
+printf '/clients/shells/apple/Frameworks/\n/clients/shells/apple/Sources/MidgardCore/midgard_client_ffi.swift\n*.log\n' >"$r/.gitignore"
 g() { git -C "$r" -c user.name=test -c user.email=test@example.invalid -c commit.gpgsign=false "$@"; }
 g init -q && g add -A && g commit -q -m fixture
-# As Xcode runs it: a minimal PATH, an app's SDKROOT and ARCHS, from another directory, /bin/bash.
+# As Xcode runs it: a minimal PATH, an app's SDKROOT and ARCHS, from another directory,
+# /bin/bash. $1 is the checkout (default the scratch repository); the rest are extra
+# environment entries.
 en() {
-    (cd / && env -i PATH=/usr/bin:/bin HOME="$HOME" MIDGARD_BUILD_CACHE="$c" SDKROOT=/bogus/iPhoneOS.sdk ARCHS=arm64 "$@" \
-        /bin/bash "$a/tools/ensure-xcframework.sh" 2>&1)
+    local repo="$r"
+    case "${1:-}" in /*) repo="$1" && shift ;; esac
+    (cd / && env -i PATH=/usr/bin:/bin HOME="$HOME" MIDGARD_BUILD_CACHE="$c" SDKROOT=/bogus/iPhoneOS.sdk ARCHS=arm64 \
+        CARGO_HOME="$tmp/cargohome" MIDGARD_TEST_TOOLCHAIN_BIN="$tmp/bin" "$@" \
+        /bin/bash "$repo/clients/shells/apple/tools/ensure-xcframework.sh" 2>&1)
 }
 builds() { if [ -f "$c/builds.log" ]; then wc -l <"$c/builds.log" | tr -d ' '; else echo 0; fi; }
 link="$a/Frameworks/MidgardCoreFFI.xcframework"
+target() { readlink "${1:-$link}" 2>/dev/null; }
+entries() { ls -1 "$bs" 2>/dev/null | wc -l | tr -d ' '; }
+# What the script prints apart from the cache-root and test-mode notes.
+said() { grep -v -e 'cache root' -e 'TEST MODE' <<<"$out"; }
+start_of() { LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null | sed -e 's/^ *//' -e 's/ *$//'; }
+# mklock <pid> <start>: a lock as the script writes it (owner: pid, then start time).
+mklock() { mkdir "$lock" && printf '%s\n%s\n' "$1" "$2" >"$lock/owner"; }
 
 out="$(en)"; rc=$?
-check "missing link: builds (exit 0)" "[ $rc -eq 0 ] && [ \$(builds) -eq 1 ] && grep -q 'built' <<<\"\$out\""
+e1="$(target)"
+check "missing link: builds (exit 0)" "[ $rc -eq 0 ] && [ \$(builds) -eq 1 ] && grep -q ': built' <<<\"\$out\""
 check "the build's environment is clean (no SDKROOT or ARCHS from Xcode)" "! grep -q 'environment reached the build' <<<\"\$out\""
-check "links the cached framework and the bindings" "[ \"\$(readlink $link)\" = $c/clients-xcframework/MidgardCoreFFI.xcframework ] && [ -f $a/Sources/MidgardCore/midgard_client_ffi.swift ]"
-check "writes the stamp beside the framework" "[ -s $c/clients-xcframework/inputs.sha256 ]"
-check "no lock left behind" "[ ! -e $c/clients-xcframework.lock ]"
-check "says nothing of test mode when not testing" "! grep -q 'TEST MODE' <<<\"\$out\""
+check "says it is in test mode (stand-in toolchain)" "grep -q 'TEST MODE: toolchain from' <<<\"\$out\""
+check "links a by-stamp build, named by its stamp" \
+    "[[ \"\$e1\" =~ ^$bs/[0-9a-f]{64}/MidgardCoreFFI.xcframework\$ ]] && [ \"\$(cat \$(dirname \$e1)/inputs.sha256)\" = \"\$(basename \$(dirname \$e1))\" ]"
+check "copies the bindings of that build" "cmp -s $a/Sources/MidgardCore/midgard_client_ffi.swift \$(dirname \$e1)/swift/midgard_client_ffi.swift"
+check "no lock and no temporary directory left" "[ ! -e $lock ] && [ -z \"\$(ls -A $bs | grep '^\\.')\" ]"
+check "does not use clients-xcframework (build-xcframework.sh's own output)" "[ ! -e $c/clients-xcframework ]"
 
 out="$(en)"; rc=$?
-check "second call: no build, says it is current" "[ $rc -eq 0 ] && [ \$(builds) -eq 1 ] && grep -q ': current' <<<\"\$out\""
+check "second call: no build, one line saying it is current" "[ $rc -eq 0 ] && [ \$(builds) -eq 1 ] && [ \"\$(said | wc -l | tr -d ' ')\" = 1 ] && said | grep -q ': current'"
 
+touch -t 202001010000 "$(dirname "$e1")"
 touch "$r/clients/core/src/lib.rs" "$r/Cargo.lock"
 out="$(en)"
 check "newer modification times alone: no build" "[ \$(builds) -eq 1 ]"
+check "using a build marks it used (mtime), for pruning" "[ -n \"\$(find \$(dirname \$e1) -maxdepth 0 -newer $r/Cargo.toml)\" ]"
 
 rm -rf "$a/Frameworks" "$a/Sources/MidgardCore/midgard_client_ffi.swift"
 out="$(en)"; rc=$?
 check "fresh checkout (no link, no bindings), same sources: relinks without building" \
-    "[ $rc -eq 0 ] && [ \$(builds) -eq 1 ] && [ -L $link ] && [ -f $a/Sources/MidgardCore/midgard_client_ffi.swift ]"
+    "[ $rc -eq 0 ] && [ \$(builds) -eq 1 ] && [ \"\$(target)\" = \"\$e1\" ] && [ -f $a/Sources/MidgardCore/midgard_client_ffi.swift ]"
 
 echo "// edited" >>"$r/clients/core/src/lib.rs"
 out="$(en)"
-check "uncommitted source edit: rebuilds" "[ \$(builds) -eq 2 ]"
+e2="$(target)"
+check "uncommitted source edit: rebuilds into a new entry" "[ \$(builds) -eq 2 ] && [ \"\$e2\" != \"\$e1\" ]"
 out="$(en)"
-check "... and once only" "[ \$(builds) -eq 2 ] && grep -q ': current' <<<\"\$out\""
-g checkout -q -- clients/core/src/lib.rs
+check "... and once only" "[ \$(builds) -eq 2 ] && said | grep -q ': current'"
+g add clients/core/src/lib.rs
 out="$(en)"
-check "edit reverted: rebuilds (stamp is of content, not of the last build)" "[ \$(builds) -eq 3 ]"
+check "staging the built edit: no build" "[ \$(builds) -eq 2 ]"
+g commit -q -m edit
+out="$(en)"
+check "committing it (another HEAD, same content): no build" "[ \$(builds) -eq 2 ] && [ \"\$(target)\" = \"\$e2\" ]"
+g revert --no-edit HEAD >/dev/null
+out="$(en)"
+check "back to the first content: no build, relinks the first entry" "[ \$(builds) -eq 2 ] && [ \"\$(target)\" = \"\$e1\" ]"
 
 echo "// new module" >"$r/clients/core/src/new.rs"
 out="$(en)"
-check "new untracked source file: rebuilds" "[ \$(builds) -eq 4 ]"
+check "new untracked source file: rebuilds" "[ \$(builds) -eq 3 ]"
 echo "// changed" >>"$r/clients/core/src/new.rs"
 out="$(en)"
-check "untracked file changed: rebuilds" "[ \$(builds) -eq 5 ]"
+check "untracked file changed: rebuilds" "[ \$(builds) -eq 4 ]"
 rm -f "$r/clients/core/src/new.rs"
 out="$(en)"
-
-n=$(builds)
+check "untracked file removed: back to a built content, no build" "[ \$(builds) -eq 4 ] && [ \"\$(target)\" = \"\$e1\" ]"
+tabbed="$(printf 'clients/core/src/a\tb "q".rs')"
+echo "// odd name" >"$r/$tabbed"
+out="$(en)"
+check "untracked file with a tab and quotes in its name: rebuilds" "[ \$(builds) -eq 5 ]"
+echo "// odd name, changed" >"$r/$tabbed"
+out="$(en)"
+check "... and its content counts" "[ \$(builds) -eq 6 ]"
+rm -f "$r/$tabbed"
+echo "noise" >"$r/clients/core/src/trace.log"
+out="$(en)"
+check "ignored file among the inputs: not in the stamp, no build" "[ \$(builds) -eq 6 ] && [ \"\$(target)\" = \"\$e1\" ]"
 echo "changed" >>"$r/clients/demo/datasets/d.mgdemo"
 echo "changed" >"$a/tools/verify-xcframework.sh.notes"
 out="$(en)"
-check "change outside the inputs (datasets, shells): no build" "[ \$(builds) -eq $n ]"
+check "change outside the inputs (datasets, shells): no build" "[ \$(builds) -eq 6 ]"
+g checkout -q -- clients/demo/datasets/d.mgdemo
+rm -f "$a/tools/verify-xcframework.sh.notes"
+
+echo "release: 1.83.0" >"$c/fake-rustc"
+out="$(en)"
+check "toolchain changed (rustc -vV): rebuilds" "[ \$(builds) -eq 7 ]"
+echo "release: 1.82.0" >"$c/fake-rustc"
+out="$(en)"
+check "toolchain back: no build" "[ \$(builds) -eq 7 ] && [ \"\$(target)\" = \"\$e1\" ]"
+printf '[build]\njobs = 2\n' >"$tmp/cargohome/config.toml"
+out="$(en)"
+check "\$CARGO_HOME/config.toml added: rebuilds" "[ \$(builds) -eq 8 ]"
+rm -f "$tmp/cargohome/config.toml"
+
+# A git failure means no stamp: build, and say why.
+branch="$(g symbolic-ref --short HEAD)"
+g symbolic-ref HEAD refs/heads/unborn
+out="$(en)"; rc=$?
+check "git fails (no HEAD): builds, saying why" "[ $rc -eq 0 ] && [ \$(builds) -eq 9 ] && grep -q 'cannot compute the source stamp (git read-tree HEAD failed' <<<\"\$out\""
+g symbolic-ref HEAD "refs/heads/$branch"
+out="$(en)"
+check "git back: no build" "[ \$(builds) -eq 9 ] && [ \"\$(target)\" = \"\$e1\" ]"
+
+# Two worktrees with the same content share one build; a build in one never changes
+# what the other links.
+g worktree add -q "$tmp/wt2" HEAD 2>/dev/null
+l2="$tmp/wt2/clients/shells/apple/Frameworks/MidgardCoreFFI.xcframework"
+out="$(en "$tmp/wt2")"
+check "second worktree, same content: no build, links the same entry" "[ \$(builds) -eq 9 ] && [ \"\$(target $l2)\" = \"\$e1\" ]"
+before="$(cat "$e1/Info.plist")"
+echo "// only in wt2" >>"$tmp/wt2/clients/ffi/src/lib.rs"
+out="$(en "$tmp/wt2")"
+check "a build in the other worktree: its own entry" "[ \$(builds) -eq 10 ] && [ \"\$(target $l2)\" != \"\$e1\" ]"
+check "... and this checkout's link and framework are unchanged" "[ \"\$(target)\" = \"\$e1\" ] && [ \"\$(cat \$e1/Info.plist)\" = \"\$before\" ]"
+w2="$(target "$l2")"
+
+# Pruning: the 3 most recently used entries are kept, plus every entry a worktree links.
+for k in 1 2 3 4 5; do
+    echo "// prune $k" >>"$r/clients/ffi/src/lib.rs"
+    out="$(en)"
+done
+check "prunes to the 3 most recent entries, plus the linked ones" "[ \$(builds) -eq 15 ] && [ \$(entries) -le 4 ]"
+check "... never the entry another worktree links" "[ -d \"\$w2\" ]"
+check "... never the entry this checkout links" "[ -d \"\$(target)\" ]"
+g checkout -q -- clients/ffi/src/lib.rs
+out="$(en)"
 
 # Two app builds at once: one builds, the other waits and finds it current.
 echo "// concurrent" >>"$r/clients/ffi/src/lib.rs"
@@ -140,7 +259,7 @@ n=$(builds)
 en MIDGARD_TEST_LOCK_TIMEOUT=30 >"$tmp/o1" & p1=$!
 # The second starts once the first holds the lock (and is inside its 3 s build).
 for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
-    [ -s "$c/clients-xcframework.lock/pid" ] && break
+    [ -s "$lock/owner" ] && break
     sleep 0.5
 done
 en MIDGARD_TEST_LOCK_TIMEOUT=30 >"$tmp/o2" & p2=$!
@@ -149,35 +268,56 @@ wait $p2; r2=$?
 rm -f "$c/fake-sleep"
 check "two concurrent calls: both succeed, one build" "[ $r1 -eq 0 ] && [ $r2 -eq 0 ] && [ \$(builds) -eq $((n + 1)) ]"
 check "... the other waited and found it current" "cat $tmp/o1 $tmp/o2 | grep -q 'built by another run' && cat $tmp/o1 $tmp/o2 | grep -q 'waiting for another build'"
-check "... and the lock is gone" "[ ! -e $c/clients-xcframework.lock ]"
+check "... and the lock is gone" "[ ! -e $lock ]"
 
-# A lock whose holder died is reclaimed. (A timeout, so that a regression fails instead
-# of waiting 30 minutes.)
+# Locks. Every call has a timeout, so a regression fails instead of waiting 30 minutes.
 sh -c 'exit 0' & dead=$!
 wait $dead
-mkdir "$c/clients-xcframework.lock" && echo "$dead" >"$c/clients-xcframework.lock/pid"
-echo "// after a crash" >>"$r/clients/ffi/src/lib.rs"
-n=$(builds)
-out="$(en MIDGARD_TEST_LOCK_TIMEOUT=10)"; rc=$?
-check "stale lock (dead pid): recovered and built" "[ $rc -eq 0 ] && [ \$(builds) -eq $((n + 1)) ] && grep -q 'removed a stale lock' <<<\"\$out\" && [ ! -e $c/clients-xcframework.lock ]"
+me_start="$(start_of $$)"
+# relock <recovered|waits> <description>: one call against the lock in place, after a
+# source edit so that it must build.
+k=0
+relock() {
+    k=$((k + 1))
+    echo "// lock case $k" >>"$r/clients/ffi/src/lib.rs"
+    n=$(builds)
+    out="$(en MIDGARD_TEST_LOCK_TIMEOUT=2)"; rc=$?
+    if [ "$1" = recovered ]; then
+        check "$2: recovered and built" "[ $rc -eq 0 ] && [ \$(builds) -eq $((n + 1)) ] && grep -q 'removed a stale lock' <<<\"\$out\" && [ ! -e $lock ]"
+    else
+        check "$2: waited, gave up without building, left the lock" \
+            "[ $rc -ne 0 ] && [ \$(builds) -eq $n ] && grep -q 'gave up after 2s' <<<\"\$out\" && [ -d $lock ]"
+        rm -rf "$lock"
+    fi
+}
+mklock "$dead" "$me_start"
+relock recovered "dead holder"
+mklock $$ "Thu Jan  1 00:00:00 1970"
+relock recovered "reused pid (alive, another start time)"
+mklock $$ "$me_start"
+relock waits "live holder"
+mklock "$dead" "$me_start" && printf '%s\n%s\n' $$ "$me_start" >"$lock/child"
+relock waits "dead holder whose build is still running"
+mkdir "$lock"
+relock waits "pidless lock, under a minute old"
+mkdir "$lock" && touch -t 202001010000 "$lock"
+relock recovered "pidless lock, over a minute old"
+mkdir "$lock" && printf 'abc\nwhenever\n' >"$lock/owner"
+relock waits "non-numeric pid, under a minute old"
+mkdir "$lock" && printf 'abc\nwhenever\n' >"$lock/owner" && touch -t 202001010000 "$lock"
+relock recovered "non-numeric pid, over a minute old"
+check "a test-mode lock timeout says so" "grep -q 'TEST MODE: lock timeout 2s' <<<\"\$out\""
 
-# A live holder is waited for, up to the timeout; its lock is left alone.
-mkdir "$c/clients-xcframework.lock" && echo "$$" >"$c/clients-xcframework.lock/pid"
-echo "// while locked" >>"$r/clients/ffi/src/lib.rs"
-n=$(builds)
-out="$(en MIDGARD_TEST_LOCK_TIMEOUT=2)"; rc=$?
-check "live lock: waits, then gives up (non-zero) without building" "[ $rc -ne 0 ] && [ \$(builds) -eq $n ] && grep -q 'gave up after 2s' <<<\"\$out\""
-check "... says it is in test mode" "grep -q 'TEST MODE: lock timeout 2s' <<<\"\$out\""
-check "... and leaves the holder's lock" "[ \"\$(cat $c/clients-xcframework.lock/pid)\" = $$ ]"
-rm -rf "$c/clients-xcframework.lock"
-
-# A failed build writes no stamp: the next call builds again.
+# A failed build leaves nothing linked and no entry; the next call builds.
+echo "// fails" >>"$r/clients/ffi/src/lib.rs"
 touch "$c/fake-fail"
+n0=$(entries)
 out="$(en)"; rc=$?
 check "failed build: non-zero, says so" "[ $rc -ne 0 ] && grep -q 'build-xcframework.sh failed' <<<\"\$out\""
-check "... and leaves no lock" "[ ! -e $c/clients-xcframework.lock ]"
+check "... nothing linked, no new entry, no lock" "[ ! -e $link ] && [ ! -L $link ] && [ \$(entries) -eq $n0 ] && [ ! -e $lock ]"
 rm -f "$c/fake-fail"
 n=$(builds)
 out="$(en)"
-check "... the next call builds" "[ \$(builds) -eq $((n + 1)) ] && grep -q ': built' <<<\"\$out\""
+check "... the next call builds and cleans the failed build's leftovers" \
+    "[ \$(builds) -eq $((n + 1)) ] && grep -q ': built' <<<\"\$out\" && [ -z \"\$(ls -A $bs | grep '^\\.')\" ]"
 [ "$failures" -eq 0 ] || exit 1

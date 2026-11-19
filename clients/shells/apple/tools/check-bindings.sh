@@ -6,7 +6,7 @@
 #
 # Run after build-xcframework.sh. Checks:
 #   1. a fresh uniffi-bindgen run over the built macOS arm64 library writes exactly the
-#      bindings that were built (clients-xcframework/swift/) and linked into the package
+#      bindings that were built (swift/ beside the linked framework) and linked into the package
 #      (Sources/MidgardCore/midgard_client_ffi.swift): the generated MPL-2.0 files are
 #      UniFFI's output, never edited (MPL-2.0 section 3.2);
 #   2. MidgardKit's Acknowledgements carries the UniFFI line the apps show;
@@ -29,7 +29,14 @@ esac
 export PATH="/opt/homebrew/opt/rustup/bin:$PATH"
 export CARGO_TARGET_DIR="$cache/target-clients"
 cargo="${CARGO:-cargo}"
-built="$cache/clients-xcframework/swift"
+# The bindings built beside the framework the package links (ensure-xcframework.sh links
+# a build under clients-xcframework-by-stamp/), else build-xcframework.sh's own output.
+linked="$(readlink clients/shells/apple/Frameworks/MidgardCoreFFI.xcframework 2>/dev/null || true)"
+if [ -n "$linked" ] && [ -d "$(dirname "$linked")/swift" ]; then
+    built="$(dirname "$linked")/swift"
+else
+    built="$cache/clients-xcframework/swift"
+fi
 lib="$CARGO_TARGET_DIR/aarch64-apple-darwin/release/libmidgard_client_ffi.a"
 pkg=clients/shells/apple/Sources/MidgardCore/midgard_client_ffi.swift
 ack='UniFFI 0.28.3, Mozilla Public License 2.0, source: https://github.com/mozilla/uniffi-rs/tree/v0.28.3'

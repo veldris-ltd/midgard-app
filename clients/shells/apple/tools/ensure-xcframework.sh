@@ -5,33 +5,52 @@
 #
 #   bash clients/shells/apple/tools/ensure-xcframework.sh [--inputs]
 #
-# "Current" is decided by content, never by modification times (a fresh checkout makes
-# every file new): the stamp is a SHA-256 over `git ls-files -s` of the inputs, `git diff
-# HEAD` of the inputs (so uncommitted edits count) and the content of untracked,
-# not-ignored files among them. It is written to clients-xcframework/inputs.sha256, beside
-# the framework it describes, after build-xcframework.sh has built and verified it. The
-# stamp lives inside the directory build-xcframework.sh replaces, so it can never outlive
-# its framework, and clean.sh removes it with the framework.
+# Builds are content-addressed and immutable: each lives in
+# ~/Library/Caches/midgard-build/clients-xcframework-by-stamp/<stamp>/ (the framework,
+# swift/ with the bindings, and inputs.sha256), and the checkout links there. A build
+# whose stamp directory exists is current; nothing rewrites a stamp directory once it is
+# in place, so a build for another checkout (or worktree) never changes what this one
+# links. build-xcframework.sh run on its own still writes clients-xcframework/, which
+# this script neither reads nor writes.
+#
+# The stamp is a SHA-256 over:
+#   - the content of the inputs as they stand: a throwaway index (and object directory)
+#     is loaded from HEAD, `git add -A -- <inputs>` brings it to the working tree
+#     (tracked, deleted and untracked files; ignored files left out), and its entries
+#     for the inputs (mode, blob id, path) are hashed. Staging or committing an edit, or
+#     another HEAD with the same content, gives the same stamp;
+#   - `rustc -vV` and `cargo -V` run as the build runs them (from the repository, with
+#     rustup's directory first on PATH, in the build's clean environment);
+#   - every Cargo configuration file the build reads apart from the inputs:
+#     $CARGO_HOME/config(.toml) and .cargo/config(.toml) in each directory above the
+#     repository.
+# If any of it fails (no git, no HEAD, no toolchain), there is no stamp: the script says
+# why and builds. Limits: a file marked skip-worktree or assume-unchanged counts as its
+# HEAD content; a file the build reads that git ignores is not in the stamp; environment
+# variables are not (the build runs in a clean environment that sets its own).
 #
 # The inputs are everything the Rust build of clients/ffi reads (`--inputs` prints them):
 # the workspace files, clients/ffi and its path dependencies (the normal and build
-# dependency closure; `cargo tree -p midgard-client-ffi -e normal,build` lists the same
-# set, and tools/ci/tests/apple-ensure-xcframework.test.sh holds the two together), the
-# demo trust anchors clients/core includes with include_str!, and the build and verify
-# scripts themselves. vendor/ is left out: Cargo.lock pins every vendored crate.
+# dependency closure; tools/ci/tests/apple-ensure-xcframework.test.sh holds the list to
+# `cargo tree -p midgard-client-ffi -e normal,build` and every include_str!/include_bytes!
+# in them), the demo trust anchors clients/core includes, and the build and verify
+# scripts. vendor/ is left out: Cargo.lock pins every vendored crate.
 #
-# The cache is shared by every checkout (worktree) on this Mac, so two checkouts with the
-# same inputs share one build. Two app builds may call this at once: a lock directory
-# (clients-xcframework.lock, holding the holder's pid) serialises the builds; a waiter
-# re-checks the stamp once it holds the lock, a lock whose holder is gone is reclaimed,
-# and the wait gives up after 30 minutes.
+# Builds are serialised by a lock directory (clients-xcframework.lock) holding the
+# holder's pid and process start time, and its build's. A lock is stale when neither
+# process (pid and start time together) is running, or when it has had no owner record
+# for over a minute; it is moved aside atomically, checked again there, and deleted only
+# if still stale. A waiter re-checks the stamp once it holds the lock; the wait gives up
+# after 30 minutes. The 3 most recently used builds are kept, and any build a worktree of
+# this repository links; older ones are deleted after each build.
 #
 # Xcode run-script phases start with a minimal PATH and an environment meant for the app
 # (SDKROOT, ARCHS, deployment targets...): rustup's directory is put on PATH here, and the
 # build runs in a clean environment. Paths are resolved from this script's location, so
 # the working directory does not matter. MIDGARD_BUILD_CACHE (an absolute path) moves the
-# cache root, as for build-xcframework.sh. MIDGARD_TEST_LOCK_TIMEOUT (seconds) is for the
-# tests only, and the script says so when it is set.
+# cache root, as for build-xcframework.sh. For the tests only, and said when set:
+# MIDGARD_TEST_LOCK_TIMEOUT (seconds) and MIDGARD_TEST_TOOLCHAIN_BIN (a directory put
+# before rustup's, for the stamp and the build).
 set -euo pipefail
 export PATH="/opt/homebrew/opt/rustup/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin${PATH:+:$PATH}"
 # /usr/bin/git is an xcrun shim: an SDKROOT Xcode set for the app (or a stale one) can
@@ -41,6 +60,7 @@ me=ensure-xcframework
 here="$(cd "$(dirname "$0")" && pwd)"
 apple="$(cd "$here/.." && pwd)"
 root="$(cd "$apple/../../.." && pwd)"
+rustup_bin=/opt/homebrew/opt/rustup/bin
 die() {
     echo "error: $me: $*" >&2
     exit 1
@@ -99,12 +119,44 @@ if [ -n "${MIDGARD_TEST_LOCK_TIMEOUT:-}" ]; then
     timeout="$MIDGARD_TEST_LOCK_TIMEOUT"
     echo "$me: TEST MODE: lock timeout ${timeout}s (MIDGARD_TEST_LOCK_TIMEOUT)"
 fi
+toolchain_path="$rustup_bin:$PATH"
+if [ -n "${MIDGARD_TEST_TOOLCHAIN_BIN:-}" ]; then
+    toolchain_path="$MIDGARD_TEST_TOOLCHAIN_BIN:$toolchain_path"
+    echo "$me: TEST MODE: toolchain from $MIDGARD_TEST_TOOLCHAIN_BIN first (MIDGARD_TEST_TOOLCHAIN_BIN)"
+fi
+keep=3
 
-out="$cache/clients-xcframework"
-stamp_file="$out/inputs.sha256"
+bystamp="$cache/clients-xcframework-by-stamp"
 lock="$cache/clients-xcframework.lock"
 link="$apple/Frameworks/MidgardCoreFFI.xcframework"
 bindings="$apple/Sources/MidgardCore/midgard_client_ffi.swift"
+
+# The build's environment: clean, so what Xcode sets for the app (SDKROOT, ARCHS,
+# *_DEPLOYMENT_TARGET, CC...) never reaches cargo; build-xcframework.sh sets what it needs.
+env_keep=(HOME="$HOME" PATH="$toolchain_path" TMPDIR="${TMPDIR:-/tmp}")
+for v in USER LOGNAME LANG LC_ALL MIDGARD_BUILD_CACHE DEVELOPER_DIR RUSTUP_HOME CARGO_HOME; do
+    if [ -n "${!v:-}" ]; then env_keep+=("$v=${!v}"); fi
+done
+
+work="$(mktemp -d "${TMPDIR:-/tmp}/ensure-xcframework.XXXXXX")"
+lock_owned=0
+child=""
+cleanup() {
+    if [ "$lock_owned" = 1 ] && [ "$(head -n 1 "$lock/owner" 2>/dev/null || true)" = "$$" ]; then
+        rm -rf "$lock"
+    fi
+    rm -rf "$work"
+}
+on_signal() {
+    if [ -n "$child" ]; then
+        kill -TERM "$child" 2>/dev/null || true
+        wait "$child" 2>/dev/null || true
+    fi
+    exit "$1"
+}
+trap cleanup EXIT
+trap 'on_signal 130' INT
+trap 'on_signal 143' TERM
 
 sha256() {
     if command -v shasum >/dev/null 2>&1; then
@@ -114,130 +166,243 @@ sha256() {
     fi
 }
 
-# Prints the stamp, or nothing when this is not a git checkout.
+# git on a throwaway index and object directory: the repository's own are never written.
+tgit() {
+    GIT_INDEX_FILE="$work/index" GIT_OBJECT_DIRECTORY="$work/objects" \
+        GIT_ALTERNATE_OBJECT_DIRECTORIES="$git_objects" git -C "$root" "$@"
+}
+
+# Sets $stamp, or returns 1 with the reason in $why. Every step's status is checked:
+# set -e does not reach into a function called from `if`.
 compute_stamp() {
-    git -C "$root" rev-parse --verify -q HEAD >/dev/null 2>&1 || return 0
-    {
-        echo "$me stamp v1"
-        git -C "$root" ls-files -s -- "${inputs[@]}"
-        # --full-index: the patch names the full HEAD blob it applies to, so the stamp
-        # determines the working-tree content.
-        git -C "$root" -c core.quotepath=off diff --no-ext-diff --no-textconv --no-color \
-            --binary --full-index HEAD -- "${inputs[@]}"
-        local untracked
-        untracked="$(git -C "$root" -c core.quotepath=off ls-files -o --exclude-standard -- "${inputs[@]}")"
-        if [ -n "$untracked" ]; then
-            echo "untracked:"
-            printf '%s\n' "$untracked"
-            printf '%s\n' "$untracked" | (cd "$root" && git hash-object --stdin-paths)
+    local f="$work/stamp-input" err="$work/err" common i present=() d
+    stamp=""
+    why=""
+    if ! common="$(cd "$root" 2>"$err" && cd "$(git rev-parse --git-common-dir 2>"$err")" 2>>"$err" && pwd)"; then
+        why="git rev-parse failed: $(head -n 1 "$err")"
+        return 1
+    fi
+    git_objects="$common/objects"
+    rm -rf "$work/index" "$work/objects"
+    mkdir -p "$work/objects"
+    echo "$me stamp v2" >"$f"
+    if ! tgit read-tree HEAD 2>"$err"; then
+        why="git read-tree HEAD failed: $(head -n 1 "$err")"
+        return 1
+    fi
+    # A pathspec git does not know (neither on disk nor in HEAD) would fail `git add`.
+    for i in "${inputs[@]}"; do
+        if [ -e "$root/$i" ] || [ -n "$(tgit ls-files -- "$i" 2>/dev/null | head -n 1)" ]; then
+            present+=("$i")
         fi
-    } | sha256
+    done
+    [ "${#present[@]}" -gt 0 ] || {
+        why="none of the inputs is in the checkout"
+        return 1
+    }
+    if ! tgit add -A -- "${present[@]}" 2>"$err"; then
+        why="git add failed: $(head -n 1 "$err")"
+        return 1
+    fi
+    if ! tgit ls-files -s -z -- "${present[@]}" >>"$f" 2>"$err"; then
+        why="git ls-files failed: $(head -n 1 "$err")"
+        return 1
+    fi
+    echo "toolchain:" >>"$f"
+    if ! (cd "$root" && env -i "${env_keep[@]}" rustc -vV && env -i "${env_keep[@]}" cargo -V) >>"$f" 2>"$err"; then
+        why="rustc -vV or cargo -V failed: $(head -n 1 "$err")"
+        return 1
+    fi
+    echo "cargo configuration:" >>"$f"
+    for i in "${CARGO_HOME:-$HOME/.cargo}/config" "${CARGO_HOME:-$HOME/.cargo}/config.toml"; do
+        if [ -f "$i" ]; then
+            printf '%s\n' "$i" >>"$f"
+            cat "$i" >>"$f" || {
+                why="cannot read $i"
+                return 1
+            }
+        fi
+    done
+    d="$(dirname "$root")"
+    while :; do
+        for i in "$d/.cargo/config" "$d/.cargo/config.toml"; do
+            if [ -f "$i" ]; then
+                printf '%s\n' "$i" >>"$f"
+                cat "$i" >>"$f" || {
+                    why="cannot read $i"
+                    return 1
+                }
+            fi
+        done
+        [ "$d" != / ] || break
+        d="$(dirname "$d")"
+    done
+    if ! stamp="$(sha256 <"$f")" || [ -z "$stamp" ]; then
+        why="sha256 failed"
+        stamp=""
+        return 1
+    fi
 }
 
-is_current() {
-    [ -n "$stamp" ] && [ -f "$stamp_file" ] && [ "$(cat "$stamp_file")" = "$stamp" ] &&
-        [ -d "$out/MidgardCoreFFI.xcframework" ] && [ -f "$out/swift/midgard_client_ffi.swift" ]
+entry_ok() {
+    [ -d "$1/MidgardCoreFFI.xcframework" ] && [ -f "$1/swift/midgard_client_ffi.swift" ] &&
+        [ "$(cat "$1/inputs.sha256" 2>/dev/null || true)" = "$(basename "$1")" ]
 }
 
-# What build-xcframework.sh links into the package, for a build it made earlier (from
-# this checkout or another).
-relink() {
+# Link the checkout to a build and mark the build used (its mtime orders pruning).
+use_entry() {
+    touch "$1"
     mkdir -p "$apple/Frameworks" "$apple/Sources/MidgardCore"
-    if [ "$(readlink "$link" 2>/dev/null || true)" != "$out/MidgardCoreFFI.xcframework" ]; then
+    if [ "$(readlink "$link" 2>/dev/null || true)" != "$1/MidgardCoreFFI.xcframework" ]; then
         rm -rf "$link"
-        ln -s "$out/MidgardCoreFFI.xcframework" "$link"
+        ln -s "$1/MidgardCoreFFI.xcframework" "$link"
         echo "$me: linked $link"
     fi
-    if ! cmp -s "$out/swift/midgard_client_ffi.swift" "$bindings"; then
-        cp "$out/swift/midgard_client_ffi.swift" "$bindings"
+    if ! cmp -s "$1/swift/midgard_client_ffi.swift" "$bindings"; then
+        cp "$1/swift/midgard_client_ffi.swift" "$bindings"
         echo "$me: copied the bindings into Sources/MidgardCore"
     fi
 }
 
-lock_owned=0
-release() {
-    if [ "$lock_owned" = 1 ] && [ "$(cat "$lock/pid" 2>/dev/null || true)" = "$$" ]; then
-        rm -rf "$lock"
-    fi
+# --- the lock ---------------------------------------------------------------------------
+proc_start() { LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null | sed -e 's/^ *//' -e 's/ *$//'; }
+# record <file> <pid>: pid and process start time, written atomically.
+record() {
+    printf '%s\n%s\n' "$2" "$(proc_start "$2")" >"$1.tmp.$$"
+    mv "$1.tmp.$$" "$1"
 }
-trap release EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
-
-# A lock is stale when its holder's pid is no longer running, or when it has no pid file
-# a minute after it was made (its maker died between mkdir and writing the pid).
-lock_is_stale() {
-    local holder="$1"
-    if [ -n "$holder" ]; then
-        case "$holder" in *[!0-9]*) return 0 ;; esac
-        ! ps -p "$holder" >/dev/null 2>&1
-    else
-        [ -n "$(find "$lock" -maxdepth 0 -mmin +1 2>/dev/null)" ]
-    fi
+# alive <record file>: the recorded process (same pid, same start time) is running.
+# 0 alive, 1 not running, 2 no readable record.
+alive() {
+    local pid start
+    [ -f "$1" ] || return 2
+    pid="$(sed -n 1p "$1" 2>/dev/null || true)"
+    start="$(sed -n 2p "$1" 2>/dev/null || true)"
+    case "$pid" in '' | *[!0-9]*) return 2 ;; esac
+    [ -n "$start" ] || return 2
+    [ "$(proc_start "$pid")" = "$start" ] && return 0
+    return 1
 }
+# lock_stale <dir>: neither the holder nor its build is running; or no owner record, and
+# the directory is over a minute old.
+lock_stale() {
+    local o=0 b=0
+    alive "$1/owner" || o=$?
+    alive "$1/child" || b=$?
+    [ "$o" != 0 ] && [ "$b" != 0 ] || return 1
+    [ "$o" = 1 ] && return 0
+    [ -n "$(find "$1" -maxdepth 0 -mmin +1 2>/dev/null)" ]
+}
+lock_holder() { head -n 1 "$lock/owner" 2>/dev/null || echo unknown; }
 
 acquire_lock() {
     mkdir -p "$cache"
-    local waited=0 said="-" holder aside
+    local waited=0 said="-" holder aside before
     while ! mkdir "$lock" 2>/dev/null; do
-        holder="$(cat "$lock/pid" 2>/dev/null || true)"
-        if [ -d "$lock" ] && lock_is_stale "$holder"; then
-            # Move it aside (atomic) before deleting, so two waiters cannot both delete;
-            # if what was moved is not the stale lock just seen, put it back.
+        holder="$(lock_holder)"
+        if [ -d "$lock" ] && lock_stale "$lock"; then
+            # Move it aside (atomic), so two waiters cannot both delete it, and check it
+            # again there: it is deleted only if it is still the stale lock just seen.
+            before="$(cat "$lock/owner" "$lock/child" 2>/dev/null || true)"
             aside="$lock.stale.$$"
             if mv "$lock" "$aside" 2>/dev/null; then
-                if [ "$(cat "$aside/pid" 2>/dev/null || true)" = "$holder" ]; then
+                if [ "$(cat "$aside/owner" "$aside/child" 2>/dev/null || true)" = "$before" ] && lock_stale "$aside"; then
                     rm -rf "$aside"
-                    echo "$me: removed a stale lock (pid ${holder:-unknown} is not running)"
+                    echo "$me: removed a stale lock (pid $holder is not running)"
+                elif [ ! -e "$lock" ] && mv "$aside" "$lock" 2>/dev/null && [ ! -e "$lock/$(basename "$aside")" ]; then
+                    : # put back
                 else
-                    mv "$aside" "$lock" 2>/dev/null || rm -rf "$aside"
+                    [ ! -e "$lock/$(basename "$aside")" ] || mv "$lock/$(basename "$aside")" "$aside" 2>/dev/null || true
+                    echo "$me: a lock changed while it was being reclaimed; left it at $aside" >&2
                 fi
             fi
             continue
         fi
         if [ "$waited" -ge "$timeout" ]; then
-            die "gave up after ${timeout}s waiting for another build (pid ${holder:-unknown}, lock $lock)"
+            die "gave up after ${timeout}s waiting for another build (pid $holder, lock $lock)"
         fi
         if [ "$said" != "$holder" ]; then
-            echo "$me: waiting for another build of the framework (pid ${holder:-unknown}) to finish"
+            echo "$me: waiting for another build of the framework (pid $holder) to finish"
             said="$holder"
         fi
         sleep 1
         waited=$((waited + 1))
     done
     lock_owned=1
-    echo "$$" >"$lock/pid"
+    record "$lock/owner" "$$"
 }
 
-stamp="$(compute_stamp)"
-[ -n "$stamp" ] || echo "$me: not a git checkout: cannot tell whether the build is current, building"
-if is_current; then
-    relink
-    echo "$me: current (${stamp:0:12}): $out/MidgardCoreFFI.xcframework"
+# --- pruning ----------------------------------------------------------------------------
+# Keep the $keep most recently used builds, the one just linked, and every build a
+# worktree of this repository links.
+prune() {
+    local protect=" $(basename "$1") " wt t n count=0
+    while IFS= read -r wt; do
+        case "$wt" in "worktree "*) ;; *) continue ;; esac
+        t="$(readlink "${wt#worktree }/clients/shells/apple/Frameworks/MidgardCoreFFI.xcframework" 2>/dev/null || true)"
+        case "$t" in "$bystamp"/*/MidgardCoreFFI.xcframework)
+            t="${t#"$bystamp"/}"
+            protect="$protect${t%%/*} "
+            ;;
+        esac
+    done <<<"$(git -C "$root" worktree list --porcelain 2>/dev/null || true)"
+    for n in $(ls -1t "$bystamp"); do
+        count=$((count + 1))
+        [ "$count" -gt "$keep" ] || continue
+        case "$protect" in *" $n "*) continue ;; esac
+        if mv "$bystamp/$n" "$bystamp/.trash.$n.$$" 2>/dev/null; then
+            rm -rf "$bystamp/.trash.$n.$$"
+            echo "$me: pruned the build $n"
+        fi
+    done
+}
+
+# --- main -------------------------------------------------------------------------------
+if ! compute_stamp; then
+    echo "$me: cannot compute the source stamp ($why): building"
+    stamp=""
+fi
+entry="$bystamp/${stamp:-none}"
+if [ -n "$stamp" ] && entry_ok "$entry"; then
+    use_entry "$entry"
+    echo "$me: current (${stamp:0:12}): $entry/MidgardCoreFFI.xcframework"
     exit 0
 fi
 
 acquire_lock
-if is_current; then
-    relink
-    echo "$me: current (${stamp:0:12}), built by another run: $out/MidgardCoreFFI.xcframework"
+if [ -n "$stamp" ] && entry_ok "$entry"; then
+    use_entry "$entry"
+    echo "$me: current (${stamp:0:12}), built by another run: $entry/MidgardCoreFFI.xcframework"
     exit 0
 fi
 
 echo "$me: sources changed or no build yet: building"
-# A clean environment: what Xcode sets for the app (SDKROOT, ARCHS, *_DEPLOYMENT_TARGET,
-# CC...) must not reach cargo; build-xcframework.sh sets what the build needs.
-env_keep=(HOME="$HOME" PATH="$PATH" TMPDIR="${TMPDIR:-/tmp}")
-for v in USER LOGNAME LANG LC_ALL MIDGARD_BUILD_CACHE DEVELOPER_DIR RUSTUP_HOME CARGO_HOME; do
-    if [ -n "${!v:-}" ]; then env_keep+=("$v=${!v}"); fi
-done
-env -i "${env_keep[@]}" /bin/bash "$here/build-xcframework.sh" || die "build-xcframework.sh failed"
-[ -d "$out/MidgardCoreFFI.xcframework" ] || die "build-xcframework.sh did not write $out/MidgardCoreFFI.xcframework"
+mkdir -p "$bystamp"
+# Holding the lock with no other build running: what is left in there is a dead build's.
+rm -rf "$bystamp"/.tmp.* "$bystamp"/.trash.*
+# A failed build leaves nothing linked.
+rm -rf "$link" "$bindings"
+name="${stamp:-nostamp-$(date +%Y%m%d%H%M%S)-$$}"
+tmpd="$bystamp/.tmp.$name.$$"
+env -i "${env_keep[@]}" /bin/bash "$here/build-xcframework.sh" --out "$tmpd" &
+child=$!
+record "$lock/child" "$child"
+rc=0
+wait "$child" || rc=$?
+child=""
+rm -f "$lock/child"
+[ "$rc" = 0 ] || die "build-xcframework.sh failed (exit $rc)"
+[ -d "$tmpd/MidgardCoreFFI.xcframework" ] && [ -f "$tmpd/swift/midgard_client_ffi.swift" ] ||
+    die "build-xcframework.sh did not write $tmpd"
 # The stamp of the sources as they were when the build started: an edit made during the
 # build makes the next run build again, never the reverse.
-if [ -n "$stamp" ]; then
-    printf '%s\n' "$stamp" >"$stamp_file.tmp.$$"
-    mv "$stamp_file.tmp.$$" "$stamp_file"
+printf '%s\n' "$name" >"$tmpd/inputs.sha256"
+entry="$bystamp/$name"
+if [ -e "$entry" ]; then
+    mv "$entry" "$bystamp/.trash.$name.$$"
+    rm -rf "$bystamp/.trash.$name.$$"
 fi
-relink
-echo "$me: built (${stamp:0:12}): $out/MidgardCoreFFI.xcframework"
+mv "$tmpd" "$entry"
+use_entry "$entry"
+prune "$entry"
+echo "$me: built (${stamp:0:12}): $entry/MidgardCoreFFI.xcframework"
