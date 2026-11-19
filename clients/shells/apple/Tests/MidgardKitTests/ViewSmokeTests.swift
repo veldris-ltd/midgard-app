@@ -24,6 +24,7 @@ final class ViewSmokeTests: XCTestCase {
         renders(StatusChipsView(StatusChipsPresentation(try client.statusChips())))
         renders(SignatureBadgeView(SignatureBadge(provenance: "verified")))
         renders(DemoBannerView())
+        renders(DemoBannerView(.noSource))
         renders(NavigationStack { AcknowledgementsView() })
 
         let model = AppModel()

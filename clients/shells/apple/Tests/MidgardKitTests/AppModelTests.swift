@@ -26,8 +26,9 @@ final class AppModelTests: XCTestCase {
         try? FileManager.default.removeItem(at: dir)
     }
 
-    private func environment(makeClient: AppEnvironment.ClientFactory? = nil) -> AppEnvironment {
-        var env = AppEnvironment(dataset: releaseDataset(), storeDirectory: dir, secrets: secrets, keyRoot: keyRoot,
+    private func environment(dataSource: DataSourceChoice = .bundled(releaseDataset()),
+                             makeClient: AppEnvironment.ClientFactory? = nil) -> AppEnvironment {
+        var env = AppEnvironment(dataSource: dataSource, storeDirectory: dir, secrets: secrets, keyRoot: keyRoot,
                                  device: DeviceInfo(ramMb: 8192, hasAccelerator: true), replicaId: "app-test")
         if let makeClient { env.makeClient = makeClient }
         return env
@@ -78,9 +79,86 @@ final class AppModelTests: XCTestCase {
 
     func testTheDemoBannerIsAlwaysShown() async throws {
         let model = await started()
-        XCTAssertEqual(model.demoBanner, DemoBanner.notice)
+        XCTAssertEqual(model.dataSourceKind, .demo)
+        XCTAssertEqual(model.banner, .demo)
+        XCTAssertEqual(model.banner?.text, DemoBanner.notice)
         await model.enrol()
-        XCTAssertEqual(model.demoBanner, DemoBanner.notice)
+        XCTAssertEqual(model.banner?.text, DemoBanner.notice)
+    }
+
+    func testWithNoDataSourceTheLocalUserSignsInAndEveryActionIsRefused() async throws {
+        let model = await started(environment(dataSource: .none))
+        XCTAssertEqual(model.phase, .needsEnrolment)
+        XCTAssertEqual(model.personas.map(\.id), ["local"])
+        XCTAssertEqual(model.personas.first?.display, "Local user")
+        XCTAssertEqual(model.personas.first?.clearanceLabel, "OPEN")
+        XCTAssertEqual(model.collections, [])
+        XCTAssertEqual(model.dataSourceKind, DataSourceKind.none)
+        XCTAssertEqual(model.banner, .noSource)
+        XCTAssertEqual(model.banner?.text, "No data source connected")
+
+        await model.enrol()
+        let local = try XCTUnwrap(model.personas.first)
+        await model.signIn(local)
+        XCTAssertEqual(model.phase, .unlocked(local))
+        let id = await model.requestAction(ActionInput(verb: "demo.ping", target: "midgard.audit/AUD-1", params: []))
+        XCTAssertNil(id)
+        XCTAssertEqual(model.message, ErrorText.describe(ClientError.Refused(reason: "no data source connected")))
+        XCTAssertEqual(model.chips?.sync.pending, 0, "nothing is queued")
+        await model.setOffline(true)
+        XCTAssertEqual(model.chipsPresentation?.sync.text, "OFFLINE · 0 QUEUED")
+        await model.lock()
+        XCTAssertEqual(model.phase, .locked)
+        XCTAssertEqual(model.banner, .noSource)
+    }
+
+    func testTheDataSourceIsReadFromTheInfoPlist() throws {
+        XCTAssertEqual(try AppEnvironment.dataSourceChoice(in: try fakeBundle(["MidgardDataSource": "none"])), DataSourceChoice.none)
+        let withDataset = try fakeBundle(["MidgardDataSource": "bundled"], dataset: true)
+        guard case let .bundled(url) = try AppEnvironment.dataSourceChoice(in: withDataset) else {
+            return XCTFail("expected bundled")
+        }
+        XCTAssertEqual(url.lastPathComponent, "\(coreVersion()).mgdemo")
+        XCTAssertThrowsError(try AppEnvironment.dataSourceChoice(in: try fakeBundle(["MidgardDataSource": "bundled"]))) {
+            guard case ClientError.NotFound = $0 else { return XCTFail("expected NotFound, got \($0)") }
+        }
+        for info: [String: Any] in [[:], ["MidgardDataSource": ""], ["MidgardDataSource": "None"],
+                                    ["MidgardDataSource": "demo"], ["MidgardDataSource": 1]] {
+            XCTAssertThrowsError(try AppEnvironment.dataSourceChoice(in: try fakeBundle(info)), "\(info)") {
+                XCTAssertEqual($0 as? AppEnvironment.Failure, .misconfigured)
+            }
+        }
+    }
+
+    func testAMissingOrUnknownDataSourceIsAFailedState() async throws {
+        for info: [String: Any] in [[:], ["MidgardDataSource": "local"]] {
+            let bundle = try fakeBundle(info)
+            let model = AppModel()
+            await model.start {
+                try AppEnvironment.live(reason: "test", device: DeviceInfo(ramMb: 8192, hasAccelerator: true), bundle: bundle)
+            }
+            XCTAssertEqual(model.phase, .failed(ErrorText.describe(AppEnvironment.Failure.misconfigured)), "\(info)")
+            XCTAssertTrue(ErrorText.describe(AppEnvironment.Failure.misconfigured).contains("MidgardDataSource"))
+            XCTAssertNil(model.banner, "no source is claimed")
+        }
+    }
+
+    /// A bundle on disk with `info` as its Info.plist, and the release dataset in its
+    /// resources when `dataset` is set.
+    private func fakeBundle(_ info: [String: Any], dataset: Bool = false) throws -> Bundle {
+        let url = dir.appendingPathComponent("\(UUID().uuidString).bundle", isDirectory: true)
+        let contents = url.appendingPathComponent("Contents", isDirectory: true)
+        let resources = contents.appendingPathComponent("Resources", isDirectory: true)
+        try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+        var plist = info
+        plist["CFBundleIdentifier"] = "test.midgard.\(UUID().uuidString)"
+        try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+            .write(to: contents.appendingPathComponent("Info.plist"))
+        if dataset {
+            try FileManager.default.copyItem(at: releaseDataset(),
+                                             to: resources.appendingPathComponent("\(coreVersion()).mgdemo"))
+        }
+        return try XCTUnwrap(Bundle(url: url))
     }
 
     func testOfflineShowsAIOffAndQueuedChangesSurviveARelaunch() async throws {
@@ -281,8 +359,7 @@ final class AppModelTests: XCTestCase {
     }
 
     func testAMissingDatasetIsAScreenStateNotACrash() async {
-        var env = environment()
-        env.dataset = nil
+        let env = environment(dataSource: .bundled(dir.appendingPathComponent("absent.mgdemo")))
         let model = AppModel()
         await model.start(env)
         guard case .failed = model.phase else { return XCTFail("\(model.phase)") }
@@ -348,6 +425,7 @@ final class DroppingPendingClient: MidgardClientProtocol {
     func actionStatus(actionId: String) throws -> ActionStatus { try inner.actionStatus(actionId: actionId) }
     func collectionRows(collection: String) throws -> [ConsoleRow] { try inner.collectionRows(collection: collection) }
     func collections() -> [CollectionInfo] { inner.collections() }
+    func dataSourceKind() -> DataSourceKind { inner.dataSourceKind() }
     func enrol() throws -> SealedKeys { try inner.enrol() }
     func exportState() throws -> ExportedState { try inner.exportState() }
     func isLocked() -> Bool { inner.isLocked() }

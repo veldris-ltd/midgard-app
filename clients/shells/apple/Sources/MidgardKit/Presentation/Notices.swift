@@ -8,6 +8,31 @@ public enum DemoBanner {
         "Demonstration data. This console runs on built-in sample data and is not connected to an enclosure."
 }
 
+/// With no data source (the shipped apps, owner decision 19 Nov 2026), this replaces
+/// the demonstration notice. [FR-C-5] [AC-C-13]
+public enum NoSourceBanner {
+    public static let notice = "No data source connected"
+}
+
+/// Which banner the session shows above everything, and its accessibility identifier.
+public enum SourceBanner: Equatable, Sendable {
+    case demo, noSource
+
+    public var text: String {
+        switch self {
+        case .demo: return DemoBanner.notice
+        case .noSource: return NoSourceBanner.notice
+        }
+    }
+
+    public var identifier: String {
+        switch self {
+        case .demo: return "mg.banner.demo"
+        case .noSource: return "mg.banner.nosource"
+        }
+    }
+}
+
 /// Third-party notices shown in Settings → Acknowledgements and listed in the release
 /// notes. The UniFFI line is checked by the release checklist (A15). [DD-6] [DD-7]
 public enum Acknowledgements {
@@ -42,6 +67,8 @@ public enum ErrorText {
             return "Saved data on this device cannot be read right now. Unlock the device and try again."
         case SessionController.Failure.notEnrolled:
             return "This device is not set up yet."
+        case AppEnvironment.Failure.misconfigured:
+            return "This app is misconfigured: MidgardDataSource is missing or not recognised. Install a correctly built app."
         default:
             break
         }
@@ -70,6 +97,7 @@ public enum ErrorText {
         case .KeyRootUnavailable: return "This device's key is not available. Check Face ID, Touch ID or the passcode."
         case .SealedRootMalformed: return "The saved keys are damaged. Reset the demo to start again."
         case .UnsealFailed: return "This device's key could not open the saved keys. Reset the demo to start again."
+        case .Refused: return "Not available: no data source connected."
         case .NotFound: return "The demo data is missing from the app."
         case .Internal: return "Something went wrong on this device. Try again."
         }

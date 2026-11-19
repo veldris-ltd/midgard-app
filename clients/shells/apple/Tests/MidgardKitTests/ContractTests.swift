@@ -13,6 +13,7 @@ final class ContractTests: XCTestCase {
         let client = try MidgardClient(config: makeConfig(), keyRoot: root)
 
         // Locked: the sign-in screen's lists come without a session.
+        XCTAssertEqual(client.dataSourceKind(), .demo)
         XCTAssertEqual(client.personas().count, 4)
         XCTAssertTrue(client.isLocked())
         XCTAssertTrue(client.collections().contains { $0.name == "midgard.objectTypes" })
@@ -93,6 +94,24 @@ final class ContractTests: XCTestCase {
         }
         try client.resetDemo()
         XCTAssertTrue(client.isLocked())
+    }
+
+    /// With no dataset path: one `local` persona, no collections, every action refused
+    /// and nothing queued.
+    func testNoDataSource() throws {
+        let client = try MidgardClient(config: makeConfig(dataset: nil), keyRoot: TestKeyRoot())
+        XCTAssertEqual(client.dataSourceKind(), DataSourceKind.none)
+        XCTAssertEqual(client.personas().map(\.id), ["local"])
+        XCTAssertEqual(client.collections(), [])
+        _ = try client.unlock(keys: try client.enrol(), personaId: "local")
+        XCTAssertThrowsError(try client.requestAction(action: ActionInput(verb: "demo.ping", target: "midgard.audit/AUD-1",
+                                                                          params: []))) { error in
+            guard case let ClientError.Refused(reason) = error else { return XCTFail("expected Refused, got \(error)") }
+            XCTAssertEqual(reason, "no data source connected")
+        }
+        XCTAssertEqual(try client.statusChips().sync.pending, 0)
+        try client.resetDemo()
+        XCTAssertEqual(client.dataSourceKind(), DataSourceKind.none)
     }
 
     /// The key root is implemented (not called) here; it is exercised through the

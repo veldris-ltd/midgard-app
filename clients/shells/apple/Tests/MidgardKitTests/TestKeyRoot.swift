@@ -62,7 +62,7 @@ func temporaryDirectory() throws -> URL {
     return url
 }
 
-func makeConfig(dataset: URL = releaseDataset(), replica: String = "contract") -> ClientConfig {
-    ClientConfig(datasetPath: dataset.path, replicaId: replica,
+func makeConfig(dataset: URL? = releaseDataset(), replica: String = "contract") -> ClientConfig {
+    ClientConfig(datasetPath: dataset?.path, replicaId: replica,
                  device: DeviceInfo(ramMb: 8192, hasAccelerator: true))
 }

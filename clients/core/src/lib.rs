@@ -40,6 +40,7 @@ pub use error::CoreError;
 pub mod consoles;
 pub mod demo;
 pub mod device_audit;
+pub mod local_source;
 pub mod marking;
 pub mod session;
 pub mod source;

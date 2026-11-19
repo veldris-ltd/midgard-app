@@ -6,7 +6,11 @@
 //! [`MidgardClient::export_state`] with its generation. It hands them back as bytes;
 //! all of them are sealed, and this crate opens them only in the core. The one file
 //! this crate reads itself is the bundled dataset, verified under the anchors
-//! compiled into the core (`DemoEnclosure::open_pinned`).
+//! compiled into the core (`DemoEnclosure::open_pinned`), and only when
+//! [`ClientConfig::dataset_path`] names one. With no path the client runs with no
+//! data source (`LocalSource`, owner decision 19 Nov 2026): one `local` persona,
+//! every collection empty, every action refused. A path that does not open or verify
+//! is an error, never a fallback to that mode. `[FR-C-5]`
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -14,9 +18,12 @@ use midgard_client_core::demo::enclosure::DemoEnclosure;
 use midgard_client_core::device_audit::DeviceAuditKey;
 use midgard_client_core::keystore::sealed_root::SealedRootKeystore;
 use midgard_client_core::keystore::Keystore;
+use midgard_client_core::local_source::LocalSource;
 use midgard_client_core::marking::RowMarking;
 use midgard_client_core::session::{self, Session};
-use midgard_client_core::source::{DataSource, Persona};
+use midgard_client_core::source::{
+    DataSource, Delivered, Grant, Persona, Seal, SourceError, VerifiedDigest,
+};
 use midgard_client_inference::tier::{
     guard, heuristic, Connectivity, DeviceCapability, Heuristic, PrivacyPreference, TaskComplexity,
     Tier, TierContext,
@@ -35,12 +42,23 @@ const ROOT_KEY_ID: &str = "device-root";
 /// How the shell configures the client.
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct ClientConfig {
-    /// Path of the bundled `<release>.mgdemo`.
-    pub dataset_path: String,
+    /// Path of the bundled `<release>.mgdemo`, or `None` for no data source (the
+    /// shipped apps: `MidgardDataSource = none`). `[FR-C-5]`
+    pub dataset_path: Option<String>,
     /// Stable per install.
     pub replica_id: String,
     /// The device, for the inference tier.
     pub device: DeviceInfo,
+}
+
+/// What the client runs on, for the banner. `[FR-C-5]` `[AC-C-13]`
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum DataSourceKind {
+    /// No data source: one `local` persona, every collection empty ("No data source
+    /// connected").
+    None,
+    /// The bundled, signed demo dataset (the demonstration banner).
+    Demo,
 }
 
 /// Device capability as the shell measures it.
@@ -261,7 +279,79 @@ pub struct SyncReport {
     pub chips: StatusChips,
 }
 
-type Live = Session<SealedRootKeystore, DemoEnclosure>;
+/// What serves the session: the signed demo dataset, or no data at all. Delegates
+/// every call, the seal included, so the demo's in-core audit checks still reach the
+/// session. `[FR-C-5]` `[NFR-PQ-3]`
+enum Source {
+    Demo(Box<DemoEnclosure>),
+    Local(LocalSource),
+}
+
+impl DataSource for Source {
+    fn personas(&self) -> Vec<Persona> {
+        match self {
+            Source::Demo(s) => s.personas(),
+            Source::Local(s) => s.personas(),
+        }
+    }
+
+    fn collections(&self) -> Vec<(String, String)> {
+        match self {
+            Source::Demo(s) => s.collections(),
+            Source::Local(s) => s.collections(),
+        }
+    }
+
+    fn grant(&self, persona_id: &str) -> Result<Grant, SourceError> {
+        match self {
+            Source::Demo(s) => s.grant(persona_id),
+            Source::Local(s) => s.grant(persona_id),
+        }
+    }
+
+    fn fetch(&self, grant: &Grant, collection: &str) -> Result<Vec<Delivered>, SourceError> {
+        match self {
+            Source::Demo(s) => s.fetch(grant, collection),
+            Source::Local(s) => s.fetch(grant, collection),
+        }
+    }
+
+    fn exchange(&mut self, grant: &Grant, ops: &[Vec<u8>]) -> Result<Vec<Vec<u8>>, SourceError> {
+        match self {
+            Source::Demo(s) => s.exchange(grant, ops),
+            Source::Local(s) => s.exchange(grant, ops),
+        }
+    }
+
+    fn online(&self) -> bool {
+        match self {
+            Source::Demo(s) => s.online(),
+            Source::Local(s) => s.online(),
+        }
+    }
+
+    fn set_online(&mut self, online: bool) {
+        match self {
+            Source::Demo(s) => s.set_online(online),
+            Source::Local(s) => s.set_online(online),
+        }
+    }
+
+    fn in_core_verified(
+        &self,
+        seal: &Seal,
+        grant: &Grant,
+        collection: &str,
+        id: &str,
+    ) -> Option<VerifiedDigest> {
+        match self {
+            Source::Demo(s) => s.in_core_verified(seal, grant, collection, id),
+            Source::Local(s) => s.in_core_verified(seal, grant, collection, id),
+        }
+    }
+}
+
+type Live = Session<SealedRootKeystore, Source>;
 
 /// A signed-in session and the custody facts read from its keystore before it moved
 /// into the session (the keystore's internals are not reachable after that).
@@ -271,12 +361,12 @@ struct Open {
 }
 
 enum State {
-    Locked(Box<DemoEnclosure>),
+    Locked(Box<Source>),
     /// An unlock is waiting on the platform prompt, with the client's lock released:
     /// every other call sees a locked client (never a blocked one).
     Unlocking,
     Open(Box<Open>),
-    /// While a transition holds the lock, or after one could not reload the dataset
+    /// While a transition holds the lock, or after one could not reload the source
     /// or was cut short by a panic in the platform side (reads as locked; `unlock`
     /// and `reset_demo` reload it).
     Gone,
@@ -305,7 +395,7 @@ impl Drop for UnlockGuard<'_> {
 pub struct MidgardClient {
     config: ClientConfig,
     key_root: Arc<dyn KeyRoot>,
-    /// The dataset's personas and collections, read once: they do not change, and
+    /// The source's personas and collections, read once: they do not change, and
     /// the sign-in screen needs them whatever the state.
     personas: Vec<Persona>,
     collections: Vec<(String, String)>,
@@ -326,22 +416,25 @@ fn persona_info(p: &Persona) -> PersonaInfo {
     }
 }
 
-/// Read and verify the bundled dataset against the anchors compiled into the core.
-/// A read error names the file only: the full path holds the app's container and
-/// the user name, and error text can reach the screen or a log. [FR-C-9]
-fn load_source(config: &ClientConfig) -> Result<DemoEnclosure, ClientError> {
-    let file = std::fs::read(&config.dataset_path).map_err(|e| {
-        let name = std::path::Path::new(&config.dataset_path)
-            .file_name()
-            .map_or_else(
-                || "(no file name)".into(),
-                |n| n.to_string_lossy().into_owned(),
-            );
+/// The configured source. No dataset path: a fresh [`LocalSource`], with no file
+/// read. A path: read and verify the bundled dataset against the anchors compiled
+/// into the core, failing closed (never falling back to [`LocalSource`]). A read
+/// error names the file only: the full path holds the app's container and the user
+/// name, and error text can reach the screen or a log. [FR-C-9] [FR-C-5]
+fn load_source(config: &ClientConfig) -> Result<Source, ClientError> {
+    let Some(path) = &config.dataset_path else {
+        return Ok(Source::Local(LocalSource::new()));
+    };
+    let file = std::fs::read(path).map_err(|e| {
+        let name = std::path::Path::new(path).file_name().map_or_else(
+            || "(no file name)".into(),
+            |n| n.to_string_lossy().into_owned(),
+        );
         ClientError::NotFound {
             what: format!("dataset {name}: {}", e.kind()),
         }
     })?;
-    Ok(DemoEnclosure::open_pinned(&file)?)
+    Ok(Source::Demo(Box::new(DemoEnclosure::open_pinned(&file)?)))
 }
 
 impl MidgardClient {
@@ -421,7 +514,8 @@ impl MidgardClient {
 
 #[uniffi::export]
 impl MidgardClient {
-    /// Verify the bundled dataset against the pinned anchors and start locked.
+    /// Verify the bundled dataset against the pinned anchors (or, with no dataset
+    /// path, take no data source) and start locked.
     #[uniffi::constructor]
     pub fn new(config: ClientConfig, key_root: Arc<dyn KeyRoot>) -> Result<Arc<Self>, ClientError> {
         let source = load_source(&config)?;
@@ -432,6 +526,15 @@ impl MidgardClient {
             collections: source.collections(),
             state: Mutex::new(State::Locked(Box::new(source))),
         }))
+    }
+
+    /// What the client runs on: no data source, or the demo dataset. Fixed by the
+    /// configuration, whatever the state.
+    pub fn data_source_kind(&self) -> DataSourceKind {
+        match self.config.dataset_path {
+            None => DataSourceKind::None,
+            Some(_) => DataSourceKind::Demo,
+        }
     }
 
     /// The personas the sign-in screen lists.
@@ -623,9 +726,13 @@ impl MidgardClient {
     }
 
     /// Queue an action on a row this persona has read. Its marking comes from the
-    /// persona's cached delivery, never from the shell.
+    /// persona's cached delivery, never from the shell. With no data source every
+    /// action is `Refused` ("no data source connected") and nothing is queued.
     pub fn request_action(&self, action: ActionInput) -> Result<String, ClientError> {
         self.with_open(|o| {
+            if matches!(o.session.source(), Source::Local(_)) {
+                return Err(SourceError::NoSource.into());
+            }
             let params: Vec<(String, String)> = action
                 .params
                 .into_iter()
@@ -694,8 +801,9 @@ impl MidgardClient {
     }
 
     /// "Reset demo": lock and reload the dataset, so the demo's own state (actions
-    /// applied, audit rows appended) starts again. The shell deletes its files and
-    /// its platform key itself.
+    /// applied, audit rows appended) starts again; with no data source, lock with a
+    /// fresh `LocalSource` (no file is read). The shell deletes its files and its
+    /// platform key itself.
     ///
     /// Also the way back from a client whose lock was poisoned by a panic: the
     /// poison is cleared and a fresh locked state installed.
@@ -734,7 +842,7 @@ mod tests {
 
     fn config() -> ClientConfig {
         ClientConfig {
-            dataset_path: "unused".into(),
+            dataset_path: Some("unused".into()),
             replica_id: "unit".into(),
             device: DeviceInfo {
                 ram_mb: 8192,
@@ -751,7 +859,7 @@ mod tests {
             key_root: Arc::new(Plain),
             personas: e.personas(),
             collections: e.collections(),
-            state: Mutex::new(State::Locked(Box::new(e))),
+            state: Mutex::new(State::Locked(Box::new(Source::Demo(Box::new(e))))),
         }
     }
 
@@ -799,11 +907,11 @@ mod tests {
         ));
         // reset_demo reloads the dataset from `dataset_path`: point it at a real one.
         let mut c = Arc::try_unwrap(c).ok().unwrap();
-        c.config.dataset_path = format!(
+        c.config.dataset_path = Some(format!(
             "{}/../demo/datasets/{}.mgdemo",
             env!("CARGO_MANIFEST_DIR"),
             midgard_client_core::CORE_VERSION
-        );
+        ));
         c.reset_demo().unwrap();
         assert!(!c.state.is_poisoned());
         assert!(c.is_locked());

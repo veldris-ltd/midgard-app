@@ -134,6 +134,9 @@ pub enum SourceError {
     UnknownCollection(String),
     /// A pushed op blob, or the data behind the source, did not decode.
     Malformed(String),
+    /// No data source is connected (the no-source mode, `crate::local_source`):
+    /// there is nothing to act on, so every action is refused.
+    NoSource,
 }
 
 impl fmt::Display for SourceError {
@@ -143,6 +146,7 @@ impl fmt::Display for SourceError {
             SourceError::UnknownPersona(p) => write!(f, "unknown persona {p}"),
             SourceError::UnknownCollection(c) => write!(f, "unknown collection {c}"),
             SourceError::Malformed(d) => write!(f, "malformed: {d}"),
+            SourceError::NoSource => write!(f, "no data source connected"),
         }
     }
 }

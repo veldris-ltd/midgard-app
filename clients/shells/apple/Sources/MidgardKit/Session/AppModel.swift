@@ -29,8 +29,17 @@ public final class AppModel: ObservableObject {
     /// The persona last signed in during this run (kept in memory only).
     @Published public private(set) var lastPersona: PersonaInfo?
     @Published public var message: String?
-    /// The demonstration notice: always shown while the source is the demo dataset.
-    public let demoBanner: String? = DemoBanner.notice
+    /// What the client runs on, once the environment is known.
+    @Published public private(set) var dataSourceKind: DataSourceKind?
+    /// The banner above everything: the demonstration notice while the source is the
+    /// demo dataset, "No data source connected" with none. [AC-C-13] [FR-C-5]
+    public var banner: SourceBanner? {
+        switch dataSourceKind {
+        case DataSourceKind.demo?: return .demo
+        case DataSourceKind.none?: return .noSource
+        case nil: return nil
+        }
+    }
     public private(set) var custodyLabel: String?
 
     public var chipsPresentation: StatusChipsPresentation? { chips.map(StatusChipsPresentation.init) }
@@ -59,14 +68,23 @@ public final class AppModel: ObservableObject {
 
     public func start(_ env: AppEnvironment) async {
         do {
-            guard let dataset = env.dataset else { throw ClientError.NotFound(what: "bundled dataset") }
-            let config = ClientConfig(datasetPath: dataset.path, replicaId: env.replicaId, device: env.device)
+            let datasetPath: String?
+            switch env.dataSource {
+            case .none:
+                datasetPath = nil
+                dataSourceKind = DataSourceKind.none
+            case let .bundled(url):
+                datasetPath = url.path
+                dataSourceKind = .demo
+            }
+            let config = ClientConfig(datasetPath: datasetPath, replicaId: env.replicaId, device: env.device)
             let gateway = try await Self.open(env: env, config: config)
             self.gateway = gateway
             custodyLabel = env.keyRoot.custodyLabel
-            let (personas, collections, enrolled) = try await gateway.run {
-                ($0.client.personas(), $0.client.collections(), try $0.isEnrolled())
+            let (kind, personas, collections, enrolled) = try await gateway.run {
+                ($0.client.dataSourceKind(), $0.client.personas(), $0.client.collections(), try $0.isEnrolled())
             }
+            dataSourceKind = kind
             self.personas = personas
             self.collections = collections
             phase = enrolled ? .locked : .needsEnrolment

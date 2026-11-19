@@ -120,7 +120,7 @@ fn dataset() -> PathBuf {
 
 fn config(path: &std::path::Path) -> ClientConfig {
     ClientConfig {
-        dataset_path: path.display().to_string(),
+        dataset_path: Some(path.display().to_string()),
         replica_id: "test-device".into(),
         device: DeviceInfo {
             ram_mb: 8192,

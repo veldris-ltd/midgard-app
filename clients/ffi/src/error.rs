@@ -97,6 +97,12 @@ pub enum ClientError {
     },
     /// The sealed root did not open: another platform key, or tampered.
     UnsealFailed,
+    /// The action was refused before it was queued; nothing was queued. With no data
+    /// source connected, every action is refused this way. `[FR-C-4]` `[FR-C-5]`
+    Refused {
+        /// Why, for the screen ("no data source connected").
+        reason: String,
+    },
     /// A file could not be read.
     NotFound {
         /// What.
@@ -152,6 +158,9 @@ impl From<SourceError> for ClientError {
                 ClientError::UnknownCollection { collection }
             }
             SourceError::Malformed(detail) => ClientError::Malformed { detail },
+            e @ SourceError::NoSource => ClientError::Refused {
+                reason: e.to_string(),
+            },
         }
     }
 }
