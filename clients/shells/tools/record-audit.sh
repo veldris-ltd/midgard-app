@@ -56,7 +56,13 @@ overall="pass"; issues=0
 } > "$out"
 
 # Second pass to stamp the real overall (known only after scanning affordances).
-sed -i "s/PLACEHOLDER_OVERALL/$overall/" "$out"
+# Portable across GNU and BSD sed (the Apple audit runs on macOS): rewrite, then move.
+# A record that cannot be stamped is removed, never left half-written.
+if ! { sed "s/PLACEHOLDER_OVERALL/$overall/" "$out" > "$out.tmp" && mv "$out.tmp" "$out"; }; then
+    rm -f "$out" "$out.tmp"
+    echo "record-audit: could not stamp $out; no record written"
+    exit 2
+fi
 
 echo "record-audit: wrote $out (overall=$overall, $issues issue(s))"
 [ "$overall" = "pass" ]

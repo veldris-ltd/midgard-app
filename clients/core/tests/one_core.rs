@@ -35,7 +35,15 @@ fn marking(level: ClassificationLevel, comps: &[&str]) -> Marking {
 fn core(clearance: Clearance, id: &str, seed: u64) -> ClientCore<SoftwareKeystore> {
     let provider = fips_provider();
     let ks = SoftwareKeystore::generate(&provider, "device-root", &mut SeedRng(seed)).unwrap();
-    ClientCore::open(provider, ks, clearance, SecurityFloor::NonExtractable, id).unwrap()
+    ClientCore::open_scoped(
+        provider,
+        ks,
+        clearance,
+        SecurityFloor::NonExtractable,
+        id,
+        "test",
+    )
+    .unwrap()
 }
 
 /// The core version is a real, single identifier — the string every shell links.
@@ -226,12 +234,13 @@ impl TrustRoot for FakePlatformKeystore {
 fn the_core_is_generic_over_the_keystore() {
     let provider = fips_provider();
     let root = SoftwareKeystore::generate(&provider, "tpm-root", &mut SeedRng(21)).unwrap();
-    let mut c: ClientCore<FakePlatformKeystore> = ClientCore::open(
+    let mut c: ClientCore<FakePlatformKeystore> = ClientCore::open_scoped(
         provider,
         FakePlatformKeystore { root },
         clearance(ClassificationLevel::SECRET, &[]),
         SecurityFloor::TpmSealed,
         "device-w",
+        "test",
     )
     .expect("a TPM-sealed platform keystore meets a TpmSealed floor");
 
@@ -253,12 +262,13 @@ fn the_core_is_generic_over_the_keystore() {
     // The software keystore cannot open the same core.
     let provider = fips_provider();
     let soft = SoftwareKeystore::generate(&provider, "soft-root", &mut SeedRng(23)).unwrap();
-    let refused = ClientCore::open(
+    let refused = ClientCore::open_scoped(
         provider,
         soft,
         clearance(ClassificationLevel::SECRET, &[]),
         SecurityFloor::TpmSealed,
         "device-s",
+        "test",
     );
     assert!(matches!(refused, Err(CoreError::Store(_))));
 }

@@ -34,3 +34,12 @@
 
 [advisories]
 # (empty)
+#
+# Informational advisories are reported on every scan and never block (mg-scan,
+# tools/mg-scan/src/advisory.rs), so none is listed above. Noted here so the notes
+# read as known, not new. From the UniFFI 0.28.3 closure (16 Nov 2026), all
+# "unmaintained":
+#   RUSTSEC-2024-0436  paste 1.0.15       (uniffi_core; a proc macro, build time only)
+#   RUSTSEC-2025-0141  bincode 1.3.3      (uniffi_macros; build time only)
+#   RUSTSEC-2026-0374  basic-toml 0.1.10  (askama_derive under uniffi_bindgen; the Swift generator only)
+# Revisit with the UniFFI version: a newer UniFFI needs a newer Rust than 1.82.

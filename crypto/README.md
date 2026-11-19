@@ -25,6 +25,7 @@ different places:
 | Bifrost offline-bundle manifest | `midgard-bifrost-bundle-v1` | `bifrost_bundle::import` |
 | Mimir model manifest | `midgard-mimir-model-v1` | `ModelLoader::verify_and_load` |
 | Mimir model manifest file (`model.manifest`, format 2) | `midgard-mimir-model-file-v2` | `model_server::verify_manifest_file` (`ModelLoader::verify_dir`) |
+| Client demo dataset (`clients/demo/datasets/<release>.mgdemo`) | `midgard-demo-dataset-v1` | `midgard_client_core::demo::dataset::verify` |
 
 A signature only proves where a release came from, not that it is current, so the
 places that accept signed software also keep a **release floor**

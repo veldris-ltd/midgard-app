@@ -1,0 +1,8 @@
+# Build outputs linked in by tools/build-xcframework.sh; never committed.
+/Frameworks/
+/Sources/MidgardCore/midgard_client_ffi.swift
+/.build/
+/.swiftpm/
+*.xcresult
+*.xcframework
+*.a

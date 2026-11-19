@@ -13,7 +13,14 @@ backend-fips = [
     "midgard-client-keystore/backend-fips",
     "midgard-client-enclosure/backend-fips",
     "pqc-agility/backend-fips",
+    "attest/backend-fips",
 ]
+
+# Opens a demo dataset under caller-chosen anchors, or loads an unsigned body
+# (`DemoEnclosure::open`, `DemoEnclosure::from_body`). For this crate's own tests
+# only: production code opens with `open_pinned`, and tools/ci/no-test-backend.sh
+# fails a release build graph that turns this on. [AC-C-13] [NFR-PQ-3]
+demo-unpinned = []
 
 [dependencies]
 # The one-and-only implementations of each concern. The shells depend on THIS
@@ -24,12 +31,28 @@ midgard-client-keystore = { path = "../keystore" }
 midgard-client-enclosure = { path = "../enclosure", default-features = false }
 policy = { path = "../../crypto/policy" }
 pqc-agility = { path = "../../crypto/pqc-agility", default-features = false }
+# The strict JSON reader for console read models and the demo dataset, and the one
+# signature-acceptance decision (`attest::accept`). It holds no attest keystore; the
+# one key the core signs with is the device-audit key (`device_audit`), which signs
+# run-time audit rows of this device only, under its own domain. [NFR-PQ-3] [AC-C-13]
+attest = { path = "../../crypto/attest", default-features = false, features = ["backend-fips"] }
+# Seals the device-audit signing key to the device's key root (the same ML-KEM
+# envelope the store uses), so the key is never at rest in the clear. [NFR-PQ-2]
+# [NFR-PQ-3]
+kms = { path = "../../services/kms" }
 
 [dev-dependencies]
+# The integration tests use the unpinned entry points. [AC-C-13]
+midgard-client-core = { path = ".", features = ["demo-unpinned"] }
 # A test platform keystore declares its floor by wrapping a test-floor software
-# root; its TrustRoot impl names kms types. Tests only. [VLD-ANB-MIDGARD-0056]
+# root (its TrustRoot impl names kms types, a normal dependency above). Tests only.
+# [VLD-ANB-MIDGARD-0056]
 midgard-client-keystore = { path = "../keystore", features = ["test-floors"] }
-kms = { path = "../../services/kms" }
+# The dataset builder example (examples/build_demo_dataset.rs) unseals the demo key
+# from an attest keystore (custody); the library itself only verifies. Examples are
+# not release binaries (tools/ci/release-artefacts.sh derives the release matrix from
+# [[bin]], src/main.rs and src/bin/ only). [NFR-PQ-3]
+attest = { path = "../../crypto/attest" }
 
 [lib]
 path = "src/lib.rs"

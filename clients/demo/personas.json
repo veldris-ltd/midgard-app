@@ -1,0 +1,6 @@
+[
+  { "id": "k.rao", "display": "K. Rao", "role": "analyst", "clearance": "restricted", "compartments": [], "roles": ["analyst"] },
+  { "id": "j.benjamin", "display": "J. Benjamin", "role": "operator", "clearance": "confidential", "compartments": ["OPS-N"], "roles": ["operator", "analyst", "data-engineer"] },
+  { "id": "k.osei", "display": "K. Osei", "role": "approver", "clearance": "confidential", "compartments": ["OPS-N", "SIG"], "roles": ["operator", "watch-officer", "approver", "iam-admin"] },
+  { "id": "a.holt", "display": "A. Holt", "role": "release-manager", "clearance": "internal", "compartments": [], "roles": ["release-manager", "operator"] }
+]

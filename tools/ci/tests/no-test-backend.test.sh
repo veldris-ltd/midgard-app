@@ -45,4 +45,12 @@ pqc-agility v0.1.0-rc.1 (/work/crypto/pqc-agility)' 1
 run "a test named for the backend is not mistaken for the feature" 'pqc-agility feature "backend-fips"
 some-crate v1.0.0 (test-backend-helpers)' 0
 
+run "the unpinned demo-dataset entry points in the graph fail" 'pqc-agility feature "backend-fips"
+midgard-client-core feature "default"
+midgard-client-core feature "demo-unpinned"
+midgard-client-core v0.1.0-rc.3 (/work/clients/core)' 1
+
+run "a crate merely named for the feature is not mistaken for it" 'pqc-agility feature "backend-fips"
+some-crate v1.0.0 (demo-unpinned-helpers)' 0
+
 [ "$failures" -eq 0 ] || exit 1

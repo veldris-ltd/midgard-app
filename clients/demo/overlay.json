@@ -1,0 +1,31 @@
+{
+  "default": { "level": "internal", "compartments": [] },
+  "collections": {
+    "midgard.searchAround": { "default": { "level": "confidential", "compartments": ["OPS-N", "SIG"] } },
+    "midgard.audit": { "default": { "level": "restricted", "compartments": [] } },
+    "midgard.keys": { "default": { "level": "restricted", "compartments": [] },
+                      "ids": { "kek-root": { "level": "confidential", "compartments": ["OPS-N"] },
+                               "dek-ops-n": { "level": "confidential", "compartments": ["OPS-N"] },
+                               "dek-sig": { "level": "confidential", "compartments": ["SIG"] } } },
+    "admin.ledger": { "default": { "level": "restricted", "compartments": [] } },
+    "admin.breakGlass": { "default": { "level": "confidential", "compartments": [] } },
+    "heimdall.audit": { "default": { "level": "confidential", "compartments": ["OPS-N"] } },
+    "heimdall.feeds": { "default": { "level": "restricted", "compartments": [] } },
+    "heimdall.syncSites": { "default": { "level": "restricted", "compartments": [] },
+                            "ids": { "SITE-ALPHA (this)": { "level": "confidential", "compartments": ["OPS-N"] },
+                                     "SITE-BRAVO": { "level": "confidential", "compartments": ["OPS-N"] },
+                                     "SITE-CHARLIE": { "level": "restricted", "compartments": [] },
+                                     "SITE-DELTA-AG": { "level": "restricted", "compartments": [] } } },
+    "heimdall.workflows": { "ids": { "W-0911": { "level": "confidential", "compartments": ["OPS-N"] },
+                                     "W-0912": { "level": "confidential", "compartments": ["OPS-N"] },
+                                     "W-0913": { "level": "confidential", "compartments": ["OPS-N"] } } },
+    "heimdall.decisions": { "default": { "level": "confidential", "compartments": ["OPS-N"] } },
+    "forge.audit": { "ids": { "FRG-2042": { "level": "confidential", "compartments": ["OPS-N"] },
+                              "FRG-2040": { "level": "confidential", "compartments": ["OPS-N"] } } },
+    "forge.datasets": { "ids": { "flight_tracks_eu": { "level": "confidential", "compartments": ["OPS-N"] } } },
+    "mimir.sessions": { "default": { "level": "restricted", "compartments": [] },
+                        "ids": { "S-8811": { "level": "confidential", "compartments": ["SIG"] },
+                                 "S-8812": { "level": "confidential", "compartments": ["OPS-N"] } } },
+    "bifrost.fleet": { "default": { "level": "internal", "compartments": [] } }
+  }
+}

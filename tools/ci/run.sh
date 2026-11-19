@@ -492,6 +492,12 @@ job_js_build() {
     # The selftest job has no installed workspace, so the mock-bundle test runs here:
     # an http build of the midgard console holds no mock fixture. [AC-25.2]
     bash tools/ci/tests/js-mock-bundle.test.sh
+    # The client demo fixtures and read models come from the SDK's TypeScript through
+    # node scripts; a selftest without node (GitLab's) skips their tests, so they also
+    # run here.
+    # [AC-C-13] [FR-C-1]
+    bash tools/ci/tests/demo-fixtures.test.sh
+    bash tools/ci/tests/gen-read-models.test.sh
     bash tools/ci/js-artefacts.sh build --all --out "${MIDGARD_JS_OUT:-target/js-out}"
 }
 
@@ -671,8 +677,9 @@ job_shell_audit() {
             [ -e "$root/Package.swift" ] || compgen -G "$root/*.xcodeproj" >/dev/null || no_project "an Xcode project in $root"
             need xcodebuild "shell-audit: the apple audit needs a macOS runner with Xcode"
             failed="$(bash "$root/audit.sh" "$release" "$report")"
+            # audit.sh names the devices it audited (simulator and runtime, and the Mac).
             bash clients/shells/tools/record-audit.sh "$shell" "$release" "$(ci_runner)" \
-                "${MIDGARD_AUDIT_DEVICE:-iOS simulator}" "XCUITest + XCUIAccessibilityAudit" \
+                "${MIDGARD_AUDIT_DEVICE:-$(cat "${report%.json}.device")}" "XCUITest + XCUIAccessibilityAudit" \
                 "$(xcodebuild -version | head -1)" "$report" $failed
             ;;
         android)

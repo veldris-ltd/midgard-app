@@ -312,6 +312,43 @@ impl Replica {
     pub fn drain_pending(&mut self) -> Vec<SyncOp> {
         std::mem::take(&mut self.pending)
     }
+
+    /// Restore ops that were queued but never acknowledged (for example across a
+    /// relaunch): applied and queued again with their original versions, so pushing
+    /// them again is idempotent at the enclosure (it answers a re-push with the
+    /// decision it already made). An op already queued is not queued twice.
+    /// `[FR-C-4]`
+    pub fn requeue(&mut self, ops: Vec<SyncOp>) {
+        for op in ops {
+            if op.version.lamport > self.lamport {
+                self.lamport = op.version.lamport;
+            }
+            self.apply(&op);
+            if !self.pending.contains(&op) {
+                self.pending.push(op);
+            }
+        }
+    }
+
+    /// The Lamport clock: the highest version counter this replica has made or seen.
+    pub fn lamport(&self) -> u64 {
+        self.lamport
+    }
+
+    /// Raise the clock to at least `lamport` (restored across a relaunch), so the
+    /// next edit's version is above every version made or seen before. Never lowers
+    /// it. `[FR-C-4]`
+    pub fn observe(&mut self, lamport: u64) {
+        self.lamport = self.lamport.max(lamport);
+    }
+
+    /// Drop the local view and the queue (a persona switch), keeping the id and the
+    /// Lamport clock so a later edit never reuses a version this replica has made.
+    /// `[FR-C-4]`
+    pub fn forget(&mut self) {
+        self.state.clear();
+        self.pending.clear();
+    }
 }
 
 #[cfg(test)]
@@ -371,6 +408,53 @@ mod tests {
         assert_eq!(a.snapshot(), b.snapshot());
         // "b" > "a" in the tie-break, so b's write wins on both.
         assert_eq!(a.get("obj:1", "title"), Some(&b"from-b"[..]));
+    }
+
+    #[test]
+    fn requeued_ops_are_pending_again_with_their_versions() {
+        let mut a = Replica::new("dev");
+        a.set("o", "f", b"1".to_vec());
+        let saved = a.drain_pending();
+        let mut b = Replica::new("dev");
+        b.requeue(saved.clone());
+        assert_eq!(b.pending(), &saved[..]);
+        assert_eq!(b.get("o", "f"), Some(&b"1"[..]));
+        let next = b.set("o", "g", b"2".to_vec());
+        assert!(next.version.lamport > saved[0].version.lamport);
+    }
+
+    #[test]
+    fn requeueing_twice_queues_each_op_once() {
+        let mut a = Replica::new("dev");
+        a.set("o", "f", b"1".to_vec());
+        a.set("o", "g", b"2".to_vec());
+        let saved = a.drain_pending();
+        let mut b = Replica::new("dev");
+        b.requeue(saved.clone());
+        b.requeue(saved.clone());
+        assert_eq!(b.pending(), &saved[..]);
+    }
+
+    #[test]
+    fn forget_drops_the_view_and_the_queue_but_keeps_the_clock() {
+        let mut a = Replica::new("dev");
+        let first = a.set("o", "f", b"1".to_vec());
+        a.forget();
+        assert_eq!(a.get("o", "f"), None);
+        assert!(a.snapshot().is_empty());
+        assert!(!a.has_pending());
+        // A later edit never reuses a version this replica has made.
+        assert!(a.set("o", "f", b"2".to_vec()).version > first.version);
+    }
+
+    #[test]
+    fn an_observed_clock_is_never_reused() {
+        let mut a = Replica::new("dev");
+        assert_eq!(a.lamport(), 0);
+        a.observe(41);
+        a.observe(7); // never lowers it
+        assert_eq!(a.lamport(), 41);
+        assert_eq!(a.set("o", "f", b"1".to_vec()).version.lamport, 42);
     }
 
     #[test]

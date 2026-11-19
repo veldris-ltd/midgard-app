@@ -15,6 +15,14 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 failures=0
 
+# sed_i SCRIPT FILE...: edit files in place with GNU and BSD sed alike. BSD sed (macOS)
+# reads the word after `-i` as a backup suffix, so `sed -i EXPR FILE` fails there.
+sed_i() {
+    local expr="$1" f
+    shift
+    for f in "$@"; do sed "$expr" "$f" > "$f.sed-i" && mv "$f.sed-i" "$f" || return 1; done
+}
+
 pass() { echo "ok    $1"; }
 fail() {
     echo "FAIL  $1"
@@ -67,7 +75,10 @@ fi
 # --- AC-RF-SC-5a: a new binary is in the matrix with no edit ------------------
 crate "$root" extra newcomer
 : > "$root/extra/src/main.rs"
-sed -i 's|^members = \[|members = [\n    "extra",|' "$root/Cargo.toml"
+# A backslash-newline (BSD sed does not read `\n` in a replacement) adds the line on
+# GNU and BSD sed alike.
+sed_i 's|^members = \[|members = [\
+    "extra",|' "$root/Cargo.toml"
 if out="$(run "$root" --rows 2>"$work/err")" && grep -qx 'newcomer newcomer tool -' <<<"$out"; then
     pass "a binary added to the workspace is gated with no list edit"
 else
