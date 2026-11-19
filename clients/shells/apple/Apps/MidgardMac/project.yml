@@ -1,0 +1,103 @@
+# The Midgard macOS app (Task B2). XcodeGen 2.46 spec; the generated MidgardMac.xcodeproj
+# is committed beside it and tools/ci/tests/apple-projects.test.sh holds the two
+# together: after editing this file run `xcodegen generate` here and commit both.
+# Signing: Config/Signing.xcconfig (ad hoc without a team; one line in the gitignored
+# Signing.local.xcconfig selects the owner's team). [DD-6] [FR-C-1]
+name: MidgardMac
+options:
+  bundleIdPrefix: io.veldris.midgard
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+packages:
+  MidgardKit:
+    path: ../..
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    # The pre-build phase runs tools/ensure-xcframework.sh, which reads the Rust sources
+    # and writes the shared build cache: outside what a sandboxed script may touch.
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+targets:
+  MidgardMac:
+    type: application
+    platform: macOS
+    sources: [Sources]
+    configFiles:
+      Debug: Config/Signing.xcconfig
+      Release: Config/Signing.xcconfig
+    settings:
+      base:
+        PRODUCT_NAME: Midgard
+        PRODUCT_BUNDLE_IDENTIFIER: io.veldris.midgard.mac
+        INFOPLIST_FILE: Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: $(MIDGARD_MAC_ENTITLEMENTS)
+        ENABLE_HARDENED_RUNTIME: YES
+        COMBINE_HIDPI_IMAGES: YES
+    dependencies:
+      - package: MidgardKit
+        product: MidgardKit
+    preBuildScripts:
+      - name: Ensure MidgardCoreFFI.xcframework
+        # Builds the Rust core only when its sources changed (a content stamp, not
+        # modification times), so it runs on every build.
+        script: bash "$SRCROOT/../../tools/ensure-xcframework.sh"
+        basedOnDependencyAnalysis: false
+  MidgardMacTests:
+    # App-only logic (the console catalogue), compiled into the test bundle: no host
+    # app, so a sandboxed, hardened app never has to load a test bundle.
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - Tests
+      - Sources/ConsoleCatalog.swift
+    configFiles:
+      Debug: Config/Signing.xcconfig
+      Release: Config/Signing.xcconfig
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.veldris.midgard.mac.tests
+        GENERATE_INFOPLIST_FILE: YES
+  MidgardMacUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources: [UITests]
+    configFiles:
+      Debug: Config/Signing.xcconfig
+      Release: Config/Signing.xcconfig
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.veldris.midgard.mac.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: MidgardMac
+    dependencies:
+      - target: MidgardMac
+      - package: MidgardKit
+        product: MidgardAuditKit
+schemes:
+  MidgardMac:
+    build:
+      targets:
+        MidgardMac: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: false
+      targets:
+        - MidgardMacTests
+        - name: MidgardMacUITests
+          # Dynamic Type is measured on iOS; the macOS test fails by design (A14), so the
+          # scheme skips it. audit.sh reads a skipped test as not measured, as before.
+          skippedTests:
+            - AccessibilityAudit/test_affordance_dynamic_type()
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

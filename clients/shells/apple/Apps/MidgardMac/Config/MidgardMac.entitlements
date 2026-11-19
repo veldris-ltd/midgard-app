@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!-- Team-signed builds (MIDGARD_TEAM_ID set; Config/Signing.xcconfig). App Sandbox with no
+     network entitlement: the app fetches nothing (MapKit's network need is Phase E). The
+     keychain access group gives the data-protection keychain the Secure Enclave key root
+     and the state files' keys need. [DD-6] [FR-C-9] -->
+<dict>
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)io.veldris.midgard.mac</string>
+	</array>
+</dict>
+</plist>
