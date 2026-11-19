@@ -6,3 +6,12 @@
 *.xcresult
 *.xcframework
 *.a
+
+# Each app's signing team ID, filled in by the owner on their Mac; never committed.
+# The committed config includes it optionally (#include? "Signing.local.xcconfig").
+/Apps/*/Config/Signing.local.xcconfig
+# Per-user Xcode state of the XcodeGen projects (the projects themselves are committed,
+# and tools/ci/tests/apple-projects.test.sh holds them to their project.yml).
+xcuserdata/
+*.xcuserstate
+project.xcworkspace/xcuserdata/

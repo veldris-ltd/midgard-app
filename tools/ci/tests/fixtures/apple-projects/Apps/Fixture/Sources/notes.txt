@@ -1,0 +1,1 @@
+Fixture source for tools/ci/tests/apple-projects.test.sh.
