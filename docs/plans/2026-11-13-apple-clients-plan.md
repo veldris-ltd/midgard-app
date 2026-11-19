@@ -6555,3 +6555,84 @@ The owner accepted the recommended answer to every open question:
 10. **Demo banner:** yes, as in the web consoles.
 11. **Audit rows:** the demo enclosure signs its audit rows with the demo key, so the check mark is real.
 12. **Screens:** build all 45.
+
+## Owner decision (19 Nov 2026): the apps ship with no data
+
+The owner asked for the clients to be built out **without any data or feeds for now**, and
+chose "nothing at all" over a personas-only dataset. This replaces decisions 3, 9, 10 and 11
+for the apps (until data returns) and changes Phases B to H as below. Phase A stays as
+built: the signed demo dataset, its key and the enclosure remain in the tree, unused by the
+apps, so that adding data later is a configuration change.
+
+- **No dataset in either app.** No `.mgdemo` is bundled and no "Copy demo dataset" phase
+  exists. Each app's `Info.plist` carries `MidgardDataSource = none`; the only other
+  accepted value is `bundled` (the Phase A path, unchanged). A missing or unknown value is
+  a failed state ("app misconfigured"), never a silent switch between modes.
+- **One built-in local user.** With no source the core signs in one persona, `local`
+  ("Local user", role `operator`, clearance `open`, no compartments, no policy roles):
+  the lowest grant there is, so the mode can never show more than the data allows.
+- **Every collection exists and is empty.** Screens show their empty state; actions are
+  refused by the core with "no data source connected" and the UI shows them disabled
+  with that reason.
+- **Tests may use the Phase A dataset** to prove that rows, withheld rows and markings
+  render; the apps never bundle it.
+- **Banner:** "No data source connected" replaces the demo banner in this mode.
+
+### Task B0 (on `clients_shared`): no-source mode
+
+**Files:** `clients/core/src/local_source.rs` (new), `clients/core/src/lib.rs`,
+`clients/ffi/src/client.rs`, `clients/ffi/tests/*`, the Swift package
+(`Session/AppEnvironment.swift`, `Session/AppModel.swift`, `Storage/StorePaths.swift`,
+the banner view, tests), regenerated bindings, `ContractTests.swift`.
+
+- `LocalSource: DataSource`. `personas()` returns only `local`; `grant("local")` gives
+  clearance `open`; any other id is `UnknownPersona`. `collections()` returns the
+  compile-time collection table (empty until Phase C adds it), and `fetch` returns `[]`
+  for a listed collection and `UnknownCollection` otherwise. `exchange` with no ops
+  returns `[]`; with any op it is refused, and nothing is queued. `online`/`set_online`
+  toggle a flag, so the offline chip still works. `in_core_verified` keeps the default
+  `None`.
+- FFI: `ClientConfig.dataset_path` becomes `Option<String>`. `None` builds a
+  `LocalSource`; `Some(path)` takes the verified path exactly as today and fails closed.
+  An internal `enum Source { Demo(DemoEnclosure), Local(LocalSource) }` implements
+  `DataSource` by delegation (passing the seal through for `in_core_verified`), so
+  `Live = Session<SealedRootKeystore, Source>`. `request_action` in local mode returns
+  `ClientError::Refused` with "no data source connected". `reset_demo` makes a fresh
+  `LocalSource`. A new `data_source_kind() -> DataSourceKind { None, Demo }` drives the
+  banner.
+- Swift: `AppEnvironment` holds a `DataSourceChoice` (`.none` or `.bundled(URL)`) read
+  from `MidgardDataSource`; `AppModel.start` passes `nil` or the path.
+- Tests (Rust): one persona; an unknown persona is refused; every listed collection
+  fetches empty; an action is refused and queues nothing; offline toggles; enrol,
+  unlock, lock, export and import state round-trip; `Some(<bad path>)` still fails and
+  never falls back to local. Tests (Swift): `none` reaches `needsEnrolment` with one
+  persona; a missing or unknown key reaches `failed`.
+- Acceptance: `cargo test` for core and ffi green; the XCFramework rebuilt and verified;
+  `swift test` green; `check-contract.sh` passes with `data_source_kind` called.
+
+### Changes to Phase B
+
+- **B2/B3:** no dataset phase; `MidgardDataSource = none`. The UI tests sign in as
+  `local`, see the "No data source connected" banner, open each console and toggle
+  offline (the `OFFLINE` chip); the withheld-row check moves to Phase C's model tests.
+  Without a team ID, Debug builds sign ad hoc with an entitlements file that leaves out
+  `keychain-access-groups` (a restricted entitlement that stops an ad-hoc app from
+  launching); such a build shows "cannot keep keys" outside UI testing, which uses
+  `-MidgardUITesting`. The first Secure Enclave enrol and unlock waits for the team ID.
+- **B4/B5 (release scripts):** deferred until the team ID, since neither can be checked
+  without it.
+
+### Changes to Phases C to H
+
+- **Task 2 (enclosure behaviour and golden parity) is deferred** until data returns.
+- **Task 1** still generates the typed bindings, and the collection table that
+  `LocalSource` lists.
+- **Task 3** view models keep every state. The empty state is tested against
+  `LocalSource`; rows, withheld and refused are tested against the Phase A dataset.
+- **Task 4** adds an empty-state view per screen that names what will appear there.
+  Action controls are present but disabled, with the core's reason.
+- **Task 6** UI flows: sign in, visit every screen, see its empty state, and see that a
+  disabled action explains why. The screens join `AccessibilityAudit.screens`.
+- **Heimdall map:** MapKit with no tracks; the offline coastline is deferred with the data.
+- **After Phase H:** H1 (accessibility) and H4 (records) stay; H2 (offline and conflict)
+  waits for data; H3 (release builds) waits for the team ID.
