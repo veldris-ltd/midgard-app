@@ -62,7 +62,9 @@ public struct AppEnvironment {
     /// `<release>.mgdemo`, which must be there: `ClientError.NotFound` otherwise). Any
     /// other value, or none, is `Failure.misconfigured`.
     public static func dataSourceChoice(in bundle: Bundle) throws -> DataSourceChoice {
-        switch bundle.object(forInfoDictionaryKey: dataSourceKey) as? String {
+        // The raw Info.plist value: `object(forInfoDictionaryKey:)` may return a
+        // localised one.
+        switch bundle.infoDictionary?[dataSourceKey] as? String {
         case "none"?:
             return .none
         case "bundled"?:

@@ -72,6 +72,41 @@ fn a_grant_from_another_source_is_not_honoured() {
 }
 
 #[test]
+fn a_grant_named_local_at_another_clearance_is_not_honoured() {
+    // Another source may define a persona `local` at a higher clearance; its grant
+    // carries that clearance and is refused here, not read as this source's `local`.
+    let body = r#"{"collections":{},
+     "personas":[{"id":"local","display":"Local user","role":"operator","clearance":"confidential","compartments":["OPS-N"],"roles":[]}],
+     "format":"midgard-demo-dataset","version":1,"release":"test","inputs":{}}"#;
+    let demo =
+        DemoEnclosure::from_body("test", &parse(body).unwrap(), &TrustAnchors::new()).unwrap();
+    let higher = demo.grant("local").unwrap();
+    let mut s = LocalSource::new();
+    assert_ne!(higher, s.grant("local").unwrap());
+    assert_eq!(
+        s.fetch(&higher, "any").unwrap_err(),
+        SourceError::UnknownPersona("local".into())
+    );
+    assert_eq!(
+        s.exchange(&higher, &[]).unwrap_err(),
+        SourceError::UnknownPersona("local".into())
+    );
+    // The same id at `open` with no compartments is this source's own grant.
+    let same = body
+        .replace(r#""confidential""#, r#""open""#)
+        .replace(r#"["OPS-N"]"#, "[]");
+    let demo =
+        DemoEnclosure::from_body("test", &parse(&same).unwrap(), &TrustAnchors::new()).unwrap();
+    let g = demo.grant("local").unwrap();
+    assert_eq!(s.exchange(&g, &[]).unwrap(), Vec::<Vec<u8>>::new());
+}
+
+#[test]
+fn it_takes_no_actions() {
+    assert!(!LocalSource::new().takes_actions());
+}
+
+#[test]
 fn every_listed_collection_is_empty_and_an_unlisted_one_is_unknown() {
     let s = LocalSource::new();
     let g = s.grant("local").unwrap();

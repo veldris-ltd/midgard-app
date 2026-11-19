@@ -1121,7 +1121,14 @@ impl<K: Keystore + TrustRoot, S: DataSource> Session<K, S> {
         file: &[u8],
         min_generation: u64,
     ) -> Result<ImportReport, SessionError> {
-        match self.core.import_state(file, min_generation) {
+        // A source that takes no actions would refuse every queued op: drop them.
+        // `[FR-C-4]` `[FR-C-5]`
+        let imported = if self.source.takes_actions() {
+            self.core.import_state(file, min_generation)
+        } else {
+            self.core.import_state_without_queue(file, min_generation)
+        };
+        match imported {
             Ok(report) => {
                 self.load_record();
                 Ok(report)

@@ -68,14 +68,13 @@ public final class AppModel: ObservableObject {
 
     public func start(_ env: AppEnvironment) async {
         do {
+            // The banner follows the client, never the request: a bundled dataset that
+            // is missing or fails its signature check claims no source. [AC-C-13]
+            dataSourceKind = nil
             let datasetPath: String?
             switch env.dataSource {
-            case .none:
-                datasetPath = nil
-                dataSourceKind = DataSourceKind.none
-            case let .bundled(url):
-                datasetPath = url.path
-                dataSourceKind = .demo
+            case .none: datasetPath = nil
+            case let .bundled(url): datasetPath = url.path
             }
             let config = ClientConfig(datasetPath: datasetPath, replicaId: env.replicaId, device: env.device)
             let gateway = try await Self.open(env: env, config: config)

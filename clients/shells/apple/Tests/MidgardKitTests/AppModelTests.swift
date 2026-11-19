@@ -103,7 +103,7 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.phase, .unlocked(local))
         let id = await model.requestAction(ActionInput(verb: "demo.ping", target: "midgard.audit/AUD-1", params: []))
         XCTAssertNil(id)
-        XCTAssertEqual(model.message, ErrorText.describe(ClientError.Refused(reason: "no data source connected")))
+        XCTAssertEqual(model.message, "Not available: no data source connected.")
         XCTAssertEqual(model.chips?.sync.pending, 0, "nothing is queued")
         await model.setOffline(true)
         XCTAssertEqual(model.chipsPresentation?.sync.text, "OFFLINE · 0 QUEUED")
@@ -363,6 +363,19 @@ final class AppModelTests: XCTestCase {
         let model = AppModel()
         await model.start(env)
         guard case .failed = model.phase else { return XCTFail("\(model.phase)") }
+        XCTAssertNil(model.banner, "no source was opened, so none is claimed")
+    }
+
+    func testATamperedBundledDatasetFailsWithNoBanner() async throws {
+        var bytes = try Data(contentsOf: releaseDataset())
+        bytes[bytes.count / 2] ^= 1
+        let tampered = dir.appendingPathComponent("tampered.mgdemo")
+        try bytes.write(to: tampered)
+        let model = AppModel()
+        await model.start(environment(dataSource: .bundled(tampered)))
+        XCTAssertEqual(model.phase, .failed(ErrorText.describe(ClientError.SignatureFailure(detail: ""))))
+        XCTAssertNil(model.banner, "the demonstration banner is not shown for data that did not verify")
+        XCTAssertNil(model.dataSourceKind)
     }
 
     func testIdleExpiryLocksAndSaves() async throws {

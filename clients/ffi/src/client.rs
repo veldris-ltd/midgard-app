@@ -323,6 +323,13 @@ impl DataSource for Source {
         }
     }
 
+    fn takes_actions(&self) -> bool {
+        match self {
+            Source::Demo(s) => s.takes_actions(),
+            Source::Local(s) => s.takes_actions(),
+        }
+    }
+
     fn online(&self) -> bool {
         match self {
             Source::Demo(s) => s.online(),
@@ -889,6 +896,66 @@ mod tests {
         let report = b.import_state(saved.file, saved.generation).unwrap();
         assert!(report.pending_dropped);
         assert_eq!(b.status_chips().unwrap().sync.pending, 0);
+    }
+
+    fn local_client() -> MidgardClient {
+        MidgardClient {
+            config: ClientConfig {
+                dataset_path: None,
+                ..config()
+            },
+            key_root: Arc::new(Plain),
+            personas: LocalSource::new().personas(),
+            collections: LocalSource::new().collections(),
+            state: Mutex::new(State::Locked(Box::new(Source::Local(LocalSource::new())))),
+        }
+    }
+
+    /// A state file for persona `local` that carries an unsent action (made over a
+    /// dataset that defines `local` at `open`) imports with nothing queued in local
+    /// mode: no op could ever drain there. The demo keeps it. [FR-C-4] [FR-C-5]
+    #[test]
+    fn local_mode_drops_unsent_actions_on_import() {
+        let body = BODY
+            .replace(
+                r#"{"id":"k.rao","display":"K. Rao","role":"analyst","clearance":"restricted","compartments":[],"roles":["analyst"]}"#,
+                r#"{"id":"local","display":"Local user","role":"operator","clearance":"open","compartments":[],"roles":[]}"#,
+            )
+            .replace(
+                r#"{"id":"AUD-1","marking":{"level":"internal""#,
+                r#"{"id":"AUD-1","marking":{"level":"open""#,
+            );
+        assert!(body.contains(r#""id":"local""#) && body.contains(r#""level":"open""#));
+        let demo = client_over(&body);
+        let keys = demo.enrol().unwrap();
+        demo.unlock(keys.clone(), "local".into()).unwrap();
+        demo.collection_rows("midgard.audit".into()).unwrap();
+        demo.set_offline(true).unwrap();
+        demo.request_action(ActionInput {
+            verb: "demo.ping".into(),
+            target: "midgard.audit/AUD-1".into(),
+            params: vec![],
+        })
+        .unwrap();
+        let saved = demo.export_state().unwrap();
+
+        // The demo requeues it.
+        let again = client_over(&body);
+        again.unlock(keys.clone(), "local".into()).unwrap();
+        let r = again
+            .import_state(saved.file.clone(), saved.generation)
+            .unwrap();
+        assert!(!r.pending_dropped);
+        assert_eq!(again.status_chips().unwrap().sync.pending, 4);
+
+        // Local mode drops it, and says so.
+        let local = local_client();
+        local.unlock(keys, "local".into()).unwrap();
+        let r = local.import_state(saved.file, saved.generation).unwrap();
+        assert!(r.pending_dropped);
+        assert_eq!(local.status_chips().unwrap().sync.pending, 0);
+        let report = local.sync_now().unwrap();
+        assert_eq!((report.pushed, report.merged), (0, 0));
     }
 
     #[test]

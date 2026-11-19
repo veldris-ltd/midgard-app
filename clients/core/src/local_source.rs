@@ -40,6 +40,17 @@ impl LocalSource {
         Self { online: true }
     }
 
+    /// A grant is honoured only if it is exactly this source's own `local` grant
+    /// (persona and clearance): a grant another source made for an id `local` at a
+    /// higher clearance is refused, never read as this one. `[AC-C-13]`
+    fn honour(&self, grant: &Grant) -> Result<(), SourceError> {
+        let id = &grant.persona().id;
+        match self.grant(id) {
+            Ok(own) if own == *grant => Ok(()),
+            _ => Err(SourceError::UnknownPersona(id.clone())),
+        }
+    }
+
     fn persona() -> Persona {
         Persona {
             id: LOCAL_PERSONA.into(),
@@ -77,9 +88,7 @@ impl DataSource for LocalSource {
         if !self.online {
             return Err(SourceError::Offline);
         }
-        // As every source does: a grant is honoured only for a persona this source
-        // knows.
-        self.grant(&grant.persona().id)?;
+        self.honour(grant)?;
         if LOCAL_COLLECTIONS.iter().any(|(n, _)| *n == collection) {
             Ok(Vec::new())
         } else {
@@ -91,13 +100,17 @@ impl DataSource for LocalSource {
         if !self.online {
             return Err(SourceError::Offline);
         }
-        self.grant(&grant.persona().id)?;
+        self.honour(grant)?;
         // Nothing is decoded or kept: there is nothing to apply an action to.
         if ops.is_empty() {
             Ok(Vec::new())
         } else {
             Err(SourceError::NoSource)
         }
+    }
+
+    fn takes_actions(&self) -> bool {
+        false
     }
 
     fn online(&self) -> bool {

@@ -278,6 +278,27 @@ impl<K: Keystore + TrustRoot> ClientCore<K> {
         file: &[u8],
         min_generation: u64,
     ) -> Result<ImportReport, CoreError> {
+        self.import(file, min_generation, true)
+    }
+
+    /// [`import_state`](Self::import_state) for a session whose source takes no
+    /// actions (no data source connected): the pending queue in the file is not
+    /// requeued, since no op could ever drain, and the report says it was dropped.
+    /// `[FR-C-4]` `[FR-C-5]`
+    pub(crate) fn import_state_without_queue(
+        &mut self,
+        file: &[u8],
+        min_generation: u64,
+    ) -> Result<ImportReport, CoreError> {
+        self.import(file, min_generation, false)
+    }
+
+    fn import(
+        &mut self,
+        file: &[u8],
+        min_generation: u64,
+        requeue: bool,
+    ) -> Result<ImportReport, CoreError> {
         let imported = match self.store.import_sealed(file, min_generation) {
             Ok(i) => i,
             Err(e) => {
@@ -306,15 +327,19 @@ impl<K: Keystore + TrustRoot> ClientCore<K> {
             self.replica.observe(lamport);
             self.next_action = self.next_action.max(next_action);
         }
-        self.replica.requeue(ops);
+        let unqueued = !requeue && !ops.is_empty();
+        if requeue {
+            self.replica.requeue(ops);
+        }
         let reserved = imported.dropped_reserved.len();
         Ok(ImportReport {
             kept: imported.kept - sys,
             dropped: imported.dropped - reserved,
-            pending_dropped: imported
-                .dropped_reserved
-                .iter()
-                .any(|k| k == PENDING_OBJECT),
+            pending_dropped: unqueued
+                || imported
+                    .dropped_reserved
+                    .iter()
+                    .any(|k| k == PENDING_OBJECT),
             generation: imported.generation,
         })
     }

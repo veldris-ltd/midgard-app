@@ -205,6 +205,13 @@ pub trait DataSource {
     fn online(&self) -> bool;
     /// Simulate (demo) or record (gateway) reachability.
     fn set_online(&mut self, online: bool);
+    /// Whether this source can take actions at all. A source that cannot (no data
+    /// source connected, [`crate::local_source`]) refuses every pushed op, so the
+    /// session drops unsent actions on a state import instead of queueing ops that
+    /// could never drain. `[FR-C-4]` `[FR-C-5]`
+    fn takes_actions(&self) -> bool {
+        true
+    }
     /// The [`VerifiedDigest`] of audit row `collection/id`, if this source checked
     /// it inside the core and `grant` may see it. Called only by the session, with a
     /// [`Seal`] nothing outside the crate can make. The default, and the only answer

@@ -97,7 +97,7 @@ public enum ErrorText {
         case .KeyRootUnavailable: return "This device's key is not available. Check Face ID, Touch ID or the passcode."
         case .SealedRootMalformed: return "The saved keys are damaged. Reset the demo to start again."
         case .UnsealFailed: return "This device's key could not open the saved keys. Reset the demo to start again."
-        case .Refused: return "Not available: no data source connected."
+        case let .Refused(reason): return "Not available: \(reason)."
         case .NotFound: return "The demo data is missing from the app."
         case .Internal: return "Something went wrong on this device. Try again."
         }
