@@ -1,0 +1,6 @@
+{% if xcframework %}framework {%endif %}module {{ module_name }} {
+    {%- for filename in header_filenames %}
+    header "{{ filename }}"
+    {%- endfor %}
+    export *
+}

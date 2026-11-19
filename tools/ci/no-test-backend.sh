@@ -12,6 +12,12 @@
 # `test-backend` on, in any crypto crate. A crate's own dev-dependencies (which
 # enable it for `cargo test`) are not part of that graph, so they are allowed.
 #
+# The same graph must never turn on `midgard-client-core`'s `demo-unpinned` feature,
+# which opens a demo dataset under caller-chosen anchors or loads an unsigned body:
+# only the crate's own tests use it (through a dev-dependency on itself), and a
+# shipped app opens the bundled dataset with `DemoEnclosure::open_pinned` alone.
+# [AC-C-13] [NFR-PQ-3]
+#
 # The graph comes from `cargo tree`, offline, so this runs in the toolchain image
 # after `just build-rust`. MIDGARD_CARGO_TREE names a file to read instead, for the
 # self-test (tools/ci/tests/no-test-backend.test.sh).
@@ -42,8 +48,18 @@ if [ -n "$offending" ]; then
     done
     exit 1
 fi
+unpinned="$(printf '%s\n' "$tree" | grep -E '^[a-z0-9_-]+ feature "demo-unpinned"' | sort -u)"
+if [ -n "$unpinned" ]; then
+    ci_error "no-test-backend: the release build graph enables the unpinned demo-dataset entry points"
+    printf '%s\n' "$unpinned" | while read -r line; do
+        crate="${line%% feature*}"
+        echo "  $line — see what enables it with:" >&2
+        echo "    cargo tree --workspace -e normal,build,features -i $crate" >&2
+    done
+    exit 1
+fi
 if ! printf '%s\n' "$tree" | grep -qE '^pqc-agility feature "backend-fips"'; then
     ci_error "no-test-backend: the release build graph does not select backend-fips at all"
     exit 1
 fi
-echo "no-test-backend: the release build graph selects backend-fips and never test-backend"
+echo "no-test-backend: the release build graph selects backend-fips and never test-backend or demo-unpinned"

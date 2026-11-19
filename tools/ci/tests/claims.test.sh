@@ -17,6 +17,14 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 failures=0
 
+# sed_i SCRIPT FILE...: edit files in place with GNU and BSD sed alike. BSD sed (macOS)
+# reads the word after `-i` as a backup suffix, so `sed -i EXPR FILE` fails there.
+sed_i() {
+    local expr="$1" f
+    shift
+    for f in "$@"; do sed "$expr" "$f" > "$f.sed-i" && mv "$f.sed-i" "$f" || return 1; done
+}
+
 pass() { echo "ok    $1"; }
 fail() {
     echo "FAIL  $1"
@@ -70,7 +78,7 @@ rendered() { run "$1" --render >/dev/null; }
 
 # edit ROOT SED-EXPRESSION: change the ledger, and render so only the change is at fault
 edit() {
-    sed -i "$2" "$1/docs/compliance/claims.toml"
+    sed_i "$2" "$1/docs/compliance/claims.toml"
     rendered "$1"
 }
 
@@ -151,7 +159,8 @@ edit "$root" 's#tests = \["services/edge/tests/serve.rs::it_serves"\]#tests = ["
 expect_fail "a test that does not exist fails" "$root" "it_flies is not a #[test] function"
 
 root="$(tree helper)"
-edit "$root" '0,/::it_serves/s//::helper/'
+# The first ::it_serves only (`0,/re/` is GNU-only; line 1 of the ledger is a comment).
+edit "$root" '1,/::it_serves/s/::it_serves/::helper/'
 expect_fail "a function that is not a test does not count as one" "$root" "helper is not a #[test] function"
 
 root="$(tree criterion)"
@@ -172,7 +181,7 @@ edit "$root" '/^fallback/d'
 expect_fail "a row below operable without fallback wording fails" "$root" "needs \"fallback\""
 
 root="$(tree untested-library)"
-edit "$root" '/^status = "reference"/{n;d}'
+edit "$root" '/^status = "reference"/{n;d;}'
 expect_fail "a reference row with no test fails" "$root" "must name the test that exercises the library"
 
 root="$(tree status)"
@@ -203,7 +212,10 @@ expect_fail "an external tool named in the code fails" "$root" "the name occurs 
 
 root="$(tree overstated)"
 printf '# Edge\nThe edge routes between regions today.\n' > "$root/README.md"
-sed -i 's#^milestone = "A service uses it."#milestone = "A service uses it."\noverstated_in = ["README.md:2"]#' \
+# A backslash-newline (BSD sed does not read `\n` in a replacement) adds the line on
+# GNU and BSD sed alike.
+sed_i 's#^milestone = "A service uses it."#milestone = "A service uses it."\
+overstated_in = ["README.md:2"]#' \
     "$root/docs/compliance/claims.toml"
 rendered "$root"
 if out="$(run "$root" --check)" && grep -q '1 place(s) still word' <<<"$out"; then

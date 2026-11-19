@@ -23,6 +23,17 @@ pub enum StoreError {
     NotFound,
     /// An at-rest seal/unseal failed (tamper, wrong root, suite mismatch).
     Kms(kms::KmsError),
+    /// An exported cache file opened but its contents are malformed (structure or
+    /// format version). Nothing was loaded.
+    Malformed(String),
+    /// An exported cache file older than the newest one the caller has seen (a
+    /// rollback). Nothing was loaded.
+    Stale {
+        /// The file's generation.
+        found: u64,
+        /// The lowest generation the caller accepts.
+        min: u64,
+    },
 }
 
 impl fmt::Display for StoreError {
@@ -38,6 +49,11 @@ impl fmt::Display for StoreError {
             }
             StoreError::NotFound => write!(f, "object not cached"),
             StoreError::Kms(e) => write!(f, "at-rest seal/unseal failed: {e}"),
+            StoreError::Malformed(d) => write!(f, "cache file malformed: {d}"),
+            StoreError::Stale { found, min } => write!(
+                f,
+                "cache file generation {found} is older than {min}: refused as a rollback"
+            ),
         }
     }
 }

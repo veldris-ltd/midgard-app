@@ -143,6 +143,7 @@ lint:
     cargo clippy -p heimdall-picture -p heimdall-classify -p heimdall-decision-support -p heimdall-feed-gateway -p heimdall-feed-server -p heimdall-fusion -p heimdall-picture-sync -p heimdall-workflow --features backend-fips --all-targets -- -D warnings
     cargo clippy -p admin-identity -p admin-privilege -p admin-sim -p admin-config -p admin-breakglass -p admin-audit -p admin-ai-assist -p admin-service-identity --features backend-fips --all-targets -- -D warnings
     cargo clippy -p midgard-client-sync -p midgard-client-keystore -p midgard-client-store -p midgard-client-broker -p midgard-client-delivery -p midgard-client-core --features backend-fips --all-targets -- -D warnings
+    cargo clippy -p midgard-client-ffi --features backend-fips --all-targets -- -D warnings
     cargo clippy -p midgard-client-enclosure -p midgard-client-inference --features test-backend --all-targets -- -D warnings
     cargo clippy -p telemetry --all-targets -- -D warnings
     cargo clippy -p heimdall-store -p mimir-bridge -p admin-orchestrator -p mg-model --features backend-fips --all-targets -- -D warnings
@@ -263,6 +264,7 @@ test:
     cargo test -p midgard-client-broker
     cargo test -p midgard-client-delivery --features backend-fips
     cargo test -p midgard-client-core --features backend-fips
+    cargo test -p midgard-client-ffi --features backend-fips
     cargo test -p attest
     cargo test -p attest --no-default-features --features backend-fips
     cargo test -p mg-sign -p mg-sbom -p mg-scan -p mg-verify -p mg-repro
@@ -313,6 +315,23 @@ verify-admin:
 # AC-H-7 (air-gap).
 verify-heimdall:
     bash deploy/acceptance/verify-heimdall.sh
+
+# Build and sign the demo dataset for this release (Apple clients; Task A7 of
+# docs/plans/2026-11-13-apple-clients-plan.md). Needs the demo key from
+# clients/demo/tools/demo-key.sh (dataset) and the demo-audit key from
+# `demo-key.sh audit`. [AC-C-13] [NFR-PQ-3]
+demo-dataset:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    release="$(bash tools/ci/release-artefacts.sh --version)"
+    dir="${MIDGARD_DEMO_KEY_DIR:-$HOME/.midgard/demo-keys}"
+    bash clients/demo/tools/extract-fixtures.sh --check
+    cargo run --offline --locked -q -p midgard-client-core --features backend-fips --example build_demo_dataset -- \
+        --fixtures "clients/demo/fixtures/$release" --tag "v$release" \
+        --keystore "$dir/demo-dataset.keystore" --keystore-passphrase-file "$dir/passphrase" \
+        --anchors clients/demo/trust/demo-dataset.pub \
+        --audit-keystore "$dir/demo-audit.keystore" --audit-anchors clients/demo/trust/demo-audit.pub \
+        --out "clients/demo/datasets/$release.mgdemo"
 
 # Client Platforms acceptance verification. Prompt 8.b lands the shared-core
 # subset of the Phase-8 Definition of Done: AC-C-1,2,3,4,13 (one core, at-rest

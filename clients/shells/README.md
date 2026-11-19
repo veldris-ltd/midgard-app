@@ -8,12 +8,19 @@ No shell implements cryptography, key handling, or sync-merge logic (**KDD-1**).
 
 | Shell | Technology | Consumes core via | Delivery targets |
 |---|---|---|---|
-| [`apple`](apple/) | Swift / SwiftUI | UniFFI (Swift) | iOS (App Store), macOS (DMG/App Store) |
+| [`apple`](apple/) | Swift / SwiftUI | UniFFI (Swift), [`clients/ffi`](../ffi/) | iOS (App Store), macOS (DMG/App Store) |
 | [`android`](android/) | Kotlin / Jetpack Compose | UniFFI (Kotlin) | Android (Play + APK) |
 | [`linux-gtk`](linux-gtk/) | Rust / GTK4 | native link | Linux mobile + desktop (Flatpak/AUR) |
 | [`desktop-tauri`](desktop-tauri/) | Tauri 2.x + SvelteKit | native link + IPC | Windows (MSI), macOS, Linux desktop |
 | [`web`](web/) | SvelteKit + WASM | wasm-bindgen | Enclosure-hosted browser app |
 | [`extension`](extension/) | Minimal TS + WASM | wasm-bindgen + broker | Chrome / Firefox stores |
+
+**Status.** `apple`: the UniFFI binding (`clients/ffi`), the XCFramework build and the
+shared Swift package `MidgardKit` are built and tested on a Mac
+([`SHELL_BUILD.md`](SHELL_BUILD.md#apple-built)); the macOS and iOS apps are not
+built yet and no Apple audit has been recorded. The other five shells have no app
+project yet (their `manifest.toml` and `accessibility.toml`, and the web-family audit
+harness in `web/a11y/`).
 
 ## What is verifiable here, and what is not
 

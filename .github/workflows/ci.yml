@@ -36,6 +36,15 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      # selftest runs the client fixture and read-model tests, whose scripts run
+      # TypeScript with --experimental-strip-types: node 22.6 or later, and the
+      # workspace needs 22.12 (package.json engines). The runner's default node is
+      # older, and a test fails rather than skip on an old node. Node 22, as the
+      # release workflow's js-build step pins it (and for the same corepack reason).
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
       - run: bash tools/ci/run.sh selftest
       # GitLab publishes the toolchain image its merge-request jobs run in; GitHub builds
       # it per run, so here this only says so.

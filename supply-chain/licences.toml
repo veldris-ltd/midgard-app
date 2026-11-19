@@ -51,4 +51,53 @@
 #   reason  = "<why this is acceptable, and what would change it>"
 #   expires = "YYYY-MM-DD"
 #
-# (empty)
+# The eight UniFFI 0.28.3 crates (MPL-2.0): mg-sbom lists the whole Cargo.lock in
+# every release binary's SBOM, so without these every release binary's scan fails.
+
+[exceptions."uniffi"]
+licence = "MPL-2.0"
+owner   = "phillips1707"
+reason  = "UniFFI generates the Swift bindings the Apple shell links (SAD_06 KDD-1, DD-6). MPL-2.0 is file-level copyleft: the UniFFI files are used unmodified from vendor/ and their source stays available there; no Midgard file becomes MPL, except the generated Swift bindings, which are kept unmodified (and named in the apps' acknowledgements with a link to the UniFFI source). Approved by the owner on 2026-11-16 (docs/plans/2026-11-13-apple-clients-plan.md, Owner decisions, 1). Revisit if a UniFFI file is modified or the shells move to another binding."
+expires = "2027-05-13"
+
+[exceptions."uniffi_bindgen"]
+licence = "MPL-2.0"
+owner   = "phillips1707"
+reason  = "UniFFI generates the Swift bindings the Apple shell links (SAD_06 KDD-1, DD-6). MPL-2.0 is file-level copyleft: the UniFFI files are used unmodified from vendor/ and their source stays available there; no Midgard file becomes MPL, except the generated Swift bindings, which are kept unmodified (and named in the apps' acknowledgements with a link to the UniFFI source). Approved by the owner on 2026-11-16 (docs/plans/2026-11-13-apple-clients-plan.md, Owner decisions, 1). Revisit if a UniFFI file is modified or the shells move to another binding."
+expires = "2027-05-13"
+
+[exceptions."uniffi_checksum_derive"]
+licence = "MPL-2.0"
+owner   = "phillips1707"
+reason  = "UniFFI generates the Swift bindings the Apple shell links (SAD_06 KDD-1, DD-6). MPL-2.0 is file-level copyleft: the UniFFI files are used unmodified from vendor/ and their source stays available there; no Midgard file becomes MPL, except the generated Swift bindings, which are kept unmodified (and named in the apps' acknowledgements with a link to the UniFFI source). Approved by the owner on 2026-11-16 (docs/plans/2026-11-13-apple-clients-plan.md, Owner decisions, 1). Revisit if a UniFFI file is modified or the shells move to another binding."
+expires = "2027-05-13"
+
+[exceptions."uniffi_core"]
+licence = "MPL-2.0"
+owner   = "phillips1707"
+reason  = "UniFFI generates the Swift bindings the Apple shell links (SAD_06 KDD-1, DD-6). MPL-2.0 is file-level copyleft: the UniFFI files are used unmodified from vendor/ and their source stays available there; no Midgard file becomes MPL, except the generated Swift bindings, which are kept unmodified (and named in the apps' acknowledgements with a link to the UniFFI source). Approved by the owner on 2026-11-16 (docs/plans/2026-11-13-apple-clients-plan.md, Owner decisions, 1). Revisit if a UniFFI file is modified or the shells move to another binding."
+expires = "2027-05-13"
+
+[exceptions."uniffi_macros"]
+licence = "MPL-2.0"
+owner   = "phillips1707"
+reason  = "UniFFI generates the Swift bindings the Apple shell links (SAD_06 KDD-1, DD-6). MPL-2.0 is file-level copyleft: the UniFFI files are used unmodified from vendor/ and their source stays available there; no Midgard file becomes MPL, except the generated Swift bindings, which are kept unmodified (and named in the apps' acknowledgements with a link to the UniFFI source). Approved by the owner on 2026-11-16 (docs/plans/2026-11-13-apple-clients-plan.md, Owner decisions, 1). Revisit if a UniFFI file is modified or the shells move to another binding."
+expires = "2027-05-13"
+
+[exceptions."uniffi_meta"]
+licence = "MPL-2.0"
+owner   = "phillips1707"
+reason  = "UniFFI generates the Swift bindings the Apple shell links (SAD_06 KDD-1, DD-6). MPL-2.0 is file-level copyleft: the UniFFI files are used unmodified from vendor/ and their source stays available there; no Midgard file becomes MPL, except the generated Swift bindings, which are kept unmodified (and named in the apps' acknowledgements with a link to the UniFFI source). Approved by the owner on 2026-11-16 (docs/plans/2026-11-13-apple-clients-plan.md, Owner decisions, 1). Revisit if a UniFFI file is modified or the shells move to another binding."
+expires = "2027-05-13"
+
+[exceptions."uniffi_testing"]
+licence = "MPL-2.0"
+owner   = "phillips1707"
+reason  = "UniFFI generates the Swift bindings the Apple shell links (SAD_06 KDD-1, DD-6). MPL-2.0 is file-level copyleft: the UniFFI files are used unmodified from vendor/ and their source stays available there; no Midgard file becomes MPL, except the generated Swift bindings, which are kept unmodified (and named in the apps' acknowledgements with a link to the UniFFI source). Approved by the owner on 2026-11-16 (docs/plans/2026-11-13-apple-clients-plan.md, Owner decisions, 1). Revisit if a UniFFI file is modified or the shells move to another binding."
+expires = "2027-05-13"
+
+[exceptions."uniffi_udl"]
+licence = "MPL-2.0"
+owner   = "phillips1707"
+reason  = "UniFFI generates the Swift bindings the Apple shell links (SAD_06 KDD-1, DD-6). MPL-2.0 is file-level copyleft: the UniFFI files are used unmodified from vendor/ and their source stays available there; no Midgard file becomes MPL, except the generated Swift bindings, which are kept unmodified (and named in the apps' acknowledgements with a link to the UniFFI source). Approved by the owner on 2026-11-16 (docs/plans/2026-11-13-apple-clients-plan.md, Owner decisions, 1). Revisit if a UniFFI file is modified or the shells move to another binding."
+expires = "2027-05-13"

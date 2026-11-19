@@ -10,7 +10,10 @@
 #
 # Fails closed if any shell lacks a record for <release>, if a record carries a
 # placeholder runner/device/tool, if it is not `overall = "pass"`, or if any
-# affordance the shell DECLARES is not MEASURED `pass` in the record.
+# affordance the shell DECLARES is not MEASURED `pass` in the record. A record is
+# refused when it is committed to the tree (records reach the gate as the audit jobs'
+# artifacts, never through git), and in CI when the commit it audited is neither the
+# commit being gated nor an ancestor of it (outside CI that is a warning).
 #
 # A PRE-RELEASE only (a version with a `-` suffix, e.g. 0.1.0-rc.1) may be waived by
 # a line in clients/shells/audit-waivers.txt naming that exact version, who approved
@@ -77,6 +80,24 @@ for shell in "${SHELLS[@]}"; do
     done
     [ "$rel" = "$release" ] || { echo "  $shell: record's release '$rel' != $release"; fail=$((fail + 1)); }
     [ "$overall" = "pass" ] || { echo "  $shell: overall = '$overall' (must be 'pass')"; fail=$((fail + 1)); }
+
+    # Where the record came from: never from the tree, and in CI from this history.
+    if git ls-files --error-unmatch -- "$rec" >/dev/null 2>&1; then
+        echo "  $shell: $rec is committed to the tree; records come from the audit jobs, never from git"
+        fail=$((fail + 1))
+    fi
+    commit="$(field "$rec" commit)"
+    gated="${GITHUB_SHA:-${CI_COMMIT_SHA:-$(git rev-parse HEAD 2>/dev/null || true)}}"
+    if [ -n "$commit" ] && [ "$commit" = "$gated" ]; then
+        :
+    elif [ -n "$commit" ] && [ -n "$gated" ] && git merge-base --is-ancestor "$commit" "$gated" 2>/dev/null; then
+        :
+    elif [ -n "${CI:-}" ]; then
+        echo "  $shell: the audited commit '${commit:-<absent>}' is not the gated commit or an ancestor of ${gated:-<unknown>}"
+        fail=$((fail + 1))
+    else
+        echo "  warning: $shell: the audited commit '${commit:-<absent>}' is not the checked-out commit or an ancestor (checked in CI)"
+    fi
 
     # Every affordance the shell DECLARES conformant must be MEASURED `pass` here.
     declared=$(grep -oE '^[a-z_]+[[:space:]]*=[[:space:]]*"conformant"' "$acc" | sed -E 's/[[:space:]]*=.*//')
