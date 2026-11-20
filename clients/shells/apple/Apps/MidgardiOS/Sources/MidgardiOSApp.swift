@@ -27,6 +27,13 @@ struct MidgardiOSApp: App {
 /// responder chain: UIKit offers a key press to the first responder and everything
 /// after it, so the commands fire whatever holds focus (the search field being edited
 /// as well) and with no first responder at all. [FR-C-1] [RC-49]
+///
+/// This relies on undocumented behaviour: with `@UIApplicationDelegateAdaptor`, the
+/// application's delegate is SwiftUI's own, which forwards the actions it does not
+/// handle (here `selectConsole(_:)` and `canPerformAction(_:withSender:)`) to this
+/// object. Should a SwiftUI release stop forwarding them, ⌘1…⌘6 would do nothing:
+/// `SessionFlowTests.testCommandDigitsWorkWhileSearching` presses ⌘2 while the search
+/// field is being edited and fails if that happens.
 @MainActor
 final class AppDelegate: UIResponder, UIApplicationDelegate {
     let model = AppModel()

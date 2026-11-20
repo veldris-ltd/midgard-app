@@ -120,7 +120,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = AA7610F122D26F6AD5DD3EC0 /* Build configuration list for PBXNativeTarget "MidgardiOS" */;
 			buildPhases = (
-				08B3737C62B8D9CBF8E245F5 /* Refuse a Release build without a team */,
+				51F1CC0F8CD8CAA77D2C8EA6 /* Refuse a non-Debug build without a team */,
 				7CD56F52584CFDBDD88F5A9A /* Ensure MidgardCoreFFI.xcframework */,
 				9B25729A994844F7D7AEA9FD /* Sources */,
 				69B0A72A86F28FA5B1F19174 /* Frameworks */,
@@ -201,7 +201,7 @@
 /* End PBXProject section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		08B3737C62B8D9CBF8E245F5 /* Refuse a Release build without a team */ = {
+		51F1CC0F8CD8CAA77D2C8EA6 /* Refuse a non-Debug build without a team */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -211,14 +211,14 @@
 			);
 			inputPaths = (
 			);
-			name = "Refuse a Release build without a team";
+			name = "Refuse a non-Debug build without a team";
 			outputFileListPaths = (
 			);
 			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "if [ \"${CONFIGURATION}\" = \"Release\" ] && [ -z \"${MIDGARD_TEAM_ID}\" ] \\\n    && [ \"${MIDGARD_ALLOW_ADHOC_RELEASE}\" != \"YES\" ]; then\n    echo \"error: Release build without a team: set MIDGARD_TEAM_ID in Config/Signing.local.xcconfig, or pass MIDGARD_ALLOW_ADHOC_RELEASE=YES for an ad-hoc Release build that cannot keep keys.\"\n    exit 1\nfi\n";
+			shellScript = "if [ \"${CONFIGURATION}\" != \"Debug\" ] && [ -z \"${MIDGARD_TEAM_ID}\" ] \\\n    && [ \"${MIDGARD_ALLOW_ADHOC_RELEASE}\" != \"YES\" ]; then\n    echo \"error: ${CONFIGURATION} build without a team: only Debug builds without one. Set MIDGARD_TEAM_ID in Config/Signing.local.xcconfig, or pass MIDGARD_ALLOW_ADHOC_RELEASE=YES for an ad-hoc ${CONFIGURATION} build that cannot keep keys.\"\n    exit 1\nfi\n";
 		};
 		7CD56F52584CFDBDD88F5A9A /* Ensure MidgardCoreFFI.xcframework */ = {
 			isa = PBXShellScriptBuildPhase;
