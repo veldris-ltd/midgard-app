@@ -47,7 +47,12 @@ if [ -n "$hooks" ]; then
 fi
 
 # The devices audited, for the record: the simulator with its runtime, and this Mac.
-sim="${MIDGARD_AUDIT_SIMULATOR:-iPhone 16}"
+# iPhone 17 by default (the B3 runs); MIDGARD_AUDIT_SIMULATOR names another. iOS's
+# keyboard_navigation needs the simulator's hardware keyboard and Full Keyboard Access;
+# that step is not automated yet: on the iOS 26.3 simulator, turning Full Keyboard
+# Access on made key delivery worse (no Tab or Cmd-digit press reached the app), so the
+# iOS keyboard_navigation test is expected to fail until a working setting is found.
+sim="${MIDGARD_AUDIT_SIMULATOR:-iPhone 17}"
 sims="$(xcrun simctl list devices available)"
 runtime="$(awk -v name="$sim" '
     /^-- / { rt = $0; sub(/^-- /, "", rt); sub(/ --$/, "", rt); next }

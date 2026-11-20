@@ -92,7 +92,7 @@ cat > "$stubs/xcrun" <<'STUB'
 #!/usr/bin/env bash
 if [ "$1" = simctl ]; then
     printf '%s\n' '== Devices ==' '-- iOS 18.5 --' '    iPhone 15 (AAAA) (Shutdown)' '-- iOS 26.2 --' \
-        '    iPhone 16 (BBBB) (Shutdown)' '    iPhone 16 Pro (CCCC) (Shutdown)'
+        '    iPhone 16 (BBBB) (Shutdown)' '    iPhone 16 Pro (CCCC) (Shutdown)' '    iPhone 17 (DDDD) (Shutdown)'
     exit 0
 fi
 while [ $# -gt 0 ] && [ "$1" != --path ]; do shift; done
@@ -184,10 +184,17 @@ if [ -s "$ev-ios.json" ] && [ -s "$ev-mac.json" ] && grep -q '^{"ios":' "$ev.jso
 else
     fail "reports: $(ls "$t/shell-audit" 2>/dev/null)"
 fi
-if [ "$(cat "$ev.device" 2>/dev/null)" = "iPhone 16 simulator (iOS 26.2) + macOS 15.5 (arm64)" ]; then
-    pass "the device sidecar names the simulator, its runtime and the Mac"
+if [ "$(cat "$ev.device" 2>/dev/null)" = "iPhone 17 simulator (iOS 26.2) + macOS 15.5 (arm64)" ]; then
+    pass "the device sidecar names the simulator (iPhone 17 by default), its runtime and the Mac"
 else
     fail "device sidecar: '$(cat "$ev.device" 2>/dev/null)'"
+fi
+t3="$(apps othersim MidgardiOS MidgardMac)"
+run_audit "$t3" MIDGARD_AUDIT_SIMULATOR="iPhone 16"
+if [ "$rc" -eq 0 ] && [ "$(cat "$t3/shell-audit/apple-0.0.0-test.device" 2>/dev/null)" = "iPhone 16 simulator (iOS 26.2) + macOS 15.5 (arm64)" ]; then
+    pass "MIDGARD_AUDIT_SIMULATOR names another simulator"
+else
+    fail "simulator override: rc=$rc '$(cat "$t3/shell-audit/apple-0.0.0-test.device" 2>/dev/null)'"
 fi
 t2="$(apps nosim MidgardiOS MidgardMac)"
 run_audit "$t2" MIDGARD_AUDIT_SIMULATOR="iPhone 99"
@@ -331,7 +338,7 @@ t="$(job_tree job-both MidgardiOS MidgardMac)"
 job "$t" STUB_FAIL_MidgardMac=dynamic_type
 rec="$t/clients/shells/apple/audits/0.0.0-test.toml"
 if [ "$rc" -eq 0 ] && grep -q '^overall *= "pass"' "$rec" 2>/dev/null && [ "$(grep -c '= "pass"$' "$rec")" -eq 8 ] \
-    && grep -q '^device *= "iPhone 16 simulator (iOS 26.2) + macOS 15.5 (arm64)"' "$rec"; then
+    && grep -q '^device *= "iPhone 17 simulator (iOS 26.2) + macOS 15.5 (arm64)"' "$rec"; then
     pass "CI job, both apps measured pass: record says pass for all seven and names both devices"
 else
     fail "CI job, both apps: rc=$rc $(cat "$rec" 2>/dev/null) $(cat "$t/stdout")"

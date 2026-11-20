@@ -3,35 +3,62 @@ import SwiftUI
 
 /// Sign in as one of the demo personas. Signing in prompts for Face ID / Touch ID (or
 /// the passcode) through the key root. [FR-C-9]
+///
+/// Accessibility [RC-49] [AC-C-11]: colours from the design tokens (`MGStyle`), not the
+/// system's secondary grey or the app's accent, so the screen meets AA in every app and
+/// mode; each persona is a bordered button (keyboard-focusable wherever the platform
+/// lets buttons take focus: iOS with Full Keyboard Access, macOS with Keyboard
+/// navigation on) at least 44 pt tall; at accessibility text sizes its clearance goes
+/// under the name instead of beside it, where it was cut off.
 public struct PersonaPickerView: View {
     @ObservedObject var model: AppModel
+    @Environment(\.dynamicTypeSize) private var typeSize
     public init(model: AppModel) { self.model = model }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: MGSpace.s4) {
             Text("Sign in").font(MGFonts.display(.title)).accessibilityAddTraits(.isHeader)
-            Text("Demo personas").font(MGFonts.mono(.caption)).foregroundStyle(.secondary)
+            Text("Demo personas").font(MGFonts.mono(.caption)).foregroundStyle(MGStyle.secondaryText)
             ForEach(Array(model.personas.enumerated()), id: \.element.id) { index, persona in
                 Button {
                     Task { await model.signIn(persona) }
                 } label: {
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(persona.display).font(MGFonts.sans(.body))
-                            Text(persona.role.uppercased()).font(MGFonts.mono(.caption))
-                        }
-                        Spacer()
-                        Text(persona.clearanceLabel).font(MGFonts.mono(.caption2))
-                    }
-                    .frame(minHeight: 44)
-                    .contentShape(Rectangle())
+                    PersonaLabel(persona: persona, stacked: typeSize.isAccessibilitySize)
                 }
+                .buttonStyle(.bordered)
                 .accessibilityLabel(Text("\(persona.display), \(persona.role), clearance \(persona.clearanceLabel)"))
                 .accessibilityIdentifier("mg.\(index).persona.\(persona.id)")
             }
             MessageView(message: model.message)
         }
         .padding(MGSpace.s5)
+        .tint(MGStyle.accent)
+    }
+}
+
+/// A persona button's label: name and role, and the clearance beside them (or under
+/// them when `stacked`). Every line in the token text colour, which meets AA on the
+/// bordered button's fill in both modes on both platforms.
+struct PersonaLabel: View {
+    let persona: PersonaInfo
+    let stacked: Bool
+
+    var body: some View {
+        let layout = stacked
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: MGSpace.s1))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: MGSpace.s3))
+        layout {
+            VStack(alignment: .leading) {
+                Text(persona.display).font(MGFonts.sans(.body))
+                Text(persona.role.uppercased()).font(MGFonts.mono(.caption))
+            }
+            if !stacked { Spacer(minLength: 0) }
+            Text(persona.clearanceLabel).font(MGFonts.mono(.caption2))
+        }
+        .multilineTextAlignment(.leading)
+        .foregroundStyle(MGStyle.text)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .contentShape(Rectangle())
     }
 }
 

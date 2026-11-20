@@ -40,6 +40,8 @@ open class AccessibilityAuditBase: XCTestCase {
         let app = launch(extra)
         for go in list {
             go(app)
+            // Issue handler: true lets the issue pass. Only AuditIssueFilter's rule (an
+            // element outside the app's own UI: the macOS Touch Bar) returns true.
             try app.performAccessibilityAudit(for: types) { issue in
                 let ignored = AuditIssueFilter.ignores(onMac: AuditIssueFilter.isMac, elementType: issue.element?.elementType)
                 if ignored { print("audit: ignored on macOS, Touch Bar element: \(issue.compactDescription)") }
@@ -151,7 +153,11 @@ open class AccessibilityAuditBase: XCTestCase {
         guard selected.waitForExistence(timeout: 5) else { return XCTFail("no console selector") }
         for n in 1...6 {
             app.typeKey("\(n)", modifierFlags: .command)
-            XCTAssertEqual(selected.value as? String, "\(n)", "⌘\(n) must select console \(n)")
+            // The selection lands after the key press is handled: wait for the value
+            // (the first press may find console 1 already selected).
+            let landed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "\(n)"), object: selected)
+            XCTAssertEqual(XCTWaiter.wait(for: [landed], timeout: 5), .completed,
+                           "⌘\(n) must select console \(n) (value: \(String(describing: selected.value)))")
         }
     }
 
@@ -167,11 +173,15 @@ open class AccessibilityAuditBase: XCTestCase {
     }
 }
 
-/// The issues the audit lets pass, fixed in source: no environment variable, launch
-/// argument or default can widen it, and `audit(_:extra:)`, which applies it, cannot be
-/// overridden outside this module. Only an issue on the Touch Bar element on macOS: every
-/// Mac app has one (with or without the hardware) and no app can label it. Each ignored
-/// issue is printed to the test log. [RC-49] [AC-C-11]
+/// The issues the audit lets pass: only issues on an element that is not the app's
+/// own UI. Exactly one such element has been seen, so exactly one rule is applied: on
+/// macOS, an issue whose element's type is `.touchBar` (the system Touch Bar element
+/// that XCUITest lists under every Mac app, with or without the hardware, and that no
+/// app can label or give a role). Every other issue, an issue with no element, and the
+/// Touch Bar type on any other platform fail the affordance. The rule is fixed in
+/// source: no environment variable, launch argument or default can widen it, and
+/// `audit(_:extra:)`, which applies it, cannot be overridden outside this module. Each
+/// ignored issue is printed to the test log. [RC-49] [AC-C-11]
 public enum AuditIssueFilter {
     #if os(macOS)
     static let isMac = true

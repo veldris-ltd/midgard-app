@@ -2,7 +2,8 @@ import MidgardCore
 import SwiftUI
 
 /// The locked screen: the persona last used, Unlock (one prompt), and Reset demo behind
-/// a confirmation. [FR-C-9]
+/// a confirmation. Buttons in the token accent (`MGStyle`), whatever the app's accent.
+/// [FR-C-9] [RC-49]
 public struct LockView: View {
     @ObservedObject var model: AppModel
     let persona: PersonaInfo
@@ -29,6 +30,7 @@ public struct LockView: View {
             MessageView(message: model.message)
         }
         .padding(MGSpace.s5)
+        .tint(MGStyle.accent)
     }
 }
 
@@ -47,11 +49,15 @@ public struct EnrolView: View {
             MessageView(message: model.message)
         }
         .padding(MGSpace.s5)
+        .tint(MGStyle.accent)
     }
 }
 
 /// The session's screens by phase, under the demo banner; `content` is the signed-in
-/// app (a console). Any touch postpones the idle lock.
+/// app (a console). Any touch postpones the idle lock: on iOS a touch anywhere in the
+/// window (`IdleTouchWatcher`); on macOS the app watches mouse and key events itself.
+/// Not a tap gesture over the screen: SwiftUI then reports every element under it as
+/// tappable, and the hit-region audit failed the status chips. [RC-49]
 public struct SessionRootView<Content: View>: View {
     @ObservedObject var model: AppModel
     let content: (PersonaInfo) -> Content
@@ -81,7 +87,7 @@ public struct SessionRootView<Content: View>: View {
                     MessageView(message: model.message)
                     content(persona)
                 }
-                .simultaneousGesture(TapGesture().onEnded { model.touch() })
+                .background { IdleTouchWatcher { model.touch() } }
             case let .failed(text):
                 Text(text).font(MGFonts.sans(.body)).padding(MGSpace.s5).accessibilityIdentifier("mg.failed")
             }
