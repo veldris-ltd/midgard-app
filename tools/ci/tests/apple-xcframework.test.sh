@@ -48,7 +48,8 @@ done
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/cache/clients-xcframework/x" "$tmp/cache/clients-xcframework-by-stamp/x" "$tmp/cache/clients-xcframework.lock" \
-    "$tmp/cache/clients-xcframework.lock.stale.1" "$tmp/cache/clients-derived" "$tmp/cache/clients-swift/x" "$tmp/cache/target-clients/release" \
+    "$tmp/cache/clients-xcframework.lock.stale.1" "$tmp/cache/clients-derived" "$tmp/cache/clients-derived-mac/x" \
+    "$tmp/cache/clients-derived-ios/x" "$tmp/cache/clients-archive/x" "$tmp/cache/clients-swift/x" "$tmp/cache/target-clients/release" \
     "$tmp/pkg/tools" "$tmp/pkg/Frameworks" "$tmp/pkg/Sources/MidgardCore" "$tmp/pkg/.build" "$tmp/pkg/.swiftpm"
 echo keep >"$tmp/cache/sentinel"
 mkdir -p "$tmp/cache/other-build"
@@ -59,7 +60,7 @@ check "clean.sh --target runs" "[ -f $c ] && MIDGARD_BUILD_CACHE=$tmp/cache bash
 check "clean.sh keeps what is not a build output" \
     "[ -f $tmp/cache/sentinel ] && [ -d $tmp/cache/other-build ] && [ -f $tmp/pkg/Sources/MidgardCore/Keep.swift ] && [ -f $tmp/pkg/tools/clean.sh ]"
 check "clean.sh removes the build outputs" \
-    "[ ! -e $tmp/cache/clients-xcframework ] && [ ! -e $tmp/cache/clients-xcframework-by-stamp ] && [ ! -e $tmp/cache/clients-xcframework.lock ] && [ ! -e $tmp/cache/clients-xcframework.lock.stale.1 ] && [ ! -e $tmp/cache/clients-derived ] && [ ! -e $tmp/cache/clients-swift ] && [ ! -e $tmp/cache/target-clients ] && [ ! -e $tmp/pkg/Frameworks ] && [ ! -e $tmp/pkg/Sources/MidgardCore/midgard_client_ffi.swift ] && [ ! -e $tmp/pkg/.build ] && [ ! -e $tmp/pkg/.swiftpm ]"
+    "[ ! -e $tmp/cache/clients-xcframework ] && [ ! -e $tmp/cache/clients-xcframework-by-stamp ] && [ ! -e $tmp/cache/clients-xcframework.lock ] && [ ! -e $tmp/cache/clients-xcframework.lock.stale.1 ] && [ ! -e $tmp/cache/clients-derived ] && [ ! -e $tmp/cache/clients-derived-mac ] && [ ! -e $tmp/cache/clients-derived-ios ] && [ ! -e $tmp/cache/clients-archive ] && [ ! -e $tmp/cache/clients-swift ] && [ ! -e $tmp/cache/target-clients ] && [ ! -e $tmp/pkg/Frameworks ] && [ ! -e $tmp/pkg/Sources/MidgardCore/midgard_client_ffi.swift ] && [ ! -e $tmp/pkg/.build ] && [ ! -e $tmp/pkg/.swiftpm ]"
 
 # A running build's lock (owner alive: pid and UTC start time) and builds are left alone.
 mkdir -p "$tmp/cache/clients-xcframework.lock" "$tmp/cache/clients-xcframework-by-stamp/y" "$tmp/pkg/tools"
