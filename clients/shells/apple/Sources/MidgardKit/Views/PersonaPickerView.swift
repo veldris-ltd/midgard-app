@@ -26,6 +26,9 @@ public struct PersonaPickerView: View {
                     PersonaLabel(persona: persona, stacked: typeSize.isAccessibilitySize)
                 }
                 .buttonStyle(.bordered)
+                // A rounded rectangle: the default capsule cut into the stacked lines at
+                // large text sizes.
+                .buttonBorderShape(.roundedRectangle)
                 .accessibilityLabel(Text("\(persona.display), \(persona.role), clearance \(persona.clearanceLabel)"))
                 .accessibilityIdentifier("mg.\(index).persona.\(persona.id)")
             }
@@ -53,7 +56,9 @@ struct PersonaLabel: View {
                 Text(persona.role.uppercased()).font(MGFonts.mono(.caption))
             }
             if !stacked { Spacer(minLength: 0) }
-            Text(persona.clearanceLabel).font(MGFonts.mono(.caption2))
+            // Caption, not caption2: the iOS Dynamic Type audit reported the caption2
+            // clearance as not following the text size ("partially unsupported").
+            Text(persona.clearanceLabel).font(MGFonts.mono(.caption))
         }
         .multilineTextAlignment(.leading)
         .foregroundStyle(MGStyle.text)
