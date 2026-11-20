@@ -143,7 +143,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = A2A7DDB51C277C4C92A8C97F /* Build configuration list for PBXNativeTarget "MidgardMac" */;
 			buildPhases = (
-				568CBDA4DD2F577BFE8C180A /* Refuse a Release build without a team */,
+				F2D592C63A07EE791FE56F2C /* Refuse a non-Debug build without a team */,
 				E84F90B334CA6CDF43853FBB /* Ensure MidgardCoreFFI.xcframework */,
 				C857309D2F737D7E28969158 /* Sources */,
 				5103EFE9F6CE2AE802F4C590 /* Frameworks */,
@@ -204,25 +204,6 @@
 /* End PBXProject section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		568CBDA4DD2F577BFE8C180A /* Refuse a Release build without a team */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "Refuse a Release build without a team";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "if [ \"${CONFIGURATION}\" = \"Release\" ] && [ -z \"${MIDGARD_TEAM_ID}\" ] \\\n    && [ \"${MIDGARD_ALLOW_ADHOC_RELEASE}\" != \"YES\" ]; then\n    echo \"error: Release build without a team: set MIDGARD_TEAM_ID in Config/Signing.local.xcconfig, or pass MIDGARD_ALLOW_ADHOC_RELEASE=YES for an ad-hoc Release build that cannot keep keys.\"\n    exit 1\nfi\n";
-		};
 		E84F90B334CA6CDF43853FBB /* Ensure MidgardCoreFFI.xcframework */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -241,6 +222,25 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "bash \"$SRCROOT/../../tools/ensure-xcframework.sh\"";
+		};
+		F2D592C63A07EE791FE56F2C /* Refuse a non-Debug build without a team */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Refuse a non-Debug build without a team";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if [ \"${CONFIGURATION}\" != \"Debug\" ] && [ -z \"${MIDGARD_TEAM_ID}\" ] \\\n    && [ \"${MIDGARD_ALLOW_ADHOC_RELEASE}\" != \"YES\" ]; then\n    echo \"error: ${CONFIGURATION} build without a team: only Debug builds without one. Set MIDGARD_TEAM_ID in Config/Signing.local.xcconfig, or pass MIDGARD_ALLOW_ADHOC_RELEASE=YES for an ad-hoc ${CONFIGURATION} build that cannot keep keys.\"\n    exit 1\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

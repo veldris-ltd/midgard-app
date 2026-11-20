@@ -42,14 +42,15 @@ targets:
       - package: MidgardKit
         product: MidgardKit
     preBuildScripts:
-      - name: Refuse a Release build without a team
-        # A Release build without MIDGARD_TEAM_ID is signed ad hoc, without the keychain
-        # access group: it cannot keep keys outside UI testing. Allowed only on purpose,
-        # with MIDGARD_ALLOW_ADHOC_RELEASE=YES (Config/Signing.xcconfig).
+      - name: Refuse a non-Debug build without a team
+        # Any configuration but Debug (Release, or one added later) without
+        # MIDGARD_TEAM_ID is signed ad hoc, without the keychain access group: it cannot
+        # keep keys outside UI testing. Allowed only on purpose, with
+        # MIDGARD_ALLOW_ADHOC_RELEASE=YES (Config/Signing.xcconfig).
         script: |
-          if [ "${CONFIGURATION}" = "Release" ] && [ -z "${MIDGARD_TEAM_ID}" ] \
+          if [ "${CONFIGURATION}" != "Debug" ] && [ -z "${MIDGARD_TEAM_ID}" ] \
               && [ "${MIDGARD_ALLOW_ADHOC_RELEASE}" != "YES" ]; then
-              echo "error: Release build without a team: set MIDGARD_TEAM_ID in Config/Signing.local.xcconfig, or pass MIDGARD_ALLOW_ADHOC_RELEASE=YES for an ad-hoc Release build that cannot keep keys."
+              echo "error: ${CONFIGURATION} build without a team: only Debug builds without one. Set MIDGARD_TEAM_ID in Config/Signing.local.xcconfig, or pass MIDGARD_ALLOW_ADHOC_RELEASE=YES for an ad-hoc ${CONFIGURATION} build that cannot keep keys."
               exit 1
           fi
         basedOnDependencyAnalysis: false

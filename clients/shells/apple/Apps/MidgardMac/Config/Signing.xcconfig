@@ -41,10 +41,11 @@ MIDGARD_ENTITLEMENTS_YES = Config/MidgardMac-AdHoc.entitlements
 MIDGARD_ENTITLEMENTS_ = Config/MidgardMac.entitlements
 MIDGARD_MAC_ENTITLEMENTS = $(MIDGARD_ENTITLEMENTS_$(MIDGARD_NO_TEAM))
 
-// A Release build with no team fails at its first build phase: it would be signed ad
-// hoc and could not keep keys. To build one anyway (to inspect it, never to ship it),
-// pass MIDGARD_ALLOW_ADHOC_RELEASE=YES on the xcodebuild command line or put that line
-// in Signing.local.xcconfig.
+// Any build other than Debug (Release, or a configuration added later) with no team
+// fails at its first build phase: it would be signed ad hoc and could not keep keys.
+// To build one anyway (to inspect it, never to ship it), pass
+// MIDGARD_ALLOW_ADHOC_RELEASE=YES on the xcodebuild command line or put that line in
+// Signing.local.xcconfig.
 MIDGARD_ALLOW_ADHOC_RELEASE = NO
 
 #include? "Signing.local.xcconfig"
