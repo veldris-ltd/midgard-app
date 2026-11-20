@@ -16,6 +16,7 @@ public struct MarkingChipView: View {
             .background(Capsule().fill(Color(mgHex: MGToken.markingHex(chip.level))))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text("Marking \(chip.label)"))
+            .accessibilityAddTraits(.isStaticText)
             .accessibilityIdentifier("mg.marking")
     }
 }

@@ -87,7 +87,8 @@ cd clients/shells/apple
 bash tools/build-xcframework.sh   # 4 slices (macOS arm64+x86_64, iOS, iOS simulator) + bindings, offline and locked;
                                   # runs tools/verify-xcframework.sh before linking anything
 bash tools/ensure-xcframework.sh  # the apps' pre-build step: links a build of the Rust sources as they
-                                  # stand, building only when their content changed (stamp in clients-xcframework/)
+                                  # stand, building only when their content or the toolchain changed
+                                  # (immutable builds in clients-xcframework-by-stamp/<stamp>/, 3 kept)
 swift test --scratch-path ~/Library/Caches/midgard-build/clients-swift
 bash tools/check-contract.sh      # every exported function is exercised by ContractTests.swift
 bash tools/check-bindings.sh      # the bindings are a fresh uniffi-bindgen run's; acknowledgement; licence expiry
@@ -95,6 +96,13 @@ node tools/gen-tokens.mjs --check # design tokens and fonts match ui/design-syst
 bash tools/typecheck-ios.sh       # typecheck for iOS without a simulator runtime
 bash tools/clean.sh [--target]    # delete every clients-* output (and the cargo target dir)
 ```
+
+**Fresh checkout, first Xcode build.** Xcode resolves Swift packages before any build
+phase runs, and MidgardKit's `MidgardCoreFFI` binary target is the gitignored
+`Frameworks/` link, so on a fresh checkout (or worktree) run
+`bash clients/shells/apple/tools/ensure-xcframework.sh` once before the first Xcode build.
+The apps' pre-build phase then keeps it current: it builds only when the Rust sources or
+the toolchain changed, and otherwise prints one line and links the existing build.
 
 `tools/ci/tests/apple-xcframework.test.sh` checks these scripts statically (and
 `check-bindings.sh` and `clean.sh` against scratch trees) in CI `selftest`;

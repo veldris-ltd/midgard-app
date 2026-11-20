@@ -40,7 +40,13 @@ open class AccessibilityAuditBase: XCTestCase {
         let app = launch(extra)
         for go in list {
             go(app)
-            try app.performAccessibilityAudit(for: types)
+            // Issue handler: true lets the issue pass. Only AuditIssueFilter's rule (an
+            // element outside the app's own UI: the macOS Touch Bar) returns true.
+            try app.performAccessibilityAudit(for: types) { issue in
+                let ignored = AuditIssueFilter.ignores(onMac: AuditIssueFilter.isMac, elementType: issue.element?.elementType)
+                if ignored { print("audit: ignored on macOS, Touch Bar element: \(issue.compactDescription)") }
+                return ignored
+            }
         }
         app.terminate()
     }
@@ -128,7 +134,11 @@ open class AccessibilityAuditBase: XCTestCase {
         // Needs a hardware keyboard and Full Keyboard Access on the simulator (Phase B).
         let app = launch()
         #else
-        // Tab reaches every control only with keyboard navigation on (AppleKeyboardUIMode 2).
+        // Tab reaches every control only with the system's Keyboard navigation on (global
+        // AppleKeyboardUIMode with its 2 bit): audit.sh turns it on for a CI run and, off
+        // CI, reports this affordance failed when it is off. The argument below alone does
+        // not do it for SwiftUI controls; it is kept as the app-domain form of the same
+        // setting, harmless, for AppKit code that reads the app's defaults.
         let app = launch(["-AppleKeyboardUIMode", "2"])
         #endif
         signIn(app)
@@ -143,7 +153,11 @@ open class AccessibilityAuditBase: XCTestCase {
         guard selected.waitForExistence(timeout: 5) else { return XCTFail("no console selector") }
         for n in 1...6 {
             app.typeKey("\(n)", modifierFlags: .command)
-            XCTAssertEqual(selected.value as? String, "\(n)", "⌘\(n) must select console \(n)")
+            // The selection lands after the key press is handled: wait for the value
+            // (the first press may find console 1 already selected).
+            let landed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "\(n)"), object: selected)
+            XCTAssertEqual(XCTWaiter.wait(for: [landed], timeout: 5), .completed,
+                           "⌘\(n) must select console \(n) (value: \(String(describing: selected.value)))")
         }
     }
 
@@ -156,5 +170,26 @@ open class AccessibilityAuditBase: XCTestCase {
             .matching(NSPredicate(format: "hasKeyboardFocus == true AND identifier MATCHES 'mg\\\\.[0-9]+\\\\..*'"))
             .count > 0
         #endif
+    }
+}
+
+/// The issues the audit lets pass: only issues on an element that is not the app's
+/// own UI. Exactly one such element has been seen, so exactly one rule is applied: on
+/// macOS, an issue whose element's type is `.touchBar` (the system Touch Bar element
+/// that XCUITest lists under every Mac app, with or without the hardware, and that no
+/// app can label or give a role). Every other issue, an issue with no element, and the
+/// Touch Bar type on any other platform fail the affordance. The rule is fixed in
+/// source: no environment variable, launch argument or default can widen it, and
+/// `audit(_:extra:)`, which applies it, cannot be overridden outside this module. Each
+/// ignored issue is printed to the test log. [RC-49] [AC-C-11]
+public enum AuditIssueFilter {
+    #if os(macOS)
+    static let isMac = true
+    #else
+    static let isMac = false
+    #endif
+
+    public static func ignores(onMac: Bool, elementType: XCUIElement.ElementType?) -> Bool {
+        onMac && elementType == .touchBar
     }
 }

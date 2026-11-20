@@ -34,6 +34,10 @@ done
 check "build outputs are gitignored" "[ -f $g ] && grep -qx '/Frameworks/' $g && grep -qx '/Sources/MidgardCore/midgard_client_ffi.swift' $g"
 check "strips local paths from the libraries" "grep -q -- '--remap-path-prefix=\$HOME=' $f && grep -q -- '--remap-path-prefix=\$root=' $f"
 check "builds into clients-xcframework.new and swaps it in after verifying" "grep -q 'clients-xcframework.new' $f"
+check "--out: refuses a relative or existing directory" \
+    "(bash $f --out relative >/dev/null 2>&1; [ \$? -eq 2 ]) && (bash $f --out / >/dev/null 2>&1; [ \$? -eq 2 ])"
+check "--out: verifies, renames into place and links nothing" \
+    "grep -q '^    new=\"\$dest.new\"' $f && grep -q '^\[ -n \"\$dest\" \] || rm -rf \"\$apple/Frameworks' $f && grep -A3 '^if \[ -n \"\$dest\" \]; then\$' $f | grep -q 'exit 0'"
 for s in $f $c; do
     check "$s: refuses a relative MIDGARD_BUILD_CACHE" \
         "[ -f $s ] && (MIDGARD_BUILD_CACHE=relative/cache bash $s --no-such-flag >/dev/null 2>&1; [ \$? -eq 2 ]) && grep -q 'must be an absolute path' $s"
@@ -43,7 +47,8 @@ done
 # package, so the real package's linked framework is untouched.
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-mkdir -p "$tmp/cache/clients-xcframework/x" "$tmp/cache/clients-derived" "$tmp/cache/clients-swift/x" "$tmp/cache/target-clients/release" \
+mkdir -p "$tmp/cache/clients-xcframework/x" "$tmp/cache/clients-xcframework-by-stamp/x" "$tmp/cache/clients-xcframework.lock" \
+    "$tmp/cache/clients-xcframework.lock.stale.1" "$tmp/cache/clients-derived" "$tmp/cache/clients-swift/x" "$tmp/cache/target-clients/release" \
     "$tmp/pkg/tools" "$tmp/pkg/Frameworks" "$tmp/pkg/Sources/MidgardCore" "$tmp/pkg/.build" "$tmp/pkg/.swiftpm"
 echo keep >"$tmp/cache/sentinel"
 mkdir -p "$tmp/cache/other-build"
@@ -54,7 +59,15 @@ check "clean.sh --target runs" "[ -f $c ] && MIDGARD_BUILD_CACHE=$tmp/cache bash
 check "clean.sh keeps what is not a build output" \
     "[ -f $tmp/cache/sentinel ] && [ -d $tmp/cache/other-build ] && [ -f $tmp/pkg/Sources/MidgardCore/Keep.swift ] && [ -f $tmp/pkg/tools/clean.sh ]"
 check "clean.sh removes the build outputs" \
-    "[ ! -e $tmp/cache/clients-xcframework ] && [ ! -e $tmp/cache/clients-derived ] && [ ! -e $tmp/cache/clients-swift ] && [ ! -e $tmp/cache/target-clients ] && [ ! -e $tmp/pkg/Frameworks ] && [ ! -e $tmp/pkg/Sources/MidgardCore/midgard_client_ffi.swift ] && [ ! -e $tmp/pkg/.build ] && [ ! -e $tmp/pkg/.swiftpm ]"
+    "[ ! -e $tmp/cache/clients-xcframework ] && [ ! -e $tmp/cache/clients-xcframework-by-stamp ] && [ ! -e $tmp/cache/clients-xcframework.lock ] && [ ! -e $tmp/cache/clients-xcframework.lock.stale.1 ] && [ ! -e $tmp/cache/clients-derived ] && [ ! -e $tmp/cache/clients-swift ] && [ ! -e $tmp/cache/target-clients ] && [ ! -e $tmp/pkg/Frameworks ] && [ ! -e $tmp/pkg/Sources/MidgardCore/midgard_client_ffi.swift ] && [ ! -e $tmp/pkg/.build ] && [ ! -e $tmp/pkg/.swiftpm ]"
+
+# A running build's lock (owner alive: pid and UTC start time) and builds are left alone.
+mkdir -p "$tmp/cache/clients-xcframework.lock" "$tmp/cache/clients-xcframework-by-stamp/y" "$tmp/pkg/tools"
+printf '%s\n%s\n' $$ "$(TZ=UTC0 LC_ALL=C ps -o lstart= -p $$ | sed -e 's/^ *//' -e 's/ *$//')" >"$tmp/cache/clients-xcframework.lock/owner"
+[ -f $c ] && cp $c "$tmp/pkg/tools/clean.sh"
+out="$(MIDGARD_BUILD_CACHE=$tmp/cache TZ=Pacific/Kiritimati bash $tmp/pkg/tools/clean.sh 2>&1)"
+check "clean.sh leaves a live lock and the by-stamp builds, saying so" \
+    "[ -f $tmp/cache/clients-xcframework.lock/owner ] && [ -d $tmp/cache/clients-xcframework-by-stamp/y ] && grep -q 'a framework build is running' <<<\"\$out\""
 # check-bindings.sh (MPL-2.0 release checklist): a fresh uniffi-bindgen run equals the
 # bindings built and linked, the UniFFI acknowledgement is present, and the UniFFI
 # licence exceptions have not expired. Run from a scratch tree with a stub cargo.

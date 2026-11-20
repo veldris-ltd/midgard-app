@@ -51,4 +51,29 @@ final class AuditKitTests: XCTestCase {
             .map { String(text[Range($0.range(at: 1), in: text)!]) }.sorted()
         XCTAssertEqual(parsed, try declared())
     }
+
+    /// The one issue the audit lets pass: on macOS, an issue on the app's Touch Bar
+    /// element, which every Mac app has and none can label. Anything else, and the
+    /// Touch Bar anywhere but macOS, still fails the affordance.
+    func testOnlyTheMacTouchBarIsIgnored() {
+        XCTAssertTrue(AuditIssueFilter.ignores(onMac: true, elementType: .touchBar))
+        XCTAssertFalse(AuditIssueFilter.ignores(onMac: false, elementType: .touchBar))
+        for type: XCUIElement.ElementType in [.any, .other, .staticText, .button, .window, .application, .group] {
+            XCTAssertFalse(AuditIssueFilter.ignores(onMac: true, elementType: type), "\(type.rawValue)")
+        }
+        XCTAssertFalse(AuditIssueFilter.ignores(onMac: true, elementType: nil), "an issue with no element")
+    }
+
+    /// The filter is fixed in source: nothing from the environment, launch arguments or
+    /// defaults can widen it, and the audit applies it on every screen.
+    func testTheIssueFilterCannotBeWidenedFromOutside() throws {
+        let source = try String(contentsOf: repositoryRoot()
+            .appendingPathComponent("clients/shells/apple/Sources/MidgardAuditKit/AccessibilityAudit.swift"), encoding: .utf8)
+        for reader in ["ProcessInfo", "UserDefaults", "getenv", "CommandLine", "environment[", ".arguments"] {
+            XCTAssertFalse(source.contains(reader), "AccessibilityAudit.swift reads \(reader)")
+        }
+        XCTAssertEqual(source.components(separatedBy: "performAccessibilityAudit(").count - 1, 1,
+                       "one audit call, through the filter")
+        XCTAssertTrue(source.contains("performAccessibilityAudit(for: types) { issue in"))
+    }
 }

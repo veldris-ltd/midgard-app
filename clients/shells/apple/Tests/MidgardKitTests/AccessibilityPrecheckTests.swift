@@ -125,6 +125,48 @@ final class AccessibilityPrecheckTests: XCTestCase {
         }
     }
 
+    /// The system backgrounds the shared screens are drawn on, per mode: iOS's system
+    /// and grouped backgrounds, and macOS's window background.
+    private let lightSystemBackgrounds: [UInt32] = [0xFFFFFF, 0xF2F2F7, 0xECECEC]
+    private let darkSystemBackgrounds: [UInt32] = [0x000000, 0x1C1C1E, 0x1E1E1E, 0x323232]
+
+    /// The sign-in screen's own colours (`MGStyle`) meet AA on every background the apps
+    /// draw it on, and on the theme's surfaces, in each mode, whatever the app's accent.
+    /// The accent is checked on iOS's backgrounds and the surfaces: on macOS the shared
+    /// screens' buttons are bordered, and a bordered button's text does not take the tint.
+    func testStyleTextMeetsAAOnTheSystemBackgrounds() {
+        let light = lightSystemBackgrounds + lightSurfaces, dark = darkSystemBackgrounds + darkSurfaces
+        for (name, tokens) in [("text", MGStyle.textTokens), ("secondary", MGStyle.secondaryTextTokens)] {
+            for bg in light {
+                XCTAssertGreaterThanOrEqual(MGContrast.ratio(tokens.light, bg), aa, "light \(name) on \(String(bg, radix: 16))")
+            }
+            for bg in dark {
+                XCTAssertGreaterThanOrEqual(MGContrast.ratio(tokens.dark, bg), aa, "dark \(name) on \(String(bg, radix: 16))")
+            }
+        }
+        for bg in [0xFFFFFF, 0xF2F2F7] + lightSurfaces {
+            XCTAssertGreaterThanOrEqual(MGContrast.ratio(MGStyle.accentTokens.light, bg), aa, "light accent on \(bg)")
+        }
+        for bg in [0x000000, 0x1C1C1E] + darkSurfaces {
+            XCTAssertGreaterThanOrEqual(MGContrast.ratio(MGStyle.accentTokens.dark, bg), aa, "dark accent on \(bg)")
+        }
+        // Why not the muted token for secondary text: below AA on the macOS dark window.
+        XCTAssertLessThan(MGContrast.ratio(MGToken.textMuted, 0x323232), aa)
+    }
+
+    /// The sign-in screen takes no colour from the system's secondary grey (which failed
+    /// the contrast audit) or the app's accent: its text and tint are `MGStyle`'s.
+    func testSignInScreensUseTheStyleColours() throws {
+        let sources = Dictionary(uniqueKeysWithValues: try viewSources())
+        let picker = try XCTUnwrap(sources["PersonaPickerView.swift"])
+        XCTAssertFalse(picker.contains(".secondary)"), "PersonaPickerView: system secondary text")
+        XCTAssertTrue(picker.contains("foregroundStyle(MGStyle.secondaryText)"))
+        XCTAssertTrue(picker.contains("foregroundStyle(MGStyle.text)"))
+        let lock = try XCTUnwrap(sources["LockView.swift"])
+        XCTAssertEqual(picker.components(separatedBy: ".tint(MGStyle.accent)").count - 1, 1, "picker tint")
+        XCTAssertEqual(lock.components(separatedBy: ".tint(MGStyle.accent)").count - 1, 2, "lock and enrol tint")
+    }
+
     // MARK: hit_target_size
 
     /// Every control on the shared screens is at least 44 × 44 pt where it can be hit.
@@ -139,6 +181,20 @@ final class AccessibilityPrecheckTests: XCTestCase {
         try assertControlsAtLeast44(PersonaPickerView(model: model), expected: model.personas.count, "PersonaPickerView")
         let persona = try XCTUnwrap(model.personas.first)
         try assertControlsAtLeast44(LockView(model: model, persona: persona), expected: 2, "LockView")
+    }
+
+    /// Nothing in the shared views is a tap gesture: a gesture over a screen makes
+    /// SwiftUI report every element under it as tappable, and the hit-region audit then
+    /// fails the small static ones (the status chips). The idle touch is watched at the
+    /// window (`IdleTouchWatcher`), and the signed-in screen uses it.
+    func testSharedViewsHaveNoTapGesture() throws {
+        let gesture = try NSRegularExpression(pattern: #"TapGesture|onTapGesture|simultaneousGesture|\.gesture\("#)
+        for (file, text) in try viewSources() {
+            XCTAssertEqual(gesture.numberOfMatches(in: text, range: NSRange(text.startIndex..., in: text)), 0,
+                           "\(file): a tap gesture")
+        }
+        let lock = try XCTUnwrap(Dictionary(uniqueKeysWithValues: try viewSources())["LockView.swift"])
+        XCTAssertTrue(lock.contains("IdleTouchWatcher { model.touch() }"), "the signed-in screen watches touches")
     }
 
     // MARK: dynamic_type
@@ -158,6 +214,26 @@ final class AccessibilityPrecheckTests: XCTestCase {
             XCTAssertFalse(text.contains(".fixedSize("), "\(file): fixed size")
             XCTAssertFalse(text.contains(".system(size:"), "\(file): fixed point size")
         }
+    }
+
+    /// At accessibility text sizes the chips stack, and the persona's clearance goes
+    /// under its name: in one row they were cut off on the iPhone (the iOS audit's
+    /// textClipped). A source rule; the iOS audit measures it.
+    func testRowsStackAtAccessibilitySizes() throws {
+        let sources = Dictionary(uniqueKeysWithValues: try viewSources())
+        let chips = try XCTUnwrap(sources["StatusChipsView.swift"])
+        XCTAssertTrue(chips.contains("typeSize.isAccessibilitySize") && chips.contains("ViewThatFits(in: .horizontal)"))
+        let picker = try XCTUnwrap(sources["PersonaPickerView.swift"])
+        XCTAssertTrue(picker.contains("stacked: typeSize.isAccessibilitySize") && picker.contains("AnyLayout(VStackLayout"))
+    }
+
+    /// The chips are text elements, not combined ones: macOS keeps their visible words as
+    /// the value (the UI tests read "OFFLINE"), VoiceOver speaks the label.
+    func testChipsAreTextElementsWithASpokenLabel() throws {
+        let chips = try XCTUnwrap(Dictionary(uniqueKeysWithValues: try viewSources())["StatusChipsView.swift"])
+        XCTAssertFalse(chips.contains("accessibilityElement("), "a chip is its text, not a combined element")
+        XCTAssertTrue(chips.contains(".accessibilityLabel(Text(chip.accessibilityLabel))"))
+        XCTAssertFalse(chips.contains(".isButton"), "a chip is not a control")
     }
 
     // MARK: reduced_motion
@@ -214,6 +290,28 @@ final class AccessibilityPrecheckTests: XCTestCase {
                 XCTAssertTrue(text.contains("accessibilityLabel("), "\(file): a combined element without a label")
             }
         }
+    }
+
+    /// A combined element (`children: .ignore`) has no role of its own: AppKit reports it
+    /// with none and the XCUITest audit fails it as "Unknown role" (the status chips,
+    /// mg.chip.*). Each such modifier chain also adds a trait that gives it a role. A
+    /// source rule: SwiftUI builds its accessibility tree only for a connected assistive
+    /// client, which `swift test` cannot be without a TCC grant, so the role itself is
+    /// measured by the XCUITest audit.
+    func testCombinedElementsHaveARole() throws {
+        let combined = try NSRegularExpression(
+            pattern: #"\.accessibilityElement\(children: \.ignore\)(?:\s*\.accessibility\w+\([^\n]*\))*"#)
+        var found = 0
+        for (file, text) in try viewSources() {
+            for match in combined.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+                found += 1
+                let chain = String(text[Range(match.range, in: text)!])
+                XCTAssertTrue(chain.contains(".accessibilityAddTraits("), "\(file): a combined element without a role: \(chain)")
+            }
+        }
+        XCTAssertGreaterThan(found, 0, "no combined element found: the rule checked nothing")
+        let chips = try XCTUnwrap(Dictionary(uniqueKeysWithValues: try viewSources())["StatusChipsView.swift"])
+        XCTAssertTrue(chips.contains(".accessibilityAddTraits(.isStaticText)"), "status chips are static text")
     }
 
     // MARK: helpers

@@ -21,6 +21,7 @@ public struct ConsoleRowView: View {
             .frame(minHeight: 44)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text(row.accessibilityLabel))
+            .accessibilityAddTraits(.isStaticText)
             .accessibilityIdentifier("mg.row")
         }
     }
