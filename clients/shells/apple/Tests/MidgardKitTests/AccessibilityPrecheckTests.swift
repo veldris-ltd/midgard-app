@@ -227,12 +227,13 @@ final class AccessibilityPrecheckTests: XCTestCase {
         XCTAssertTrue(picker.contains("stacked: typeSize.isAccessibilitySize") && picker.contains("AnyLayout(VStackLayout"))
     }
 
-    /// The chips are text elements, not combined ones: macOS keeps their visible words as
-    /// the value (the UI tests read "OFFLINE"), VoiceOver speaks the label.
-    func testChipsAreTextElementsWithASpokenLabel() throws {
+    /// Each chip speaks a spelled-out label and, on macOS, keeps its visible words as its
+    /// value (a label on a macOS text replaces its value: the UI tests read "OFFLINE").
+    func testChipsSpeakALabelAndKeepTheirVisibleWordsOnMac() throws {
         let chips = try XCTUnwrap(Dictionary(uniqueKeysWithValues: try viewSources())["StatusChipsView.swift"])
-        XCTAssertFalse(chips.contains("accessibilityElement("), "a chip is its text, not a combined element")
         XCTAssertTrue(chips.contains(".accessibilityLabel(Text(chip.accessibilityLabel))"))
+        XCTAssertTrue(chips.contains(".modifier(VisibleWordsOnMac(text: chip.text))"))
+        XCTAssertTrue(chips.contains("#if os(macOS)\n        content.accessibilityValue(Text(text))"))
         XCTAssertFalse(chips.contains(".isButton"), "a chip is not a control")
     }
 
