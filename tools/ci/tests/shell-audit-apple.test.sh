@@ -2,7 +2,9 @@
 # The Apple audit hook fails closed without an app, reports failed affordances from an
 # xcresult summary, needs both apps (owner decision 4), never lets the macOS run claim
 # Dynamic Type, refuses UI tests that rewrite their own results, and record-audit.sh
-# stamps `overall` on BSD and GNU sed alike. Runs on /bin/bash 3.2 and on Linux (the
+# stamps `overall` on BSD and GNU sed alike, and handles the macOS keyboard navigation
+# setting (CI turns it on for the run and restores it; elsewhere it is left alone and
+# keyboard_navigation is reported failed when it is off). Runs on /bin/bash 3.2 and on Linux (the
 # Xcode tools are stubbed; the JavaScript parser is checked only where osascript exists).
 # [RC-49] [AC-C-11]
 #
@@ -90,7 +92,7 @@ cat > "$stubs/xcrun" <<'STUB'
 #!/usr/bin/env bash
 if [ "$1" = simctl ]; then
     printf '%s\n' '== Devices ==' '-- iOS 18.5 --' '    iPhone 15 (AAAA) (Shutdown)' '-- iOS 26.2 --' \
-        '    iPhone 16 (BBBB) (Shutdown)' '    iPhone 16 Pro (CCCC) (Shutdown)'
+        '    iPhone 16 (BBBB) (Shutdown)' '    iPhone 16 Pro (CCCC) (Shutdown)' '    iPhone 17 (DDDD) (Shutdown)'
     exit 0
 fi
 while [ $# -gt 0 ] && [ "$1" != --path ]; do shift; done
@@ -102,9 +104,27 @@ cat > "$stubs/osascript" <<'STUB'
 #!/usr/bin/env bash
 sed -n 2p "$4"
 STUB
+# defaults: AppleKeyboardUIMode in the global domain, kept in the file $STUB_KBD (absent
+# file: absent key; default $work/kbd-on, which holds 2). Each call is logged to
+# $STUB_KBD.log. It refuses anything else, and never runs the real defaults.
+echo 2 > "$work/kbd-on"
+cat > "$stubs/defaults" <<STUB
+#!/usr/bin/env bash
+f="\${STUB_KBD:-$work/kbd-on}"
+echo "\$*" >> "\$f.log"
+[ "\$2" = -g ] && [ "\$3" = AppleKeyboardUIMode ] || { echo "stub defaults: refused: \$*" >&2; exit 99; }
+case "\$1" in
+    read) [ -f "\$f" ] || exit 1; cat "\$f" ;;
+    write) [ "\$4" = -int ] || exit 99; echo "\$5" > "\$f" ;;
+    delete) [ -f "\$f" ] || exit 1; rm -f "\$f" ;;
+    *) exit 99 ;;
+esac
+STUB
+# rustup: audit.sh provisions the toolchain on CI; the CI cases below must not.
+printf '#!/usr/bin/env bash\nexit 0\n' > "$stubs/rustup"
 printf '#!/usr/bin/env bash\necho 15.5\n' > "$stubs/sw_vers"
 printf '#!/usr/bin/env bash\necho arm64\n' > "$stubs/uname"
-chmod +x "$stubs/xcodebuild" "$stubs/xcrun" "$stubs/osascript" "$stubs/sw_vers" "$stubs/uname"
+chmod +x "$stubs/xcodebuild" "$stubs/xcrun" "$stubs/osascript" "$stubs/sw_vers" "$stubs/uname" "$stubs/defaults" "$stubs/rustup"
 
 # apps TREE APP...: an Apple shell holding the given app projects and a stub framework build.
 apps() {
@@ -122,7 +142,7 @@ apps() {
 }
 run_audit() { # run_audit TREE [VAR=value...]: stdout of audit.sh; rc in $rc
     local t="$1"; shift
-    out="$(cd "$t" && env -u CI "$@" PATH="$stubs:$PATH" STUB_CALLS="$t/calls" MIDGARD_BUILD_CACHE="$t/cache" \
+    out="$(cd "$t" && env -u CI -u GITHUB_ACTIONS "$@" PATH="$stubs:$PATH" STUB_CALLS="$t/calls" MIDGARD_BUILD_CACHE="$t/cache" \
         bash clients/shells/apple/audit.sh 0.0.0-test shell-audit/apple-0.0.0-test.json 2>"$t/stderr")"
     rc=$?
 }
@@ -164,10 +184,17 @@ if [ -s "$ev-ios.json" ] && [ -s "$ev-mac.json" ] && grep -q '^{"ios":' "$ev.jso
 else
     fail "reports: $(ls "$t/shell-audit" 2>/dev/null)"
 fi
-if [ "$(cat "$ev.device" 2>/dev/null)" = "iPhone 16 simulator (iOS 26.2) + macOS 15.5 (arm64)" ]; then
-    pass "the device sidecar names the simulator, its runtime and the Mac"
+if [ "$(cat "$ev.device" 2>/dev/null)" = "iPhone 17 simulator (iOS 26.2) + macOS 15.5 (arm64)" ]; then
+    pass "the device sidecar names the simulator (iPhone 17 by default), its runtime and the Mac"
 else
     fail "device sidecar: '$(cat "$ev.device" 2>/dev/null)'"
+fi
+t3="$(apps othersim MidgardiOS MidgardMac)"
+run_audit "$t3" MIDGARD_AUDIT_SIMULATOR="iPhone 16"
+if [ "$rc" -eq 0 ] && [ "$(cat "$t3/shell-audit/apple-0.0.0-test.device" 2>/dev/null)" = "iPhone 16 simulator (iOS 26.2) + macOS 15.5 (arm64)" ]; then
+    pass "MIDGARD_AUDIT_SIMULATOR names another simulator"
+else
+    fail "simulator override: rc=$rc '$(cat "$t3/shell-audit/apple-0.0.0-test.device" 2>/dev/null)'"
 fi
 t2="$(apps nosim MidgardiOS MidgardMac)"
 run_audit "$t2" MIDGARD_AUDIT_SIMULATOR="iPhone 99"
@@ -202,6 +229,68 @@ else
     fail "no tests: rc=$rc out='$out'"
 fi
 
+# 4b. Keyboard navigation (macOS): the global AppleKeyboardUIMode, through the stub.
+kbd_case() { # kbd_case NAME BEFORE [VAR=value...]: BEFORE is a value or "absent"; tree in $t, state in $kbd
+    local name="$1" before="$2"; shift 2
+    t="$(apps "kbd-$name" MidgardiOS MidgardMac)"
+    kbd="$t/kbd"
+    [ "$before" = absent ] || echo "$before" > "$kbd"
+    run_audit "$t" STUB_KBD="$kbd" STUB_FAIL_MidgardMac=dynamic_type "$@"
+}
+real_before="$(defaults read -g AppleKeyboardUIMode 2>/dev/null || echo absent)"
+for ci in GITHUB_ACTIONS=true CI=true; do
+    kbd_case "ci-absent-${ci%%=*}" absent "$ci"
+    if [ "$rc" -eq 0 ] && [ ! -f "$kbd" ] && grep -q '^write -g AppleKeyboardUIMode -int 2$' "$kbd.log" \
+        && [ "$(tail -n 1 "$kbd.log")" = "delete -g AppleKeyboardUIMode" ] && [ -z "$(echo "$out" | tr -d ' ')" ]; then
+        pass "$ci, setting absent: turned on for the run, key deleted after"
+    else
+        fail "$ci, absent: rc=$rc out='$out' kbd=$(cat "$kbd" 2>/dev/null) log=$(tr '\n' ';' < "$kbd.log") $(cat "$t/stderr")"
+    fi
+done
+kbd_case ci-off 0 CI=true
+if [ "$rc" -eq 0 ] && [ "$(cat "$kbd" 2>/dev/null)" = 0 ] && grep -q '^write -g AppleKeyboardUIMode -int 2$' "$kbd.log" \
+    && [ "$(tail -n 1 "$kbd.log")" = "write -g AppleKeyboardUIMode -int 0" ]; then
+    pass "CI, setting off (0): turned on for the run, 0 restored after"
+else
+    fail "CI, off: rc=$rc kbd=$(cat "$kbd" 2>/dev/null) log=$(tr '\n' ';' < "$kbd.log")"
+fi
+kbd_case ci-fail absent CI=true STUB_NO_BUNDLE=1
+if [ "$rc" -ne 0 ] && [ ! -f "$kbd" ]; then
+    pass "CI, the audit fails closed: the setting is still restored"
+else
+    fail "CI, failing audit: rc=$rc kbd=$(cat "$kbd" 2>/dev/null)"
+fi
+kbd_case ci-on 3 GITHUB_ACTIONS=true
+if [ "$rc" -eq 0 ] && [ "$(cat "$kbd")" = 3 ] && ! grep -qE '^(write|delete)' "$kbd.log"; then
+    pass "CI, setting already on (3): left as it is"
+else
+    fail "CI, on: rc=$rc kbd=$(cat "$kbd" 2>/dev/null) log=$(tr '\n' ';' < "$kbd.log")"
+fi
+for before in absent 0; do
+    kbd_case "local-off-$before" "$before"
+    after="$(cat "$kbd" 2>/dev/null || echo absent)"
+    if [ "$rc" -eq 0 ] && [ "$out" = "keyboard_navigation " ] && [ "$after" = "$before" ] \
+        && ! grep -qE '^(write|delete)' "$kbd.log" \
+        && grep -q 'turn on System Settings > Keyboard > Keyboard navigation' "$t/stderr" \
+        && [ "$(tr '\n' ' ' < "$t/calls")" = "MidgardiOS MidgardMac " ]; then
+        pass "not CI, setting $before: left alone, told how to turn it on, keyboard_navigation failed"
+    else
+        fail "not CI, $before: rc=$rc out='$out' after=$after log=$(tr '\n' ';' < "$kbd.log") $(cat "$t/stderr")"
+    fi
+done
+kbd_case local-on 2
+if [ "$rc" -eq 0 ] && [ -z "$(echo "$out" | tr -d ' ')" ] && [ "$(cat "$kbd")" = 2 ] \
+    && ! grep -qE '^(write|delete)' "$kbd.log" && ! grep -q 'Keyboard navigation' "$t/stderr"; then
+    pass "not CI, setting on: no change, nothing reported"
+else
+    fail "not CI, on: rc=$rc out='$out' log=$(tr '\n' ';' < "$kbd.log") $(cat "$t/stderr")"
+fi
+if [ "$(defaults read -g AppleKeyboardUIMode 2>/dev/null || echo absent)" = "$real_before" ]; then
+    pass "the real global AppleKeyboardUIMode is untouched"
+else
+    fail "the real global AppleKeyboardUIMode changed from $real_before"
+fi
+
 # 5. Through the CI job (`run.sh shell-audit apple`): a package without an app records
 #    nothing; an audited app gets a record the release gate reads.
 job_tree() { # job_tree NAME [APP...]: a checkout with run.sh, the record writer and an Apple shell
@@ -216,7 +305,7 @@ job_tree() { # job_tree NAME [APP...]: a checkout with run.sh, the record writer
 }
 job() { # job TREE [VAR=value...]: run the CI job; rc in $rc
     local t="$1"; shift
-    (cd "$t" && env -u CI "$@" PATH="$stubs:$PATH" STUB_CALLS="$t/calls" MIDGARD_BUILD_CACHE="$t/cache" \
+    (cd "$t" && env -u CI -u GITHUB_ACTIONS "$@" PATH="$stubs:$PATH" STUB_CALLS="$t/calls" MIDGARD_BUILD_CACHE="$t/cache" \
         GITHUB_SHA=0123abcd RUNNER_NAME=test-runner bash tools/ci/run.sh shell-audit apple 0.0.0-test \
         >"$t/stdout" 2>&1)
     rc=$?
@@ -249,7 +338,7 @@ t="$(job_tree job-both MidgardiOS MidgardMac)"
 job "$t" STUB_FAIL_MidgardMac=dynamic_type
 rec="$t/clients/shells/apple/audits/0.0.0-test.toml"
 if [ "$rc" -eq 0 ] && grep -q '^overall *= "pass"' "$rec" 2>/dev/null && [ "$(grep -c '= "pass"$' "$rec")" -eq 8 ] \
-    && grep -q '^device *= "iPhone 16 simulator (iOS 26.2) + macOS 15.5 (arm64)"' "$rec"; then
+    && grep -q '^device *= "iPhone 17 simulator (iOS 26.2) + macOS 15.5 (arm64)"' "$rec"; then
     pass "CI job, both apps measured pass: record says pass for all seven and names both devices"
 else
     fail "CI job, both apps: rc=$rc $(cat "$rec" 2>/dev/null) $(cat "$t/stdout")"

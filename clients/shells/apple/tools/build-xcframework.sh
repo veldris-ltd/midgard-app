@@ -2,7 +2,7 @@
 # Build MidgardCoreFFI.xcframework and the Swift bindings from clients/ffi.
 # [DD-6] [FR-C-1]
 #
-#   bash clients/shells/apple/tools/build-xcframework.sh [--delete-target]
+#   bash clients/shells/apple/tools/build-xcframework.sh [--delete-target] [--out <dir>]
 #
 # Slices: macOS (arm64 + x86_64, lipo'd), iOS device (arm64), iOS simulator (arm64),
 # for macOS 14 and iOS 17. Cargo builds offline and locked into
@@ -13,6 +13,10 @@
 # package (both paths are in clients/shells/apple/.gitignore). The package's links are
 # removed first, so a failed run never leaves an unchecked framework linked. Set
 # MIDGARD_BUILD_CACHE (an absolute path) to use another cache root.
+#
+# --out <dir> (absolute, must not exist; used by ensure-xcframework.sh): build in
+# <dir>.new, check it there, rename it to <dir>, and link nothing into the package (the
+# caller links it). clients-xcframework is then neither read nor written.
 #
 # Local paths are remapped (the home directory to /home/build, the repository to
 # /src), so the libraries carry no path of this machine.
@@ -36,14 +40,38 @@ out="$cache/clients-xcframework"
 new="$cache/clients-xcframework.new"
 apple=clients/shells/apple
 delete_target=0
-case "${1:-}" in
-    '') ;;
-    --delete-target) delete_target=1 ;;
-    *)
-        echo "usage: build-xcframework.sh [--delete-target]" >&2
+dest=""
+usage() {
+    echo "usage: build-xcframework.sh [--delete-target] [--out <dir>]" >&2
+    exit 2
+}
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --delete-target) delete_target=1 ;;
+        --out)
+            [ $# -ge 2 ] || usage
+            dest="$2"
+            shift
+            ;;
+        *) usage ;;
+    esac
+    shift
+done
+if [ -n "$dest" ]; then
+    case "$dest" in
+        /*) ;;
+        *)
+            echo "build-xcframework: --out must be an absolute path" >&2
+            exit 2
+            ;;
+    esac
+    if [ -e "$dest" ]; then
+        echo "build-xcframework: --out $dest already exists" >&2
         exit 2
-        ;;
-esac
+    fi
+    out="$dest"
+    new="$dest.new"
+fi
 cleanup() {
     if [ "$delete_target" = 1 ]; then rm -rf "$target_dir"; fi
     rm -rf "$new"
@@ -72,7 +100,7 @@ for tool in lipo xcodebuild xcrun; do
     }
 done
 
-rm -rf "$apple/Frameworks/MidgardCoreFFI.xcframework" "$apple/Sources/MidgardCore/midgard_client_ffi.swift"
+[ -n "$dest" ] || rm -rf "$apple/Frameworks/MidgardCoreFFI.xcframework" "$apple/Sources/MidgardCore/midgard_client_ffi.swift"
 for t in $targets; do
     echo "build-xcframework: building $t"
     cargo build --offline --locked --release -p midgard-client-ffi --lib --target "$t"
@@ -103,6 +131,11 @@ xcodebuild -create-xcframework \
 
 rm -rf "$new/staging"
 bash clients/shells/apple/tools/verify-xcframework.sh "$new"
+if [ -n "$dest" ]; then
+    mv "$new" "$out"
+    echo "build-xcframework: $out/MidgardCoreFFI.xcframework ($(du -sh "$out/MidgardCoreFFI.xcframework" | cut -f1))"
+    exit 0
+fi
 rm -rf "$out"
 mv "$new" "$out"
 

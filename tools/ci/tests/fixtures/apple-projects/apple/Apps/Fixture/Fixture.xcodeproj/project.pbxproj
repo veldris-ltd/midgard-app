@@ -7,13 +7,26 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		80EEC4752D7293A29B4D4E08 /* FixtureKit in Frameworks */ = {isa = PBXBuildFile; productRef = CB2E025E700630B02DF38D62 /* FixtureKit */; };
 		C71479706C015B7F8F9D2E2B /* notes.txt in Resources */ = {isa = PBXBuildFile; fileRef = F489901658C1D0A02883AF12 /* notes.txt */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		0FB52D9B476619C3397BD736 /* apple */ = {isa = PBXFileReference; lastKnownFileType = folder; name = apple; path = ../..; sourceTree = SOURCE_ROOT; };
 		4B0633A4B6865BA6CC00B903 /* Fixture */ = {isa = PBXFileReference; includeInIndex = 0; path = Fixture; sourceTree = BUILT_PRODUCTS_DIR; };
 		F489901658C1D0A02883AF12 /* notes.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = notes.txt; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		7A52BDF72AFD89027BC7FDC6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				80EEC4752D7293A29B4D4E08 /* FixtureKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		0551016391B672CA5BCF4DBC /* Products */ = {
@@ -27,9 +40,18 @@
 		099ABD0406E3A82DE6BBE14E = {
 			isa = PBXGroup;
 			children = (
+				91F8189B2153E60A8625A06B /* Packages */,
 				F338A6E34FD92ED042EE9B2E /* Sources */,
 				0551016391B672CA5BCF4DBC /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		91F8189B2153E60A8625A06B /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				0FB52D9B476619C3397BD736 /* apple */,
+			);
+			name = Packages;
 			sourceTree = "<group>";
 		};
 		F338A6E34FD92ED042EE9B2E /* Sources */ = {
@@ -49,6 +71,7 @@
 			buildPhases = (
 				0172B35BEA2B66BC75CA0752 /* Sources */,
 				049E20611CE5DA844A412935 /* Resources */,
+				7A52BDF72AFD89027BC7FDC6 /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -56,6 +79,7 @@
 			);
 			name = Fixture;
 			packageProductDependencies = (
+				CB2E025E700630B02DF38D62 /* FixtureKit */,
 			);
 			productName = Fixture;
 			productReference = 4B0633A4B6865BA6CC00B903 /* Fixture */;
@@ -81,6 +105,9 @@
 			);
 			mainGroup = 099ABD0406E3A82DE6BBE14E;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				4918F29F7EDFEE66FD4221D7 /* XCLocalSwiftPackageReference "../.." */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 0551016391B672CA5BCF4DBC /* Products */;
 			projectDirPath = "";
@@ -280,6 +307,20 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		4918F29F7EDFEE66FD4221D7 /* XCLocalSwiftPackageReference "../.." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../..;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		CB2E025E700630B02DF38D62 /* FixtureKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = FixtureKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = DB14DC01466984ECC77BBDE1 /* Project object */;
 }
