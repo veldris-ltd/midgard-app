@@ -1,0 +1,24 @@
+// Signing of the iPhone app and its UI tests: automatic, with the owner's team.
+//
+// The team ID is never committed. On the owner's Mac, create Signing.local.xcconfig
+// beside this file (it is gitignored) holding one line:
+//
+//     MIDGARD_TEAM_ID = <the 10-character Apple Developer team ID>
+//
+// With it, device builds sign with that team and the app carries the keychain access
+// group (Config/MidgardiOS.entitlements) that the Secure Enclave key record needs.
+// Without it, simulator builds and the UI tests still build and run: they sign ad hoc
+// with Config/MidgardiOS-NoTeam.entitlements, which leaves out the access group (a
+// restricted entitlement an ad-hoc build cannot carry); device builds stop with Xcode's
+// "requires a development team". [DD-6] [FR-C-9]
+CODE_SIGN_STYLE = Automatic
+MIDGARD_TEAM_ID =
+DEVELOPMENT_TEAM = $(MIDGARD_TEAM_ID)
+
+// The app's entitlements file: the team's when MIDGARD_TEAM_ID is set, else the
+// no-team file. (An empty team ID selects MIDGARD_APP_ENTITLEMENTS_NOTEAM; any team ID
+// names a setting that does not exist, so the default applies.)
+MIDGARD_APP_ENTITLEMENTS_NOTEAM = Config/MidgardiOS-NoTeam.entitlements
+MIDGARD_APP_ENTITLEMENTS = $(MIDGARD_APP_ENTITLEMENTS_$(MIDGARD_TEAM_ID:default=NOTEAM):default=Config/MidgardiOS.entitlements)
+
+#include? "Signing.local.xcconfig"

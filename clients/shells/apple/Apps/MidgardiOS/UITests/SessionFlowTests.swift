@@ -1,0 +1,112 @@
+import XCTest
+
+/// The session on the shipped app, which has no data (owner decision 19 Nov 2026):
+/// enrol, sign in as the one local user, the "No data source connected" banner, all six
+/// consoles, offline, lock and unlock. [FR-C-1] [FR-C-5] [FR-C-9] [AC-C-13]
+final class SessionFlowTests: XCTestCase {
+    private var app: XCUIApplication!
+
+    override func setUp() {
+        continueAfterFailure = false
+        app = XCUIApplication()
+        app.launchArguments = ["-MidgardUITesting"]
+        app.launch()
+    }
+
+    override func tearDown() {
+        app.terminate()
+    }
+
+    private func element(_ id: String) -> XCUIElement { app.descendants(matching: .any)[id] }
+
+    func testNoDataSessionFlow() {
+        // Enrol, then one persona: the local user.
+        XCTAssertTrue(AppNavigation.enrolButton(app).waitForExistence(timeout: AppNavigation.timeout))
+        AppNavigation.enrolButton(app).tap()
+        XCTAssertTrue(AppNavigation.localPersona(app).waitForExistence(timeout: AppNavigation.timeout))
+        let personas = app.buttons.matching(NSPredicate(format: "identifier MATCHES 'mg\\\\.[0-9]+\\\\.persona\\\\..*'"))
+        XCTAssertEqual(personas.count, 1, "the no-data app has one persona")
+        AppNavigation.localPersona(app).tap()
+        XCTAssertTrue(AppNavigation.consoleMarker(app).waitForExistence(timeout: AppNavigation.timeout))
+
+        // The banner says there is no data.
+        let banner = element("mg.banner.nosource")
+        XCTAssertTrue(banner.exists, "no 'No data source connected' banner")
+        XCTAssertEqual(banner.label, "No data source connected")
+        XCTAssertFalse(element("mg.banner.demo").exists)
+
+        // Each console opens at its list of screens.
+        let firstScreens = ["midgard.object-fabric", "admin.overview", "heimdall.operating-picture",
+                            "forge.connectors", "mimir.model-plane", "bifrost.release-console"]
+        for (index, first) in firstScreens.enumerated() {
+            AppNavigation.selectConsole(app, index + 1)
+            XCTAssertTrue(app.buttons["mg.1.\(first)"].waitForExistence(timeout: AppNavigation.timeout),
+                          "console \(index + 1) does not list \(first)")
+        }
+
+        // Offline: the sync chip says so.
+        AppNavigation.sessionMenu(app, "mg.session.offline")
+        let offline = NSPredicate(format: "label BEGINSWITH 'Sync: offline'")
+        expectation(for: offline, evaluatedWith: element("mg.chip.sync"))
+        waitForExpectations(timeout: AppNavigation.timeout)
+
+        // Lock, then unlock.
+        AppNavigation.sessionMenu(app, "mg.session.lock")
+        XCTAssertTrue(AppNavigation.unlockButton(app).waitForExistence(timeout: AppNavigation.timeout))
+        XCTAssertFalse(AppNavigation.consoleMarker(app).exists, "the consoles are still shown while locked")
+        AppNavigation.unlockButton(app).tap()
+        XCTAssertTrue(AppNavigation.consoleMarker(app).waitForExistence(timeout: AppNavigation.timeout))
+        XCTAssertTrue(element("mg.banner.nosource").exists)
+    }
+
+    func testEveryScreenOpensItsPlaceholder() {
+        AppNavigation.signIn(app)
+        let counts = [11, 8, 6, 7, 7, 6]
+        XCTAssertEqual(counts.reduce(0, +), 45)
+        for (index, count) in counts.enumerated() {
+            AppNavigation.selectConsole(app, index + 1)
+            let rows = app.buttons.matching(NSPredicate(format: "identifier MATCHES %@",
+                                                        "mg\\.[0-9]+\\.\(AppNavigation.consoles[index].lowercased())\\..*"))
+            XCTAssertEqual(rows.count, count, "\(AppNavigation.consoles[index]) lists \(rows.count) screens")
+        }
+        AppNavigation.openDetail(app)
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'Phase C'")).firstMatch.exists)
+    }
+
+    func testSearchFiltersTheScreens() {
+        AppNavigation.signIn(app)
+        AppNavigation.selectConsole(app, 1)
+        let field = element("mg.search.midgard")
+        XCTAssertTrue(field.waitForExistence(timeout: AppNavigation.timeout))
+        field.tap()
+        field.typeText("audit")
+        XCTAssertTrue(app.buttons["mg.1.midgard.audit"].waitForExistence(timeout: AppNavigation.timeout))
+        XCTAssertFalse(app.buttons["mg.1.midgard.object-fabric"].exists)
+    }
+
+    func testBackgroundLocks() {
+        AppNavigation.signIn(app)
+        XCUIDevice.shared.press(.home)
+        XCTAssertTrue(app.wait(for: .runningBackground, timeout: AppNavigation.timeout)
+            || app.wait(for: .runningBackgroundSuspended, timeout: AppNavigation.timeout))
+        app.activate()
+        XCTAssertTrue(AppNavigation.unlockButton(app).waitForExistence(timeout: AppNavigation.timeout),
+                      "the app did not lock in the background")
+    }
+
+    func testCommandDigitsSelectConsoles() {
+        AppNavigation.signIn(app)
+        let marker = AppNavigation.consoleMarker(app)
+        // The simulator can drop the first hardware key event of a launch (seen in a key
+        // log in the app), so one plain key first; with no text field focused it does
+        // nothing. With Full Keyboard Access on, ⌘-digit presses often never reached the
+        // app at all: run this with it off (the simulator's default).
+        app.typeKey("x", modifierFlags: [])
+        for n in [3, 6, 1, 5, 2, 4] {
+            app.typeKey("\(n)", modifierFlags: .command)
+            XCTAssertEqual(marker.value as? String, "\(n)", "⌘\(n) must select console \(n)")
+            // The status line says it in words.
+            XCTAssertEqual(marker.label, "Console \(n) of 6: \(AppNavigation.consoles[n - 1])")
+        }
+    }
+}

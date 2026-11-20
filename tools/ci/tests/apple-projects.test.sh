@@ -37,10 +37,12 @@ compare_projects() {
         app="$(basename "$dir")"
         rel="Apps/$app"
         com="$dir/$app.xcodeproj"
-        copy="$tmp/copy-$n"
-        rm -rf "$copy" && mkdir -p "$copy"
         # Paths in the project are relative to it, so it is generated where it lives, in
-        # a copy of the package as a fresh checkout has it.
+        # a copy of the package as a fresh checkout has it, under the package's own
+        # directory name: XcodeGen names a local package reference after its folder
+        # (`path: ../..` is "apple"), and that name is in the project.
+        copy="$tmp/copy-$n/$(basename "$(cd "$base" && pwd)")"
+        rm -rf "$tmp/copy-$n" && mkdir -p "$copy"
         tar -C "$base" --exclude .build --exclude .swiftpm --exclude Frameworks --exclude '*.xcodeproj' \
             --exclude xcuserdata --exclude Signing.local.xcconfig --exclude midgard_client_ffi.swift -cf - . |
             tar -C "$copy" -xf -
