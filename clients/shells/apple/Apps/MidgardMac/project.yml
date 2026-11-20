@@ -42,26 +42,22 @@ targets:
       - package: MidgardKit
         product: MidgardKit
     preBuildScripts:
+      - name: Refuse a Release build without a team
+        # A Release build without MIDGARD_TEAM_ID is signed ad hoc, without the keychain
+        # access group: it cannot keep keys outside UI testing. Allowed only on purpose,
+        # with MIDGARD_ALLOW_ADHOC_RELEASE=YES (Config/Signing.xcconfig).
+        script: |
+          if [ "${CONFIGURATION}" = "Release" ] && [ -z "${MIDGARD_TEAM_ID}" ] \
+              && [ "${MIDGARD_ALLOW_ADHOC_RELEASE}" != "YES" ]; then
+              echo "error: Release build without a team: set MIDGARD_TEAM_ID in Config/Signing.local.xcconfig, or pass MIDGARD_ALLOW_ADHOC_RELEASE=YES for an ad-hoc Release build that cannot keep keys."
+              exit 1
+          fi
+        basedOnDependencyAnalysis: false
       - name: Ensure MidgardCoreFFI.xcframework
         # Builds the Rust core only when its sources changed (a content stamp, not
         # modification times), so it runs on every build.
         script: bash "$SRCROOT/../../tools/ensure-xcframework.sh"
         basedOnDependencyAnalysis: false
-  MidgardMacTests:
-    # App-only logic (the console catalogue), compiled into the test bundle: no host
-    # app, so a sandboxed, hardened app never has to load a test bundle.
-    type: bundle.unit-test
-    platform: macOS
-    sources:
-      - Tests
-      - Sources/ConsoleCatalog.swift
-    configFiles:
-      Debug: Config/Signing.xcconfig
-      Release: Config/Signing.xcconfig
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.veldris.midgard.mac.tests
-        GENERATE_INFOPLIST_FILE: YES
   MidgardMacUITests:
     type: bundle.ui-testing
     platform: macOS
@@ -88,8 +84,8 @@ schemes:
     test:
       config: Debug
       gatherCoverageData: false
+      # The console catalogue's unit tests are MidgardKit's (swift test in the package).
       targets:
-        - MidgardMacTests
         - name: MidgardMacUITests
           # Dynamic Type is measured on iOS; the macOS test fails by design (A14), so the
           # scheme skips it. audit.sh reads a skipped test as not measured, as before.

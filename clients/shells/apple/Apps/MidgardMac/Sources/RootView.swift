@@ -25,9 +25,9 @@ struct RootView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Text("Midgard"))
-        // The one window set-up, run again once signed in: the split view it names
-        // exists only then.
-        .background(WindowSetup(signedIn: model.isUnlocked))
+        // The one window set-up, run again once signed in (the split view it names
+        // exists only then) and on each route change (the columns are rebuilt).
+        .background(WindowSetup(signedIn: model.isUnlocked, route: route.clamped))
         .transaction { transaction in
             if reduced {
                 transaction.animation = nil
@@ -67,26 +67,36 @@ struct StatusLine: View {
 /// Window set-up SwiftUI on macOS 14 has no modifier for: hide the title text (the
 /// title itself stays; `.toolbar(removing: .title)` is macOS 15), and name the AppKit
 /// containers NavigationSplitView makes, which VoiceOver otherwise announces as bare
-/// groups (the screen-reader audit's "Element has no description").
+/// groups (the screen-reader audit's "Element has no description"): the split view
+/// and each column's own group (its hosting view) only, never the groups SwiftUI makes
+/// inside a column, which carry the screen's own labels.
 struct WindowSetup: NSViewRepresentable {
     /// Whether the console shell (and its split view) is shown: set-up runs again when
     /// it changes.
     let signedIn: Bool
+    /// The window's route: set-up runs again when it changes.
+    let route: ConsoleRoute
 
-    final class Coordinator { var signedIn: Bool? }
+    struct State: Equatable {
+        let signedIn: Bool
+        let route: ConsoleRoute
+    }
+
+    final class Coordinator { var state: State? }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
-        context.coordinator.signedIn = signedIn
+        context.coordinator.state = State(signedIn: signedIn, route: route)
         Self.schedule(view)
         return view
     }
 
     func updateNSView(_ view: NSView, context: Context) {
-        guard context.coordinator.signedIn != signedIn else { return }
-        context.coordinator.signedIn = signedIn
+        let state = State(signedIn: signedIn, route: route)
+        guard context.coordinator.state != state else { return }
+        context.coordinator.state = state
         Self.schedule(view)
     }
 
@@ -106,11 +116,24 @@ struct WindowSetup: NSViewRepresentable {
         for split in descendants(of: content).compactMap({ $0 as? NSSplitView }) {
             name(split, "Console columns")
             for (index, column) in split.arrangedSubviews.enumerated() {
-                let label = index < columnNames.count ? columnNames[index] : "Column"
-                name(column, label)
-                for inner in descendants(of: column) { name(inner, label) }
+                // The column's wrapper has no role; the group VoiceOver meets is the
+                // column's hosting view, the first group inside it. Nothing deeper:
+                // SwiftUI's own groups carry the screen's labels.
+                if let group = firstGroup(in: column) {
+                    name(group, index < columnNames.count ? columnNames[index] : "Column")
+                }
             }
         }
+    }
+
+    /// The shallowest group at or under `view` (breadth first).
+    private static func firstGroup(in view: NSView) -> NSView? {
+        var level = [view]
+        while !level.isEmpty {
+            if let group = level.first(where: { $0.accessibilityRole() == .group }) { return group }
+            level = level.flatMap(\.subviews)
+        }
+        return nil
     }
 
     /// Label an unlabelled group; leave everything else as it is.
@@ -213,7 +236,7 @@ struct SidebarEntry: Identifiable, Hashable {
 
     var identifier: String {
         switch item {
-        case let .console(c): return "mg.\(number).console.\(ConsoleCatalog.consoles[c].id)"
+        case let .console(c): return "mg.\(number).console.\(ConsoleCatalog.consoles[c].slug)"
         case let .screen(c, s): return "mg.\(number).screen.\(ConsoleCatalog.slug(ConsoleCatalog.consoles[c].screens[s]))"
         }
     }
@@ -268,7 +291,7 @@ struct ConsoleSidebar: View {
     @ViewBuilder private func row(_ entry: SidebarEntry) -> some View {
         switch entry.item {
         case let .console(c):
-            Label(entry.title, systemImage: symbol(c))
+            Label(entry.title, systemImage: ConsoleCatalog.consoles[c].symbol)
                 .font(MGFonts.sans(.body).weight(.semibold))
                 .accessibilityLabel(Text("\(entry.title) console"))
         case .screen:
@@ -276,10 +299,6 @@ struct ConsoleSidebar: View {
                 .font(MGFonts.sans(.body))
                 .padding(.leading, MGSpace.s4)
         }
-    }
-
-    private func symbol(_ console: Int) -> String {
-        ["square.grid.3x3", "person.badge.key", "map", "hammer", "brain", "shippingbox"][console]
     }
 }
 
@@ -320,12 +339,17 @@ struct ScreenDetail: View {
     }
 }
 
-extension AppModel {
-    var isUnlocked: Bool {
-        if case .unlocked = phase { return true }
-        return false
+extension Console {
+    /// The console's sidebar symbol on the Mac. (The catalogue is MidgardKit's.)
+    var symbol: String {
+        switch id {
+        case "midgard": return "square.grid.3x3"
+        case "admin": return "person.badge.key"
+        case "heimdall": return "map"
+        case "forge": return "hammer"
+        case "mimir": return "brain"
+        case "bifrost": return "shippingbox"
+        default: return "square"
+        }
     }
-
-    /// Whether the session is offline, from the sync chip.
-    var isOffline: Bool { chips?.sync.phase == .offline }
 }

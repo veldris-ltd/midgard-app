@@ -28,8 +28,9 @@ struct MidgardMacApp: App {
 }
 
 /// Owns the session and what is app-wide about it: starting it off the main thread,
-/// postponing the idle lock on input, and locking after the app has been in the
-/// background for the grace period. [FR-C-9]
+/// postponing the idle lock on input, locking at once when the Mac sleeps, its screens
+/// sleep or the user switches away (fast user switching), and locking after the app has
+/// been in the background for the grace period. [FR-C-9]
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     /// How long the app may stay inactive before it locks.
@@ -37,34 +38,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     let model = AppModel()
     private var monitor: Any?
-    private var observers: [NSObjectProtocol] = []
+    /// Each observer with the centre it was added to.
+    private var observers: [(NotificationCenter, NSObjectProtocol)] = []
     private var pendingLock: Task<Void, Never>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .scrollWheel]) { [weak self] event in
+        monitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
+        ) { [weak self] event in
             MainActor.assumeIsolated { self?.model.touch() }
             return event
         }
-        let center = NotificationCenter.default
-        observers.append(center.addObserver(forName: NSApplication.willResignActiveNotification, object: nil,
-                                            queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.scheduleBackgroundLock() }
-        })
-        observers.append(center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
-                                            queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.pendingLock?.cancel()
-                self?.pendingLock = nil
-            }
-        })
+        let app = NotificationCenter.default
+        observe(app, NSApplication.willResignActiveNotification) { $0.scheduleBackgroundLock() }
+        observe(app, NSApplication.didBecomeActiveNotification) { $0.cancelBackgroundLock() }
+        // Workspace notifications come only through the workspace's own centre.
+        let workspace = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.willSleepNotification, NSWorkspace.screensDidSleepNotification,
+                     NSWorkspace.sessionDidResignActiveNotification] {
+            observe(workspace, name) { $0.lockNow() }
+        }
         let model = model
         Task { await model.start(making: Launch.environment) }
         #if DEBUG
-        if UITesting.isActive { NSApp.activate(ignoringOtherApps: true) }
+        if UITestingEnvironment.requested() {
+            NSApp.activate(ignoringOtherApps: true)
+            // SwiftUI sometimes opens no window at launch under XCUITest (the app is
+            // launched in the background): open one, as File ▸ New Window would.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { MainActor.assumeIsolated { Self.ensureWindow() } }
+        }
         #endif
-        // SwiftUI sometimes opens no window at launch (seen under XCUITest, launched in
-        // the background): open one, as File ▸ New Window would.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { MainActor.assumeIsolated { Self.ensureWindow() } }
+    }
+
+    private func observe(_ center: NotificationCenter, _ name: Notification.Name,
+                         _ action: @escaping @MainActor (AppDelegate) -> Void) {
+        let token = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                if let self { action(self) }
+            }
+        }
+        observers.append((center, token))
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -89,8 +102,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationWillTerminate(_ notification: Notification) {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+        for (center, token) in observers { center.removeObserver(token) }
+        observers = []
+        cancelBackgroundLock()
         #if DEBUG
-        UITesting.removeStore()
+        if UITestingEnvironment.requested() { UITestingEnvironment.removeCurrentStore() }
         #endif
     }
 
@@ -98,17 +116,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pendingLock?.cancel()
         let model = model
         pendingLock = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: UInt64(Self.backgroundGrace * 1_000_000_000))
-            guard !Task.isCancelled, case .unlocked = model.phase else { return }
+            // The continuous clock keeps counting while the Mac sleeps (the uptime clock
+            // would not), so the grace period is wall time.
+            try? await Task.sleep(for: .seconds(Self.backgroundGrace), clock: .continuous)
+            guard !Task.isCancelled, model.isUnlocked else { return }
             await model.lock()
         }
+    }
+
+    private func cancelBackgroundLock() {
+        pendingLock?.cancel()
+        pendingLock = nil
+    }
+
+    /// The Mac is going to sleep, its screens slept, or another user took the screen:
+    /// lock now, without waiting for the grace period.
+    private func lockNow() {
+        cancelBackgroundLock()
+        guard model.isUnlocked else { return }
+        let model = model
+        Task { await model.lock() }
     }
 }
 
 /// How the session's environment is made: the live one (the keychain, Application
 /// Support, the key root `KeyRootFactory` chooses, the data source Info.plist names),
-/// or in Debug builds launched with `-MidgardUITesting` a non-prompting test key root
-/// and a fresh temporary store. Called off the main thread by `AppModel.start(making:)`.
+/// or in Debug builds launched with `-MidgardUITesting` MidgardKit's
+/// `UITestingEnvironment` (a key root that never prompts, secrets in memory, a fresh
+/// temporary store). Called off the main thread by `AppModel.start(making:)`.
 enum Launch {
     static let reason = "Unlock Midgard"
 
@@ -119,7 +154,7 @@ enum Launch {
 
     @Sendable static func environment() throws -> AppEnvironment {
         #if DEBUG
-        if UITesting.isActive { return try UITesting.environment(device: device) }
+        if UITestingEnvironment.requested() { return try UITestingEnvironment.make(reason: reason, device: device) }
         #endif
         return try AppEnvironment.live(reason: reason, device: device)
     }

@@ -44,17 +44,6 @@
             parallelizable = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "81BA2CDEFC2B670532365C93"
-               BuildableName = "MidgardMacTests.xctest"
-               BlueprintName = "MidgardMacTests"
-               ReferencedContainer = "container:MidgardMac.xcodeproj">
-            </BuildableReference>
-         </TestableReference>
-         <TestableReference
-            skipped = "NO"
-            parallelizable = "NO">
-            <BuildableReference
-               BuildableIdentifier = "primary"
                BlueprintIdentifier = "2EFEC93D01E69EE85B2DA3BD"
                BuildableName = "MidgardMacUITests.xctest"
                BlueprintName = "MidgardMacUITests"
