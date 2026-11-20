@@ -4,14 +4,16 @@ import UIKit
 import UIKit.UIGestureRecognizerSubclass
 #endif
 
-/// Calls `onTouch` whenever a touch begins anywhere in the window it is placed in, to
-/// postpone the idle lock, without being a gesture SwiftUI can see: a `TapGesture` over
-/// the signed-in screen made SwiftUI report every element under it (the status chips)
-/// as tappable, and the hit-region audit then failed them as too small. Here a gesture
-/// recognizer on the window notices the touch, never recognises and never delays or
-/// cancels a touch, so taps, scrolls and VoiceOver work as without it; the view itself
-/// is empty and hidden from accessibility. On macOS it does nothing: the app watches
-/// mouse and key events with an `NSEvent` monitor. [FR-C-9] [RC-49]
+/// Calls `onTouch` whenever a finger touches down anywhere in the window it is placed
+/// in, to postpone the idle lock, without being a gesture SwiftUI can see: a
+/// `TapGesture` over the signed-in screen made SwiftUI report every element under it
+/// (the status chips) as tappable, and the hit-region audit then failed them as too
+/// small. Here a gesture recognizer on the window notices the touch, never recognises
+/// and never delays or cancels a touch, so taps and scrolls work as without it; the
+/// view itself is empty and hidden from accessibility. It sees touches only: typing on
+/// a hardware keyboard, key commands and VoiceOver moving its focus are not touches,
+/// and the iOS app postpones the lock for those itself. On macOS it does nothing: the
+/// app watches mouse and key events with an `NSEvent` monitor. [FR-C-9] [RC-49]
 public struct IdleTouchWatcher: View {
     let onTouch: @MainActor () -> Void
     public init(_ onTouch: @escaping @MainActor () -> Void) { self.onTouch = onTouch }
@@ -73,7 +75,8 @@ final class TouchNoticer: UIGestureRecognizer, UIGestureRecognizerDelegate {
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
-        MainActor.assumeIsolated { onTouch() }
+        // UIGestureRecognizer is main-actor isolated: so is this override.
+        onTouch()
         state = .failed
     }
 

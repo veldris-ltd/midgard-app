@@ -40,8 +40,11 @@ public struct PersonaPickerView: View {
 }
 
 /// A persona button's label: name and role, and the clearance beside them (or under
-/// them when `stacked`). Every line in the token text colour, which meets AA on the
-/// bordered button's fill in both modes on both platforms.
+/// them when `stacked`). Every line in the token text colour (`MGStyle.text`).
+/// `AccessibilityPrecheckTests` checks that colour on the page backgrounds and the
+/// theme's surfaces, not on the bordered button's fill, which the system composites
+/// (a translucent fill over the page) and which has no token to check against: the
+/// fill's contrast is measured by each app's contrast audit.
 struct PersonaLabel: View {
     let persona: PersonaInfo
     let stacked: Bool
