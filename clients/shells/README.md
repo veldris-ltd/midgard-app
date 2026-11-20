@@ -17,8 +17,9 @@ No shell implements cryptography, key handling, or sync-merge logic (**KDD-1**).
 
 **Status.** `apple`: the UniFFI binding (`clients/ffi`), the XCFramework build and the
 shared Swift package `MidgardKit` are built and tested on a Mac
-([`SHELL_BUILD.md`](SHELL_BUILD.md#apple-built)); the macOS and iOS apps are not
-built yet and no Apple audit has been recorded. The other five shells have no app
+([`SHELL_BUILD.md`](SHELL_BUILD.md#apple-built)); the macOS and iPhone apps are built
+on the branches `clients_mac` and `clients_iphone` ([`apple/README.md`](apple/README.md)),
+with no data source, and no Apple audit has been recorded. The other five shells have no app
 project yet (their `manifest.toml` and `accessibility.toml`, and the web-family audit
 harness in `web/a11y/`).
 

@@ -4,8 +4,10 @@
 #   bash clients/shells/apple/tools/clean.sh [--target]
 #
 # Removes ~/Library/Caches/midgard-build/clients-* outputs (including clients-swift,
-# the `swift build --scratch-path` directory, and ensure-xcframework.sh's
-# clients-xcframework-by-stamp builds and lock) and what
+# the `swift build --scratch-path` directory; ensure-xcframework.sh's
+# clients-xcframework-by-stamp builds and lock; clients-derived and every
+# clients-derived-* directory, the apps' and audit.sh's derived data and result bundles;
+# and clients-archive, for release archives) and what
 # build-xcframework.sh linked into the Swift package; --target also removes the cargo
 # target directory (~/Library/Caches/midgard-build/target-clients).
 set -euo pipefail
@@ -43,8 +45,8 @@ else
     rm -rf "$lock" "$cache/clients-xcframework-by-stamp"
     kept=0
 fi
-rm -rf "$cache/clients-xcframework" "$cache/clients-xcframework.new" "$cache/clients-derived" "$cache/clients-archive" \
-    "$cache/clients-swift" "$cache"/clients-xcframework.lock.stale.*
+rm -rf "$cache/clients-xcframework" "$cache/clients-xcframework.new" "$cache/clients-derived" "$cache"/clients-derived-* \
+    "$cache/clients-archive" "$cache/clients-swift" "$cache"/clients-xcframework.lock.stale.*
 cd "$(dirname "$0")/.."
 rm -rf Frameworks Sources/MidgardCore/midgard_client_ffi.swift .build .swiftpm
 if [ "$kept" = 1 ]; then
