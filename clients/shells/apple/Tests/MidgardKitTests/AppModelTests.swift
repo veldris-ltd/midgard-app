@@ -99,16 +99,22 @@ final class AppModelTests: XCTestCase {
 
         await model.enrol()
         let local = try XCTUnwrap(model.personas.first)
+        XCTAssertFalse(model.isUnlocked)
         await model.signIn(local)
         XCTAssertEqual(model.phase, .unlocked(local))
+        XCTAssertTrue(model.isUnlocked)
+        XCTAssertFalse(model.isOffline)
         let id = await model.requestAction(ActionInput(verb: "demo.ping", target: "midgard.audit/AUD-1", params: []))
         XCTAssertNil(id)
         XCTAssertEqual(model.message, "Not available: no data source connected.")
         XCTAssertEqual(model.chips?.sync.pending, 0, "nothing is queued")
         await model.setOffline(true)
         XCTAssertEqual(model.chipsPresentation?.sync.text, "OFFLINE · 0 QUEUED")
+        XCTAssertTrue(model.isOffline)
         await model.lock()
         XCTAssertEqual(model.phase, .locked)
+        XCTAssertFalse(model.isUnlocked)
+        XCTAssertFalse(model.isOffline, "no chips while locked")
         XCTAssertEqual(model.banner, .noSource)
     }
 
