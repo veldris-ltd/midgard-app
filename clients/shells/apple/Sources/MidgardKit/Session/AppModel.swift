@@ -44,6 +44,15 @@ public final class AppModel: ObservableObject {
 
     public var chipsPresentation: StatusChipsPresentation? { chips.map(StatusChipsPresentation.init) }
 
+    /// Whether a persona is signed in (the console shell is shown).
+    public var isUnlocked: Bool {
+        if case .unlocked = phase { return true }
+        return false
+    }
+
+    /// Whether the session is offline, from the sync chip.
+    public var isOffline: Bool { chips?.sync.phase == .offline }
+
     private var gateway: CoreGateway<SessionController>?
     private let idleTimeout: TimeInterval
     private lazy var idle = IdleLock(timeout: idleTimeout) { [weak self] in
