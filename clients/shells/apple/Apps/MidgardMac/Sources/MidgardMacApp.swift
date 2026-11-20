@@ -73,7 +73,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Open a console window when none is visible, through the window group's own
-    /// File ▸ New Window command (⌘N).
+    /// File ▸ New Window command (⌘N). It depends on that menu item: it finds it by its
+    /// ⌘N key equivalent, so if Commands.swift replaces or rebinds New Window (or the
+    /// scene stops being a WindowGroup) this silently opens nothing, and a launch under
+    /// XCUITest can come up with no window.
     static func ensureWindow() {
         guard !NSApp.windows.contains(where: { $0.isVisible && $0.canBecomeMain }) else { return }
         guard let file = NSApp.mainMenu?.items.first(where: { $0.submenu?.items.contains { $0.keyEquivalent == "n" } ?? false }),

@@ -23,7 +23,8 @@ struct ConsoleRoute: Codable, Hashable {
         return ConsoleRoute(console: c, screen: s)
     }
 
-    /// The value of the hidden `mg.console.selected` element: 1…6, as ⌘1…⌘6.
+    /// The value of `mg.console.selected`, the status line's "Console n of 6" text: 1…6,
+    /// as ⌘1…⌘6.
     var selectedValue: String { String(clamped.console + 1) }
 
     /// Selecting a console opens its first screen.

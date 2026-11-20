@@ -74,6 +74,13 @@ enum Nav {
         return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
     }
 
+    /// Wait until `element`'s value (a static text's visible words) starts with `prefix`.
+    static func wait(_ element: XCUIElement, valuePrefix prefix: String, timeout: TimeInterval = 5) -> Bool {
+        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value BEGINSWITH %@", prefix),
+                                                    object: element)
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
     /// Wait until `element`'s label starts with `prefix`.
     static func wait(_ element: XCUIElement, labelPrefix prefix: String, timeout: TimeInterval = 5) -> Bool {
         let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label BEGINSWITH %@", prefix),

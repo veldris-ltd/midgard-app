@@ -43,15 +43,19 @@ final class SessionFlowTests: XCTestCase {
         app.typeKey("1", modifierFlags: .command)
         XCTAssertTrue(Nav.wait(Nav.element(app, "mg.console.selected"), value: "1"))
 
-        // Offline from the persona menu: the sync chip says OFFLINE (spoken "Sync: offline").
+        // Offline from the persona menu: the sync chip shows OFFLINE (its visible words,
+        // the static text's value) and speaks "Sync: offline" (its label).
         let sync = Nav.element(app, "mg.chip.sync")
         XCTAssertTrue(Nav.wait(sync, labelPrefix: "Sync: synced"), "sync chip: \(sync.label)")
+        XCTAssertTrue(Nav.wait(sync, valuePrefix: "SYNCED"), "sync chip shows: \(String(describing: sync.value))")
         Nav.element(app, "mg.0.persona-menu").click()
         app.menuItems["Go offline"].click()
         XCTAssertTrue(Nav.wait(sync, labelPrefix: "Sync: offline"), "sync chip: \(sync.label)")
+        XCTAssertTrue(Nav.wait(sync, valuePrefix: "OFFLINE"), "sync chip shows: \(String(describing: sync.value))")
         // And back online with ⇧⌘O.
         app.typeKey("o", modifierFlags: [.command, .shift])
         XCTAssertTrue(Nav.wait(sync, labelPrefix: "Sync: synced"), "sync chip: \(sync.label)")
+        XCTAssertTrue(Nav.wait(sync, valuePrefix: "SYNCED"), "sync chip shows: \(String(describing: sync.value))")
 
         // ⌘L locks; Unlock returns to the shell as the same persona.
         app.typeKey("l", modifierFlags: .command)

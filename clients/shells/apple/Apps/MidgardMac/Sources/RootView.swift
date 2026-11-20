@@ -25,7 +25,9 @@ struct RootView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Text("Midgard"))
-        .background(WindowSetup())
+        // The one window set-up, run again once signed in: the split view it names
+        // exists only then.
+        .background(WindowSetup(signedIn: model.isUnlocked))
         .transaction { transaction in
             if reduced {
                 transaction.animation = nil
@@ -67,16 +69,33 @@ struct StatusLine: View {
 /// containers NavigationSplitView makes, which VoiceOver otherwise announces as bare
 /// groups (the screen-reader audit's "Element has no description").
 struct WindowSetup: NSViewRepresentable {
+    /// Whether the console shell (and its split view) is shown: set-up runs again when
+    /// it changes.
+    let signedIn: Bool
+
+    final class Coordinator { var signedIn: Bool? }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
-        // Once the shell is in its window, and again once the split view has laid out
-        // its columns.
-        DispatchQueue.main.async { Self.setUp(view.window) }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { Self.setUp(view.window) }
+        context.coordinator.signedIn = signedIn
+        Self.schedule(view)
         return view
     }
 
-    func updateNSView(_ view: NSView, context: Context) {}
+    func updateNSView(_ view: NSView, context: Context) {
+        guard context.coordinator.signedIn != signedIn else { return }
+        context.coordinator.signedIn = signedIn
+        Self.schedule(view)
+    }
+
+    /// Once the view is in its window, and again once the split view has laid out its
+    /// columns.
+    private static func schedule(_ view: NSView) {
+        DispatchQueue.main.async { setUp(view.window) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { setUp(view.window) }
+    }
 
     static let columnNames = ["Consoles", "Screen", "Details"]
 
@@ -139,10 +158,10 @@ struct ConsoleShell: View {
             .accessibilityLabel(Text("Console"))
         }
         // The window keeps its title (Window menu, Mission Control) but does not draw
-        // it: the titlebar's grey title text fails the contrast audit, and the sidebar
-        // and the screen heading already say where the window is.
+        // it (RootView's WindowSetup hides it): the titlebar's grey title text fails the
+        // contrast audit, and the sidebar and the screen heading already say where the
+        // window is.
         .navigationTitle(ConsoleCatalog.console(route).name)
-        .background(WindowSetup())
     }
 }
 
