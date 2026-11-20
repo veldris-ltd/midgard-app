@@ -60,8 +60,11 @@ apps is the platform-team build, run on the appropriate CI runners.
 
 ## Apple (built)
 
-The Apple binding and the shared Swift package exist; the macOS and iOS apps are
-the next step (branches `clients_mac`, `clients_iphone`).
+The Apple binding and the shared Swift package exist on `clients_shared`; the macOS
+and iPhone apps are built on the branches `clients_mac` and `clients_iphone`, which
+merge `clients_shared`. [`apple/README.md`](apple/README.md) covers the apps:
+branches, building and testing them, the no-data mode, signing, the audit and
+clean-up.
 
 **Prerequisites.** A Mac with Xcode 26.2 (or 16.x), rustup (the repository pins
 Rust 1.82.0 in `rust-toolchain.toml`), the Apple targets
@@ -94,7 +97,8 @@ bash tools/check-contract.sh      # every exported function is exercised by Cont
 bash tools/check-bindings.sh      # the bindings are a fresh uniffi-bindgen run's; acknowledgement; licence expiry
 node tools/gen-tokens.mjs --check # design tokens and fonts match ui/design-system
 bash tools/typecheck-ios.sh       # typecheck for iOS without a simulator runtime
-bash tools/clean.sh [--target]    # delete every clients-* output (and the cargo target dir)
+bash tools/clean.sh [--target]    # delete every clients-* build output, the apps' derived data
+                                  # and archives included (and the cargo target dir)
 ```
 
 **Fresh checkout, first Xcode build.** Xcode resolves Swift packages before any build
@@ -116,8 +120,9 @@ checks that each committed `Apps/<App>/<App>.xcodeproj` is what its `project.yml
 both apps, runs each app's `AccessibilityAudit` UI test (XCUITest +
 `XCUIAccessibilityAudit`) on an iPhone simulator and on the Mac, and names the
 devices it audited; `tools/ci/run.sh shell-audit apple` records the result. It
-refuses a tree without both apps, so until the apps exist it records nothing and the
-release gate stays closed.
+refuses a tree without both apps, so it records nothing on `clients_mac` or
+`clients_iphone` alone (only on a merge of the two), and until then the release gate
+stays closed.
 
 **Apple release checklist** (MPL-2.0, UniFFI):
 
