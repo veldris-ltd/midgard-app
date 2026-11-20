@@ -4,10 +4,13 @@ import SwiftUI
 /// the tone's tint, lettered in the tone's text token for the mode, which meets AA on the
 /// tint over every surface. [FR-C-9] [AC-C-13] [RC-49]
 ///
-/// Accessibility: each chip is one text element (static text, like the source banner),
-/// not a combined element, so its visible words stay its value ("OFFLINE · 0 QUEUED",
-/// what macOS reports and the UI tests read) while VoiceOver speaks the spelled-out
-/// label ("Sync: offline, 0 changes queued"). The chips are not controls: nothing on
+/// Accessibility: each chip is one static-text element whose label is spelled out for
+/// VoiceOver ("Sync: offline, 0 changes queued"). On macOS it also carries its visible
+/// words as its value ("OFFLINE · 0 QUEUED"): there a label set on a text replaces the
+/// text's value, and the visible words were then nowhere in the accessibility tree
+/// (seen in the B2 UI tests). On iOS the label alone is spoken, as before. A combined
+/// element (`children: .ignore`) keeps the label and value apart; it needs the
+/// static-text trait for a role. The chips are not controls: nothing on
 /// them can be activated, so they have no button trait and need no hit target. (The
 /// session's idle touch is watched at the window, `IdleTouchWatcher`, not by a tap
 /// gesture over the screen, which made the hit-region audit treat them as tappable.)
@@ -53,8 +56,23 @@ public struct StatusChipsView: View {
                 .fill(Color(mgHex: chip.tone.tint.0, opacity: chip.tone.tint.1)))
             .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .strokeBorder(Color(mgHex: chip.tone.hex), lineWidth: 1))
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text(chip.accessibilityLabel))
             .accessibilityAddTraits(.isStaticText)
+            .modifier(VisibleWordsOnMac(text: chip.text))
             .accessibilityIdentifier(id)
+    }
+}
+
+/// On macOS, a chip's visible words as its accessibility value (see `StatusChipsView`).
+struct VisibleWordsOnMac: ViewModifier {
+    let text: String
+
+    func body(content: Content) -> some View {
+        #if os(macOS)
+        content.accessibilityValue(Text(text))
+        #else
+        content
+        #endif
     }
 }
