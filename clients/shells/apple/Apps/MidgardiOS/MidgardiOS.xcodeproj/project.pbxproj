@@ -14,7 +14,6 @@
 		C6D5B64CDD9ED4B6495BBD51 /* AppNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C7C5AB080B324A94894BFF /* AppNavigation.swift */; };
 		D9B19050A386D9D8CC41F1C1 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCA691AC4CE9B877E1875A4D /* RootView.swift */; };
 		F351A1731D3A36D19E569195 /* MidgardiOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEAD789E2E1859BD0DD1CC83 /* MidgardiOSApp.swift */; };
-		F501DB43A556270A8CD6931C /* ConsoleCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5EFBD26C0E5535EC6E38076 /* ConsoleCatalog.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -32,7 +31,6 @@
 		34824E36E0A06B2673FF4D6A /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 		603C59FCD35B12560685113F /* apple */ = {isa = PBXFileReference; lastKnownFileType = folder; name = apple; path = ../..; sourceTree = SOURCE_ROOT; };
 		85D9133E32E10950B1CFA8C4 /* MidgardiOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MidgardiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		B5EFBD26C0E5535EC6E38076 /* ConsoleCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsoleCatalog.swift; sourceTree = "<group>"; };
 		BC2A3D5A6F5594F93A07AFF4 /* AccessibilityAudit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityAudit.swift; sourceTree = "<group>"; };
 		BF02CDCC2435DDB79E9FBD42 /* SessionFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionFlowTests.swift; sourceTree = "<group>"; };
 		C7C7C5AB080B324A94894BFF /* AppNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppNavigation.swift; sourceTree = "<group>"; };
@@ -92,7 +90,6 @@
 		BE1AEE2090702B90D50C40D7 /* Sources */ = {
 			isa = PBXGroup;
 			children = (
-				B5EFBD26C0E5535EC6E38076 /* ConsoleCatalog.swift */,
 				FEAD789E2E1859BD0DD1CC83 /* MidgardiOSApp.swift */,
 				FCA691AC4CE9B877E1875A4D /* RootView.swift */,
 			);
@@ -123,6 +120,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = AA7610F122D26F6AD5DD3EC0 /* Build configuration list for PBXNativeTarget "MidgardiOS" */;
 			buildPhases = (
+				08B3737C62B8D9CBF8E245F5 /* Refuse a Release build without a team */,
 				7CD56F52584CFDBDD88F5A9A /* Ensure MidgardCoreFFI.xcframework */,
 				9B25729A994844F7D7AEA9FD /* Sources */,
 				69B0A72A86F28FA5B1F19174 /* Frameworks */,
@@ -203,6 +201,25 @@
 /* End PBXProject section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		08B3737C62B8D9CBF8E245F5 /* Refuse a Release build without a team */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Refuse a Release build without a team";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if [ \"${CONFIGURATION}\" = \"Release\" ] && [ -z \"${MIDGARD_TEAM_ID}\" ] \\\n    && [ \"${MIDGARD_ALLOW_ADHOC_RELEASE}\" != \"YES\" ]; then\n    echo \"error: Release build without a team: set MIDGARD_TEAM_ID in Config/Signing.local.xcconfig, or pass MIDGARD_ALLOW_ADHOC_RELEASE=YES for an ad-hoc Release build that cannot keep keys.\"\n    exit 1\nfi\n";
+		};
 		7CD56F52584CFDBDD88F5A9A /* Ensure MidgardCoreFFI.xcframework */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -239,7 +256,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				F501DB43A556270A8CD6931C /* ConsoleCatalog.swift in Sources */,
 				F351A1731D3A36D19E569195 /* MidgardiOSApp.swift in Sources */,
 				D9B19050A386D9D8CC41F1C1 /* RootView.swift in Sources */,
 			);

@@ -5,12 +5,15 @@ import SwiftUI
 /// The app's root: the session's phases (enrol, sign in, locked, the consoles) under the
 /// source banner, from MidgardKit's `SessionRootView`, over a status line that carries
 /// the audit's hooks. It starts the model off the main thread, locks when the app goes
-/// to the background, and covers the screen whenever the scene is not active (so the app
-/// switcher's snapshot shows nothing). The accent is set here to design tokens that meet
-/// AA in both modes (the system blue does not, on the sign-in screen's persona button).
+/// to the background, and covers the screen (`PrivacyCover`) while the app is in the
+/// background, or inactive with a persona signed in, so the app switcher shows nothing.
+/// The accent is MidgardKit's `MGStyle.accent`, design tokens that meet AA in both modes
+/// (the system blue does not, on the sign-in screen's persona button).
 /// [FR-C-1] [FR-C-9] [AC-C-11] [RC-49]
 struct RootView: View {
     @ObservedObject var model: AppModel
+    /// ⌘1…⌘6, from the app delegate's key commands.
+    @ObservedObject var shortcuts: ConsoleShortcuts
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @State private var started = false
@@ -19,23 +22,29 @@ struct RootView: View {
 
     private var reducedMotion: Bool { MotionPolicy.reduced(system: systemReduceMotion) }
 
+    /// Not while merely inactive and locked: Face ID's prompt makes the scene inactive,
+    /// and covering the sign-in or lock screen then only made it flash. Nothing is
+    /// shown there that the cover would hide.
+    private var covered: Bool {
+        switch scenePhase {
+        case .background: return true
+        case .inactive: return model.isUnlocked
+        default: return false
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             SessionRootView(model: model) { persona in
                 ConsoleShell(model: model, persona: persona, selection: $console)
-                    // ⌘1…⌘6 while signed in (ConsoleKeyCommands: a new responder takes over
-                    // from the one it replaces when SwiftUI rebuilds it).
-                    .background {
-                        ConsoleKeyCommands { console = $0 }.accessibilityHidden(true)
-                    }
             }
             // The banner at the top of the screen, whatever the phase's content.
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             StatusLine(reduced: reducedMotion, console: model.isUnlocked ? console : nil)
         }
-        .tint(MidgardStyle.accent)
+        .tint(MGStyle.accent)
         .overlay {
-            if scenePhase != .active { PrivacyCover() }
+            if covered { PrivacyCover() }
         }
         .transaction { transaction in
             if reducedMotion {
@@ -48,21 +57,44 @@ struct RootView: View {
             started = true
             await model.start(making: { try LaunchEnvironment.make() })
         }
+        .onChange(of: shortcuts.request) { _, request in
+            if let request, model.isUnlocked { console = request.number }
+        }
+        // VoiceOver moving its focus is activity too: it is not a touch the window sees.
+        .onReceive(NotificationCenter.default.publisher(for: UIAccessibility.elementFocusedNotification)) { _ in
+            model.touch()
+        }
         .onChange(of: scenePhase) { _, phase in
             // Lock on leaving the app; only a signed-in session has anything to lock.
             guard phase == .background, model.isUnlocked else { return }
-            Task { await model.lock() }
+            // Saving and locking runs off the main thread: ask for the time to finish
+            // it before the app is suspended.
+            let task = BackgroundTask(name: "Lock Midgard")
+            Task {
+                await model.lock()
+                task.end()
+            }
         }
     }
 }
 
-/// Colours the app sets over the system's, from the design tokens.
-enum MidgardStyle {
-    /// Buttons and links: the accent, pressed shade on light, hover shade on dark
-    /// (each above 4.5:1 on the page).
-    static let accent = Color(mgLight: (MGToken.accentPress, 1), dark: (MGToken.accentHover, 1))
-    /// Secondary text: the muted text token of each mode (above 4.5:1 on the page).
-    static let secondaryText = Color(mgLight: MGToken.Light.textMuted, dark: (MGToken.textMuted, 1))
+/// Background execution time for one piece of work: begun on creation, ended by `end()`
+/// or, if the system runs out of time first, by its expiration handler. Ends once.
+@MainActor
+final class BackgroundTask {
+    private var id = UIBackgroundTaskIdentifier.invalid
+
+    init(name: String) {
+        id = UIApplication.shared.beginBackgroundTask(withName: name) { [self] in
+            MainActor.assumeIsolated { end() }
+        }
+    }
+
+    func end() {
+        guard id != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(id)
+        id = .invalid
+    }
 }
 
 /// The status line at the bottom of the screen: which console is shown ("Console 1 of
@@ -82,7 +114,7 @@ struct StatusLine: View {
             : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: MGSpace.s3))
         layout {
             if let console {
-                Text("Console \(console) of \(Console.all.count): \(Console.all[console - 1].name)")
+                Text("Console \(console) of \(ConsoleCatalog.consoles.count): \(ConsoleCatalog.console(number: console).name)")
                     .accessibilityValue(Text("\(console)"))
                     .accessibilityIdentifier("mg.console.selected")
             }
@@ -101,10 +133,19 @@ struct StatusLine: View {
     }
 }
 
-extension AppModel {
-    var isUnlocked: Bool {
-        if case .unlocked = phase { return true }
-        return false
+extension Console {
+    /// The console's symbol in the console bar and on its screens. (The catalogue is
+    /// MidgardKit's.)
+    var symbol: String {
+        switch id {
+        case "midgard": return "square.stack.3d.up"
+        case "admin": return "gearshape.2"
+        case "heimdall": return "scope"
+        case "forge": return "hammer"
+        case "mimir": return "brain"
+        case "bifrost": return "shippingbox"
+        default: return "square"
+        }
     }
 }
 
@@ -125,7 +166,8 @@ struct PrivacyCover: View {
 }
 
 /// Signed in: the six consoles, in the order Midgard, Admin, Heimdall, Forge, Mimir,
-/// Bifrost, switched by a bar of six at the bottom (⌘1…⌘6 on a hardware keyboard).
+/// Bifrost, switched by a bar of six at the bottom (⌘1…⌘6 on a hardware keyboard: the
+/// app delegate's key commands).
 /// Not a system `TabView`: an iPhone tab bar shows five, and the sixth console would go
 /// under UIKit's More list, which wraps the console's own navigation stack in its own
 /// (and whose rows did not respond in the simulator). Only the selected console is in
@@ -138,7 +180,7 @@ struct ConsoleShell: View {
     @State private var paths: [Int: [String]] = [:]
     @State private var queries: [Int: String] = [:]
 
-    private var console: Console { Console.all[min(max(selection, 1), Console.all.count) - 1] }
+    private var console: Console { ConsoleCatalog.console(number: selection) }
 
     var body: some View {
         ConsoleTab(model: model, console: console, persona: persona,
@@ -149,101 +191,6 @@ struct ConsoleShell: View {
     }
 }
 
-/// ⌘1…⌘6 on a hardware keyboard, as UIKit key commands on a view that takes first
-/// responder whenever nothing else holds it. (`.keyboardShortcut` on the console bar's
-/// buttons, or on hidden buttons, did not fire in the simulator: a screen of buttons
-/// has no first responder for the key commands to start from.)
-struct ConsoleKeyCommands: UIViewRepresentable {
-    let select: (Int) -> Void
-
-    func makeUIView(context: Context) -> KeyCommandView {
-        let view = KeyCommandView()
-        updateUIView(view, context: context)
-        return view
-    }
-
-    func updateUIView(_ view: KeyCommandView, context: Context) { view.select = select }
-
-    final class KeyCommandView: UIView {
-        var select: ((Int) -> Void)?
-        private var observers: [NSObjectProtocol] = []
-
-        override var canBecomeFirstResponder: Bool { true }
-
-        override var keyCommands: [UIKeyCommand]? {
-            Console.all.map { console in
-                let command = UIKeyCommand(title: "Show \(console.name)", action: #selector(pick(_:)),
-                                           input: "\(console.number)", modifierFlags: .command,
-                                           propertyList: console.number)
-                command.wantsPriorityOverSystemBehavior = true
-                return command
-            }
-        }
-
-        @objc private func pick(_ command: UIKeyCommand) {
-            if let number = command.propertyList as? Int { select?(number) }
-        }
-
-        override func didMoveToWindow() {
-            super.didMoveToWindow()
-            observers.forEach(NotificationCenter.default.removeObserver)
-            observers = []
-            guard window != nil else { return }
-            claim()
-            // Back to first responder when a text field (the search) lets go of it.
-            for name in [UITextField.textDidEndEditingNotification, UITextView.textDidEndEditingNotification] {
-                observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) {
-                    [weak self] _ in MainActor.assumeIsolated { self?.claim() }
-                })
-            }
-        }
-
-        override func resignFirstResponder() -> Bool {
-            let resigned = super.resignFirstResponder()
-            // Take it back at once when nothing took it over, else once a menu or sheet
-            // lets go.
-            if resigned {
-                claim()
-                claim(after: 0.5)
-            }
-            return resigned
-        }
-
-        /// Become first responder, unless another responder (a text field being
-        /// edited, a menu) holds it.
-        private func claim(after delay: TimeInterval = 0) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                guard let self, self.window != nil, !self.isFirstResponder else { return }
-                // Free, or held by the responder this one replaces (SwiftUI makes a new one
-                // when the console changes, before the old one leaves the window).
-                let holder = FirstResponder.current()
-                guard holder == nil || holder is KeyCommandView else { return }
-                self.becomeFirstResponder()
-            }
-        }
-    }
-}
-
-/// The current first responder, found the documented way: an action sent to a nil
-/// target goes along the responder chain, from the first responder if there is one.
-enum FirstResponder {
-    nonisolated(unsafe) private static weak var found: UIResponder?
-
-    @MainActor static func current() -> UIResponder? {
-        found = nil
-        UIApplication.shared.sendAction(#selector(UIResponder.mg_reportFirstResponder), to: nil, from: nil, for: nil)
-        // With no first responder the action still reaches the key window or the
-        // application, which are not holding it.
-        return found.flatMap { $0.isFirstResponder ? $0 : nil }
-    }
-
-    fileprivate static func report(_ responder: UIResponder) { found = responder }
-}
-
-extension UIResponder {
-    @objc fileprivate func mg_reportFirstResponder() { FirstResponder.report(self) }
-}
-
 /// The six consoles' buttons. At accessibility text sizes the
 /// names give way to the symbols (a long press shows the large-content viewer).
 struct ConsoleBar: View {
@@ -252,7 +199,7 @@ struct ConsoleBar: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            ForEach(Console.all) { console in
+            ForEach(ConsoleCatalog.consoles) { console in
                 let selected = console.number == selection
                 Button {
                     selection = console.number
@@ -313,9 +260,11 @@ struct ConsoleTab: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            // A scroll view of buttons rather than a List of NavigationLinks: List rows
-            // did not respond to taps under the session's tap gesture (MidgardKit's
-            // SessionRootView touches the idle timer with a simultaneous TapGesture).
+            // A scroll view of plain buttons, not a List of NavigationLinks. (A List's rows
+            // once ignored taps under a tap gesture on the signed-in screen; that gesture
+            // is gone, see MidgardKit's IdleTouchWatcher.) The rows stay buttons because
+            // the accessibility audits were measured on them: their identifiers, 44 pt
+            // height and token colours are set here, where a List's are the system's.
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ScreenSearchField(console: console, query: $query)
@@ -341,7 +290,7 @@ struct ConsoleTab: View {
                         .buttonStyle(.plain)
                         .accessibilityLabel(Text(screen))
                         .accessibilityHint(Text("Opens the screen"))
-                        .accessibilityIdentifier("mg.\(index + 1).\(console.slug).\(Console.slug(screen))")
+                        .accessibilityIdentifier("mg.\(index + 1).\(console.slug).\(ConsoleCatalog.slug(screen))")
                         Divider().padding(.leading, MGSpace.s4)
                     }
                 }
@@ -359,6 +308,8 @@ struct ConsoleTab: View {
                 ScreenPlaceholder(model: model, console: console, screen: screen, persona: persona)
             }
             .refreshable { await model.syncNow() }
+            // Typing is activity: a hardware keyboard's keys are not touches.
+            .onChange(of: query) { model.touch() }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { SessionMenu(model: model, persona: persona) }
             }
@@ -379,7 +330,7 @@ struct ScreenSearchField: View {
     var body: some View {
         HStack(spacing: MGSpace.s2) {
             Image(systemName: "magnifyingglass").accessibilityHidden(true)
-            TextField(text: $query, prompt: Text("Search").foregroundStyle(MidgardStyle.secondaryText)) {
+            TextField(text: $query, prompt: Text("Search").foregroundStyle(MGStyle.secondaryText)) {
                 Text("Search \(console.name) screens")
             }
             .font(MGFonts.sans(.body))
@@ -430,7 +381,7 @@ struct ScreenPlaceholder: View {
             .padding(MGSpace.s5)
             .frame(maxWidth: .infinity)
             .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("mg.placeholder.\(console.slug).\(Console.slug(screen))")
+            .accessibilityIdentifier("mg.placeholder.\(console.slug).\(ConsoleCatalog.slug(screen))")
         }
         .navigationTitle(screen)
         .navigationBarTitleDisplayMode(.inline)
@@ -445,9 +396,8 @@ struct SessionMenu: View {
     @ObservedObject var model: AppModel
     let persona: PersonaInfo
 
-    private var offline: Bool { model.chips?.sync.phase == .offline }
-
     var body: some View {
+        let offline = model.isOffline
         Menu {
             Section("Signed in as \(persona.display)") {
                 ForEach(model.personas, id: \.id) { other in
@@ -487,6 +437,5 @@ struct SessionMenu: View {
         }
         .accessibilityLabel(Text("Session: \(persona.display)"))
         .accessibilityIdentifier("mg.0.session-menu")
-
     }
 }

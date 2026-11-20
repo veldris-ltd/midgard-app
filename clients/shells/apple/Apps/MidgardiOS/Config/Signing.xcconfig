@@ -21,4 +21,10 @@ DEVELOPMENT_TEAM = $(MIDGARD_TEAM_ID)
 MIDGARD_APP_ENTITLEMENTS_NOTEAM = Config/MidgardiOS-NoTeam.entitlements
 MIDGARD_APP_ENTITLEMENTS = $(MIDGARD_APP_ENTITLEMENTS_$(MIDGARD_TEAM_ID:default=NOTEAM):default=Config/MidgardiOS.entitlements)
 
+// A Release build with no team fails at its first build phase: it could not keep keys.
+// To build one anyway (to inspect it, never to ship it), pass
+// MIDGARD_ALLOW_ADHOC_RELEASE=YES on the xcodebuild command line or put that line in
+// Signing.local.xcconfig.
+MIDGARD_ALLOW_ADHOC_RELEASE = NO
+
 #include? "Signing.local.xcconfig"

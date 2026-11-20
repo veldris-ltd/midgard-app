@@ -42,6 +42,17 @@ targets:
       - package: MidgardKit
         product: MidgardKit
     preBuildScripts:
+      - name: Refuse a Release build without a team
+        # A Release build without MIDGARD_TEAM_ID has no keychain access group: it cannot
+        # keep keys outside UI testing. Allowed only on purpose, with
+        # MIDGARD_ALLOW_ADHOC_RELEASE=YES (Config/Signing.xcconfig).
+        basedOnDependencyAnalysis: false
+        script: |
+          if [ "${CONFIGURATION}" = "Release" ] && [ -z "${MIDGARD_TEAM_ID}" ] \
+              && [ "${MIDGARD_ALLOW_ADHOC_RELEASE}" != "YES" ]; then
+              echo "error: Release build without a team: set MIDGARD_TEAM_ID in Config/Signing.local.xcconfig, or pass MIDGARD_ALLOW_ADHOC_RELEASE=YES for an ad-hoc Release build that cannot keep keys."
+              exit 1
+          fi
       - name: Ensure MidgardCoreFFI.xcframework
         basedOnDependencyAnalysis: false
         script: |

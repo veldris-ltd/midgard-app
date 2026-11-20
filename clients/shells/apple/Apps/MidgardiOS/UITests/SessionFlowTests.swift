@@ -94,6 +94,26 @@ final class SessionFlowTests: XCTestCase {
                       "the app did not lock in the background")
     }
 
+    /// The key commands are the app's, at the end of the responder chain: they fire
+    /// while the search field is being edited, which holds first responder.
+    func testCommandDigitsWorkWhileSearching() {
+        AppNavigation.signIn(app)
+        AppNavigation.selectConsole(app, 1)
+        // The simulator can drop a launch's first hardware key event (see below).
+        app.typeKey("x", modifierFlags: [])
+        let field = element("mg.search.midgard")
+        XCTAssertTrue(field.waitForExistence(timeout: AppNavigation.timeout))
+        field.tap()
+        field.typeText("audit")
+        XCTAssertTrue(app.buttons["mg.1.midgard.audit"].waitForExistence(timeout: AppNavigation.timeout))
+        XCTAssertEqual(field.value(forKey: "hasKeyboardFocus") as? Bool, true, "the search field is being edited")
+        app.typeKey("2", modifierFlags: .command)
+        let marker = AppNavigation.consoleMarker(app)
+        expectation(for: NSPredicate(format: "value == '2'"), evaluatedWith: marker)
+        waitForExpectations(timeout: 5)
+        XCTAssertEqual(marker.label, "Console 2 of 6: Admin")
+    }
+
     func testCommandDigitsSelectConsoles() {
         AppNavigation.signIn(app)
         let marker = AppNavigation.consoleMarker(app)
