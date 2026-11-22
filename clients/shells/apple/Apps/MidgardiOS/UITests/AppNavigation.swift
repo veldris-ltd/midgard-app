@@ -52,10 +52,11 @@ enum AppNavigation {
     static func selectConsole(_ app: XCUIApplication, _ n: Int, file: StaticString = #filePath, line: UInt = #line) {
         let name = consoles[n - 1]
         app.buttons["mg.console.tab.\(name.lowercased())"].tap()
-        // Back to the console's list if a screen was open.
+        // Back to the console's list if a screen was open (two levels deep from the 3D
+        // view: its screen, then the list).
         let list = app.navigationBars[name]
-        if !list.waitForExistence(timeout: 3) {
-            let back = app.navigationBars.buttons[name]
+        for _ in 0..<3 where !list.waitForExistence(timeout: 3) {
+            let back = app.navigationBars.buttons.element(boundBy: 0)
             if back.exists { back.tap() }
         }
         XCTAssertTrue(list.waitForExistence(timeout: timeout), "\(name)'s screen list did not appear",
@@ -68,9 +69,36 @@ enum AppNavigation {
     static func openDetail(_ app: XCUIApplication) {
         signIn(app)
         selectConsole(app, 1)
-        app.buttons["mg.1.midgard.object-fabric"].tap()
+        tapClearOfConsoleBar(app, app.buttons["mg.1.midgard.object-fabric"])
         XCTAssertTrue(app.descendants(matching: .any)["mg.placeholder.midgard.object-fabric"]
             .waitForExistence(timeout: timeout), "the Object Fabric screen did not open")
+    }
+
+    /// Heimdall's Operating Picture with its 3D view open (the 3D edition only).
+    static func openThreeD(_ app: XCUIApplication) {
+        signIn(app)
+        selectConsole(app, 3)
+        tapClearOfConsoleBar(app, app.buttons["mg.1.heimdall.operating-picture"])
+        XCTAssertTrue(app.descendants(matching: .any)["mg.placeholder.heimdall.operating-picture"]
+            .waitForExistence(timeout: timeout), "the Operating Picture did not open")
+        let entry = app.buttons["mg.heimdall.3d"]
+        XCTAssertTrue(entry.waitForExistence(timeout: timeout), "no 3D entry in Heimdall")
+        entry.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["mg.heimdall.3d.view"].waitForExistence(timeout: timeout),
+                      "the 3D view did not open")
+    }
+
+    /// Taps a screen row where it shows. At accessibility text sizes a row's centre can be
+    /// under the console bar, where a tap lands on the bar although XCUITest calls the row
+    /// hittable; so the tap goes to the middle of the row's visible part when one shows.
+    static func tapClearOfConsoleBar(_ app: XCUIApplication, _ row: XCUIElement) {
+        let bar = app.buttons["mg.console.tab.midgard"]
+        let nav = app.navigationBars.firstMatch
+        guard row.waitForExistence(timeout: timeout), bar.exists else { return row.tap() }
+        let top = max(row.frame.minY, nav.exists ? nav.frame.maxY : 0)
+        let bottom = min(row.frame.maxY, bar.frame.minY)
+        guard bottom - top >= 8 else { return row.tap() }
+        app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: row.frame.midX, dy: (top + bottom) / 2)).tap()
     }
 
     /// Runs one of the session menu's commands.

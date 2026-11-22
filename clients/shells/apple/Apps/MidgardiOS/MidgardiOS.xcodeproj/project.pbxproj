@@ -7,16 +7,52 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0E5488ACDE2B35A170F5D00C /* SessionFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF02CDCC2435DDB79E9FBD42 /* SessionFlowTests.swift */; };
 		18A4E8A10EC00F3143BBA0EE /* MidgardKit in Frameworks */ = {isa = PBXBuildFile; productRef = F564A62563A2A88B45BD53D4 /* MidgardKit */; };
 		1F27535C99E29CF6849780C0 /* SessionFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF02CDCC2435DDB79E9FBD42 /* SessionFlowTests.swift */; };
+		1F794E4C342A0C1302284215 /* MidgardiOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEAD789E2E1859BD0DD1CC83 /* MidgardiOSApp.swift */; };
+		2BCF3AED59747988FC7DD14E /* MidgardGlobeKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4F1560A8F53E3761A484D3E7 /* MidgardGlobeKit */; };
+		37549767AF849D7B48163655 /* MidgardKit in Frameworks */ = {isa = PBXBuildFile; productRef = E92ECC69BDBB66C2316FE0C8 /* MidgardKit */; };
 		3CD7B12CA0498CE4CE44D602 /* AccessibilityAudit.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC2A3D5A6F5594F93A07AFF4 /* AccessibilityAudit.swift */; };
+		48278A085C2A9AACB165A68A /* Edition.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9DC218D77D2F0213CB2FDFB /* Edition.swift */; };
+		53342883EB4C607FC511A5E8 /* MidgardGlobeKit in Frameworks */ = {isa = PBXBuildFile; productRef = 290CCCAC18CE3AB897F70F8C /* MidgardGlobeKit */; };
+		53750B22B3FA8FC1104CDBCA /* Edition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79CFE133F31B048E9BAE2C47 /* Edition.swift */; };
+		590023073AC207A06265843C /* MidgardiOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEAD789E2E1859BD0DD1CC83 /* MidgardiOSApp.swift */; };
 		70292BA195407A262FC6FF7E /* MidgardAuditKit in Frameworks */ = {isa = PBXBuildFile; productRef = 51BCBF8140BD2029C24C25AE /* MidgardAuditKit */; };
+		8435284787E9A50C343037E9 /* MidgardAuditKit in Frameworks */ = {isa = PBXBuildFile; productRef = B74B1683299E9FDA4F81656A /* MidgardAuditKit */; };
+		887541FFB7FD765609CDB790 /* AccessibilityAudit.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC2A3D5A6F5594F93A07AFF4 /* AccessibilityAudit.swift */; };
+		93BDD0D21C96DEA5F8424484 /* Edition.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDA680AC8C5741514BEDB7FE /* Edition.swift */; };
+		9627722445E3C9F84941C176 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCA691AC4CE9B877E1875A4D /* RootView.swift */; };
+		9967081C67FBD208D595651A /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCA691AC4CE9B877E1875A4D /* RootView.swift */; };
+		A06E18AA328632DC9CC53F16 /* EditionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57336E7E400D5D3788353F2B /* EditionTests.swift */; };
+		A6CA25FADB86F5188BE750EE /* SessionFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF02CDCC2435DDB79E9FBD42 /* SessionFlowTests.swift */; };
+		B360CBB104D01D28004C3B0A /* AppNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C7C5AB080B324A94894BFF /* AppNavigation.swift */; };
+		B3655E42A07C8DB20B60A33B /* MidgardAuditKit in Frameworks */ = {isa = PBXBuildFile; productRef = 67B29F1CA55689A1EF515743 /* MidgardAuditKit */; };
+		BB6C4945FE5D272330C7F475 /* AccessibilityAudit.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC2A3D5A6F5594F93A07AFF4 /* AccessibilityAudit.swift */; };
 		C6D5B64CDD9ED4B6495BBD51 /* AppNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C7C5AB080B324A94894BFF /* AppNavigation.swift */; };
+		CC4D987C6372E93A76E92732 /* MidgardKit in Frameworks */ = {isa = PBXBuildFile; productRef = E634EDAC0D31B7F0BA240406 /* MidgardKit */; };
 		D9B19050A386D9D8CC41F1C1 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCA691AC4CE9B877E1875A4D /* RootView.swift */; };
+		DB65AB6B35EE63F075BA06AF /* EditionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57336E7E400D5D3788353F2B /* EditionTests.swift */; };
+		E72FA0FF5999CD0731FC2065 /* AppNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C7C5AB080B324A94894BFF /* AppNavigation.swift */; };
 		F351A1731D3A36D19E569195 /* MidgardiOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEAD789E2E1859BD0DD1CC83 /* MidgardiOSApp.swift */; };
+		F634EC179EDC270D1F74C498 /* EditionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57336E7E400D5D3788353F2B /* EditionTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		9A275D815973538631BDEEDB /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 9267555F0FFF8FF706BF30F0 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 4AA9B2B9368AB424C3A0D074;
+			remoteInfo = MidgardiOS3D;
+		};
+		B142E9BD1B9E29AA1707D86B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 9267555F0FFF8FF706BF30F0 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = BE9E42083AAAF5630C148D7A;
+			remoteInfo = MidgardiOSMaps;
+		};
 		F3CB8800C8F30F1AAEF5260B /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 9267555F0FFF8FF706BF30F0 /* Project object */;
@@ -29,16 +65,40 @@
 /* Begin PBXFileReference section */
 		1CCFC88D9118CC9B89E68171 /* MidgardiOSUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = MidgardiOSUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		34824E36E0A06B2673FF4D6A /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		49D6B35EFADEBFE6B5B92AA7 /* MidgardiOSMapsUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = MidgardiOSMapsUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		57336E7E400D5D3788353F2B /* EditionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditionTests.swift; sourceTree = "<group>"; };
+		57F1ECE1C4F8AFAC90423EF3 /* MidgardiOS3DUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = MidgardiOS3DUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		603C59FCD35B12560685113F /* apple */ = {isa = PBXFileReference; lastKnownFileType = folder; name = apple; path = ../..; sourceTree = SOURCE_ROOT; };
+		79CFE133F31B048E9BAE2C47 /* Edition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Edition.swift; sourceTree = "<group>"; };
 		85D9133E32E10950B1CFA8C4 /* MidgardiOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MidgardiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B9DC218D77D2F0213CB2FDFB /* Edition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Edition.swift; sourceTree = "<group>"; };
 		BC2A3D5A6F5594F93A07AFF4 /* AccessibilityAudit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityAudit.swift; sourceTree = "<group>"; };
 		BF02CDCC2435DDB79E9FBD42 /* SessionFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionFlowTests.swift; sourceTree = "<group>"; };
+		C0A1F88DE6ACCB2DD549C22F /* MidgardiOSMaps.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MidgardiOSMaps.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C7C7C5AB080B324A94894BFF /* AppNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppNavigation.swift; sourceTree = "<group>"; };
+		CDA680AC8C5741514BEDB7FE /* Edition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Edition.swift; sourceTree = "<group>"; };
+		F5F7B0AE46A55D90A3344FCB /* MidgardiOS3D.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MidgardiOS3D.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FCA691AC4CE9B877E1875A4D /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		FEAD789E2E1859BD0DD1CC83 /* MidgardiOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidgardiOSApp.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		3E8989C8A2C2AD3CFE409034 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B3655E42A07C8DB20B60A33B /* MidgardAuditKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		63CEB148BD79838DCBB36933 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8435284787E9A50C343037E9 /* MidgardAuditKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		69B0A72A86F28FA5B1F19174 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -55,6 +115,24 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		9E5A78C69819CBF083F38DE8 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CC4D987C6372E93A76E92732 /* MidgardKit in Frameworks */,
+				53342883EB4C607FC511A5E8 /* MidgardGlobeKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E913E177EC94132C085C1535 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				37549767AF849D7B48163655 /* MidgardKit in Frameworks */,
+				2BCF3AED59747988FC7DD14E /* MidgardGlobeKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -66,6 +144,14 @@
 			name = Packages;
 			sourceTree = "<group>";
 		};
+		272C8799B3925C95195B3807 /* UITests-Release */ = {
+			isa = PBXGroup;
+			children = (
+				79CFE133F31B048E9BAE2C47 /* Edition.swift */,
+			);
+			path = "UITests-Release";
+			sourceTree = "<group>";
+		};
 		79EB394A54C16AE83A845304 = {
 			isa = PBXGroup;
 			children = (
@@ -73,8 +159,19 @@
 				204312D2F51C736AFFA684CB /* Packages */,
 				BE1AEE2090702B90D50C40D7 /* Sources */,
 				8EE780F7DAA66DC069CC1D63 /* UITests */,
+				F7EA32077446FC3B8E194B66 /* UITests-3D */,
+				848B17E3582CF79245AA882E /* UITests-Maps */,
+				272C8799B3925C95195B3807 /* UITests-Release */,
 				EF2E310F1CA0DD60EAB6FDA8 /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		848B17E3582CF79245AA882E /* UITests-Maps */ = {
+			isa = PBXGroup;
+			children = (
+				CDA680AC8C5741514BEDB7FE /* Edition.swift */,
+			);
+			path = "UITests-Maps";
 			sourceTree = "<group>";
 		};
 		8EE780F7DAA66DC069CC1D63 /* UITests */ = {
@@ -82,6 +179,7 @@
 			children = (
 				BC2A3D5A6F5594F93A07AFF4 /* AccessibilityAudit.swift */,
 				C7C7C5AB080B324A94894BFF /* AppNavigation.swift */,
+				57336E7E400D5D3788353F2B /* EditionTests.swift */,
 				BF02CDCC2435DDB79E9FBD42 /* SessionFlowTests.swift */,
 			);
 			path = UITests;
@@ -108,14 +206,68 @@
 			isa = PBXGroup;
 			children = (
 				85D9133E32E10950B1CFA8C4 /* MidgardiOS.app */,
+				F5F7B0AE46A55D90A3344FCB /* MidgardiOS3D.app */,
+				57F1ECE1C4F8AFAC90423EF3 /* MidgardiOS3DUITests.xctest */,
+				C0A1F88DE6ACCB2DD549C22F /* MidgardiOSMaps.app */,
+				49D6B35EFADEBFE6B5B92AA7 /* MidgardiOSMapsUITests.xctest */,
 				1CCFC88D9118CC9B89E68171 /* MidgardiOSUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
 		};
+		F7EA32077446FC3B8E194B66 /* UITests-3D */ = {
+			isa = PBXGroup;
+			children = (
+				B9DC218D77D2F0213CB2FDFB /* Edition.swift */,
+			);
+			path = "UITests-3D";
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		35465BEA436EAC85E718CCD0 /* MidgardiOSMapsUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 448747EC87581EED1839CFA3 /* Build configuration list for PBXNativeTarget "MidgardiOSMapsUITests" */;
+			buildPhases = (
+				807D976BC60D5489644E4D79 /* Sources */,
+				63CEB148BD79838DCBB36933 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				C244B3CCA912DBEB8B9F81D9 /* PBXTargetDependency */,
+			);
+			name = MidgardiOSMapsUITests;
+			packageProductDependencies = (
+				B74B1683299E9FDA4F81656A /* MidgardAuditKit */,
+			);
+			productName = MidgardiOSMapsUITests;
+			productReference = 49D6B35EFADEBFE6B5B92AA7 /* MidgardiOSMapsUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		4AA9B2B9368AB424C3A0D074 /* MidgardiOS3D */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3EA8D781A95A8FC15C1C6886 /* Build configuration list for PBXNativeTarget "MidgardiOS3D" */;
+			buildPhases = (
+				6A35D2ECA7A0F7EFAD26D55F /* Refuse a non-Debug build without a team */,
+				89FB505D0883C553A8CCD39D /* Ensure MidgardCoreFFI.xcframework */,
+				CE0230ABD346AC833D81C9BD /* Sources */,
+				9E5A78C69819CBF083F38DE8 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MidgardiOS3D;
+			packageProductDependencies = (
+				E634EDAC0D31B7F0BA240406 /* MidgardKit */,
+				290CCCAC18CE3AB897F70F8C /* MidgardGlobeKit */,
+			);
+			productName = MidgardiOS3D;
+			productReference = F5F7B0AE46A55D90A3344FCB /* MidgardiOS3D.app */;
+			productType = "com.apple.product-type.application";
+		};
 		50E57196919076B8951AEAA8 /* MidgardiOS */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = AA7610F122D26F6AD5DD3EC0 /* Build configuration list for PBXNativeTarget "MidgardiOS" */;
@@ -157,6 +309,48 @@
 			productReference = 1CCFC88D9118CC9B89E68171 /* MidgardiOSUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		9CFA495847061D1A6890757F /* MidgardiOS3DUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 37393AD4252AE91A430BB629 /* Build configuration list for PBXNativeTarget "MidgardiOS3DUITests" */;
+			buildPhases = (
+				99328E3088B36E61785E14E4 /* Sources */,
+				3E8989C8A2C2AD3CFE409034 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				DB5836817E18C51025A09F35 /* PBXTargetDependency */,
+			);
+			name = MidgardiOS3DUITests;
+			packageProductDependencies = (
+				67B29F1CA55689A1EF515743 /* MidgardAuditKit */,
+			);
+			productName = MidgardiOS3DUITests;
+			productReference = 57F1ECE1C4F8AFAC90423EF3 /* MidgardiOS3DUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		BE9E42083AAAF5630C148D7A /* MidgardiOSMaps */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = EA8D05C557C7A70358A2B936 /* Build configuration list for PBXNativeTarget "MidgardiOSMaps" */;
+			buildPhases = (
+				E4D0F4E40490A3863F54F511 /* Refuse a non-Debug build without a team */,
+				A6904C6DA73E3BFFCD30E4E1 /* Ensure MidgardCoreFFI.xcframework */,
+				F45C4FB7199976BF5E8D6FB4 /* Sources */,
+				E913E177EC94132C085C1535 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MidgardiOSMaps;
+			packageProductDependencies = (
+				E92ECC69BDBB66C2316FE0C8 /* MidgardKit */,
+				4F1560A8F53E3761A484D3E7 /* MidgardGlobeKit */,
+			);
+			productName = MidgardiOSMaps;
+			productReference = C0A1F88DE6ACCB2DD549C22F /* MidgardiOSMaps.app */;
+			productType = "com.apple.product-type.application";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -166,6 +360,15 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					35465BEA436EAC85E718CCD0 = {
+						DevelopmentTeam = "$(MIDGARD_TEAM_ID)";
+						ProvisioningStyle = Automatic;
+						TestTargetID = BE9E42083AAAF5630C148D7A;
+					};
+					4AA9B2B9368AB424C3A0D074 = {
+						DevelopmentTeam = "$(MIDGARD_TEAM_ID)";
+						ProvisioningStyle = Automatic;
+					};
 					50E57196919076B8951AEAA8 = {
 						DevelopmentTeam = "$(MIDGARD_TEAM_ID)";
 						ProvisioningStyle = Automatic;
@@ -174,6 +377,15 @@
 						DevelopmentTeam = "$(MIDGARD_TEAM_ID)";
 						ProvisioningStyle = Automatic;
 						TestTargetID = 50E57196919076B8951AEAA8;
+					};
+					9CFA495847061D1A6890757F = {
+						DevelopmentTeam = "$(MIDGARD_TEAM_ID)";
+						ProvisioningStyle = Automatic;
+						TestTargetID = 4AA9B2B9368AB424C3A0D074;
+					};
+					BE9E42083AAAF5630C148D7A = {
+						DevelopmentTeam = "$(MIDGARD_TEAM_ID)";
+						ProvisioningStyle = Automatic;
 					};
 				};
 			};
@@ -195,13 +407,36 @@
 			projectRoot = "";
 			targets = (
 				50E57196919076B8951AEAA8 /* MidgardiOS */,
+				4AA9B2B9368AB424C3A0D074 /* MidgardiOS3D */,
+				BE9E42083AAAF5630C148D7A /* MidgardiOSMaps */,
 				603B729A2F4C9654ED799BEB /* MidgardiOSUITests */,
+				9CFA495847061D1A6890757F /* MidgardiOS3DUITests */,
+				35465BEA436EAC85E718CCD0 /* MidgardiOSMapsUITests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXShellScriptBuildPhase section */
 		51F1CC0F8CD8CAA77D2C8EA6 /* Refuse a non-Debug build without a team */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Refuse a non-Debug build without a team";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if [ \"${CONFIGURATION}\" != \"Debug\" ] && [ -z \"${MIDGARD_TEAM_ID}\" ] \\\n    && [ \"${MIDGARD_ALLOW_ADHOC_RELEASE}\" != \"YES\" ]; then\n    echo \"error: ${CONFIGURATION} build without a team: only Debug builds without one. Set MIDGARD_TEAM_ID in Config/Signing.local.xcconfig, or pass MIDGARD_ALLOW_ADHOC_RELEASE=YES for an ad-hoc ${CONFIGURATION} build that cannot keep keys.\"\n    exit 1\nfi\n";
+		};
+		6A35D2ECA7A0F7EFAD26D55F /* Refuse a non-Debug build without a team */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -239,6 +474,63 @@
 			shellPath = /bin/sh;
 			shellScript = "# Builds the Rust core's XCFramework only when its sources changed; links it\n# and the bindings into the package (clients/shells/apple/tools).\n/bin/bash \"${SRCROOT}/../../tools/ensure-xcframework.sh\"\n";
 		};
+		89FB505D0883C553A8CCD39D /* Ensure MidgardCoreFFI.xcframework */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Ensure MidgardCoreFFI.xcframework";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Builds the Rust core's XCFramework only when its sources changed; links it\n# and the bindings into the package (clients/shells/apple/tools).\n/bin/bash \"${SRCROOT}/../../tools/ensure-xcframework.sh\"\n";
+		};
+		A6904C6DA73E3BFFCD30E4E1 /* Ensure MidgardCoreFFI.xcframework */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Ensure MidgardCoreFFI.xcframework";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Builds the Rust core's XCFramework only when its sources changed; links it\n# and the bindings into the package (clients/shells/apple/tools).\n/bin/bash \"${SRCROOT}/../../tools/ensure-xcframework.sh\"\n";
+		};
+		E4D0F4E40490A3863F54F511 /* Refuse a non-Debug build without a team */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Refuse a non-Debug build without a team";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if [ \"${CONFIGURATION}\" != \"Debug\" ] && [ -z \"${MIDGARD_TEAM_ID}\" ] \\\n    && [ \"${MIDGARD_ALLOW_ADHOC_RELEASE}\" != \"YES\" ]; then\n    echo \"error: ${CONFIGURATION} build without a team: only Debug builds without one. Set MIDGARD_TEAM_ID in Config/Signing.local.xcconfig, or pass MIDGARD_ALLOW_ADHOC_RELEASE=YES for an ad-hoc ${CONFIGURATION} build that cannot keep keys.\"\n    exit 1\nfi\n";
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -248,7 +540,33 @@
 			files = (
 				3CD7B12CA0498CE4CE44D602 /* AccessibilityAudit.swift in Sources */,
 				C6D5B64CDD9ED4B6495BBD51 /* AppNavigation.swift in Sources */,
+				53750B22B3FA8FC1104CDBCA /* Edition.swift in Sources */,
+				DB65AB6B35EE63F075BA06AF /* EditionTests.swift in Sources */,
 				1F27535C99E29CF6849780C0 /* SessionFlowTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		807D976BC60D5489644E4D79 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BB6C4945FE5D272330C7F475 /* AccessibilityAudit.swift in Sources */,
+				E72FA0FF5999CD0731FC2065 /* AppNavigation.swift in Sources */,
+				93BDD0D21C96DEA5F8424484 /* Edition.swift in Sources */,
+				F634EC179EDC270D1F74C498 /* EditionTests.swift in Sources */,
+				A6CA25FADB86F5188BE750EE /* SessionFlowTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		99328E3088B36E61785E14E4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				887541FFB7FD765609CDB790 /* AccessibilityAudit.swift in Sources */,
+				B360CBB104D01D28004C3B0A /* AppNavigation.swift in Sources */,
+				48278A085C2A9AACB165A68A /* Edition.swift in Sources */,
+				A06E18AA328632DC9CC53F16 /* EditionTests.swift in Sources */,
+				0E5488ACDE2B35A170F5D00C /* SessionFlowTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -261,6 +579,24 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		CE0230ABD346AC833D81C9BD /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1F794E4C342A0C1302284215 /* MidgardiOSApp.swift in Sources */,
+				9967081C67FBD208D595651A /* RootView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F45C4FB7199976BF5E8D6FB4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				590023073AC207A06265843C /* MidgardiOSApp.swift in Sources */,
+				9627722445E3C9F84941C176 /* RootView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -268,6 +604,16 @@
 			isa = PBXTargetDependency;
 			target = 50E57196919076B8951AEAA8 /* MidgardiOS */;
 			targetProxy = F3CB8800C8F30F1AAEF5260B /* PBXContainerItemProxy */;
+		};
+		C244B3CCA912DBEB8B9F81D9 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = BE9E42083AAAF5630C148D7A /* MidgardiOSMaps */;
+			targetProxy = B142E9BD1B9E29AA1707D86B /* PBXContainerItemProxy */;
+		};
+		DB5836817E18C51025A09F35 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 4AA9B2B9368AB424C3A0D074 /* MidgardiOS3D */;
+			targetProxy = 9A275D815973538631BDEEDB /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -289,6 +635,46 @@
 			};
 			name = Debug;
 		};
+		133D7FC0E6A7FFE0C8F8738F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.veldris.midgard3d.ios.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = MidgardiOS3D;
+			};
+			name = Release;
+		};
+		1B2C87AD009FA5DC1D764D79 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "$(MIDGARD_APP_ENTITLEMENTS)";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Info-Maps.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				MIDGARD_APP_ENTITLEMENTS = "$(MIDGARD_APP_ENTITLEMENTS_$(MIDGARD_TEAM_ID:default=NOTEAM):default=Config/MidgardiOSMaps.entitlements)";
+				MIDGARD_APP_ENTITLEMENTS_NOTEAM = "Config/MidgardiOSMaps-NoTeam.entitlements";
+				PRODUCT_BUNDLE_IDENTIFIER = io.veldris.midgardmaps.ios;
+				PRODUCT_NAME = MidgardiOSMaps;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
 		3FE3B5DDE26A847EA8C49B10 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -305,6 +691,29 @@
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = io.veldris.midgard.ios;
 				PRODUCT_NAME = MidgardiOS;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		77773E8951C186BA09D07A86 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "$(MIDGARD_APP_ENTITLEMENTS)";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Info-Maps.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				MIDGARD_APP_ENTITLEMENTS = "$(MIDGARD_APP_ENTITLEMENTS_$(MIDGARD_TEAM_ID:default=NOTEAM):default=Config/MidgardiOSMaps.entitlements)";
+				MIDGARD_APP_ENTITLEMENTS_NOTEAM = "Config/MidgardiOSMaps-NoTeam.entitlements";
+				PRODUCT_BUNDLE_IDENTIFIER = io.veldris.midgardmaps.ios;
+				PRODUCT_NAME = MidgardiOSMaps;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -368,6 +777,86 @@
 				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
+		};
+		9A668425A62615D6D969D36B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.veldris.midgard3d.ios.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = MidgardiOS3D;
+			};
+			name = Debug;
+		};
+		9DD1C47C592BEBCDCF4B7646 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "$(MIDGARD_APP_ENTITLEMENTS)";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Info-3D.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				MIDGARD_APP_ENTITLEMENTS = "$(MIDGARD_APP_ENTITLEMENTS_$(MIDGARD_TEAM_ID:default=NOTEAM):default=Config/MidgardiOS3D.entitlements)";
+				MIDGARD_APP_ENTITLEMENTS_NOTEAM = "Config/MidgardiOS3D-NoTeam.entitlements";
+				PRODUCT_BUNDLE_IDENTIFIER = io.veldris.midgard3d.ios;
+				PRODUCT_NAME = MidgardiOS3D;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		A20DC80F09E03242032299BE /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "$(MIDGARD_APP_ENTITLEMENTS)";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Info-3D.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				MIDGARD_APP_ENTITLEMENTS = "$(MIDGARD_APP_ENTITLEMENTS_$(MIDGARD_TEAM_ID:default=NOTEAM):default=Config/MidgardiOS3D.entitlements)";
+				MIDGARD_APP_ENTITLEMENTS_NOTEAM = "Config/MidgardiOS3D-NoTeam.entitlements";
+				PRODUCT_BUNDLE_IDENTIFIER = io.veldris.midgard3d.ios;
+				PRODUCT_NAME = MidgardiOS3D;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A44D1BA671F2D508D8043EB9 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.veldris.midgardmaps.ios.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = MidgardiOSMaps;
+			};
+			name = Debug;
 		};
 		E058D3272737857A421D213F /* Release */ = {
 			isa = XCBuildConfiguration;
@@ -452,6 +941,23 @@
 			};
 			name = Debug;
 		};
+		E69E02E185B0F788102D08E7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.veldris.midgardmaps.ios.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = MidgardiOSMaps;
+			};
+			name = Release;
+		};
 		EE29A35712C299B5FEED8035 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -476,11 +982,47 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		37393AD4252AE91A430BB629 /* Build configuration list for PBXNativeTarget "MidgardiOS3DUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9A668425A62615D6D969D36B /* Debug */,
+				133D7FC0E6A7FFE0C8F8738F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		3EA8D781A95A8FC15C1C6886 /* Build configuration list for PBXNativeTarget "MidgardiOS3D" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A20DC80F09E03242032299BE /* Debug */,
+				9DD1C47C592BEBCDCF4B7646 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		448747EC87581EED1839CFA3 /* Build configuration list for PBXNativeTarget "MidgardiOSMapsUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A44D1BA671F2D508D8043EB9 /* Debug */,
+				E69E02E185B0F788102D08E7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		AA7610F122D26F6AD5DD3EC0 /* Build configuration list for PBXNativeTarget "MidgardiOS" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				EE29A35712C299B5FEED8035 /* Debug */,
 				3FE3B5DDE26A847EA8C49B10 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		EA8D05C557C7A70358A2B936 /* Build configuration list for PBXNativeTarget "MidgardiOSMaps" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1B2C87AD009FA5DC1D764D79 /* Debug */,
+				77773E8951C186BA09D07A86 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
@@ -513,9 +1055,33 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		290CCCAC18CE3AB897F70F8C /* MidgardGlobeKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = MidgardGlobeKit;
+		};
+		4F1560A8F53E3761A484D3E7 /* MidgardGlobeKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = MidgardGlobeKit;
+		};
 		51BCBF8140BD2029C24C25AE /* MidgardAuditKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = MidgardAuditKit;
+		};
+		67B29F1CA55689A1EF515743 /* MidgardAuditKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = MidgardAuditKit;
+		};
+		B74B1683299E9FDA4F81656A /* MidgardAuditKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = MidgardAuditKit;
+		};
+		E634EDAC0D31B7F0BA240406 /* MidgardKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = MidgardKit;
+		};
+		E92ECC69BDBB66C2316FE0C8 /* MidgardKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = MidgardKit;
 		};
 		F564A62563A2A88B45BD53D4 /* MidgardKit */ = {
 			isa = XCSwiftPackageProductDependency;

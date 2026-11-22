@@ -1,0 +1,11 @@
+import XCTest
+
+/// The app MidgardiOSMapsUITests runs against: Midgard Maps (MidgardEdition `maps`),
+/// the 3D edition that Phase I's map tiles will come to. [FR-C-1]
+enum Edition {
+    static let isThreeD = true
+    static let banner: (id: String, text: String)? = ("mg.banner.editionmaps", "3D maps edition, not in the signed release")
+    static let aboutName: String? = "Midgard Maps"
+    /// Screens only this edition has, for AccessibilityAudit: Heimdall's 3D view.
+    static let auditedScreens: [(XCUIApplication) -> Void] = [AppNavigation.openThreeD]
+}

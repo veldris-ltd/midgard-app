@@ -360,15 +360,37 @@ struct ScreenSearchField: View {
     }
 }
 
-/// A screen until its phase: what it is and when it arrives.
+/// A screen until its phase: what it is and when it arrives. In the 3D edition,
+/// Heimdall's Operating Picture also offers the "3D view" entry, which the 3D library
+/// registered at link time (MidgardKit's `HeimdallThreeD`). [FR-C-1]
 struct ScreenPlaceholder: View {
     @ObservedObject var model: AppModel
     let console: Console
     let screen: String
     let persona: PersonaInfo
+    @State private var showingThreeD = false
+
+    /// The 3D entry, on Heimdall's first screen only, when this app has one.
+    private var threeD: HeimdallThreeDView? {
+        guard console.id == "heimdall", screen == console.screens.first else { return nil }
+        return model.threeDEntry
+    }
 
     var body: some View {
         ScrollView {
+            if let threeD {
+                Button {
+                    showingThreeD = true
+                } label: {
+                    Text("Open \(threeD.title)")
+                        .font(MGFonts.sans(.body))
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityIdentifier("mg.heimdall.3d")
+                .padding(.horizontal, MGSpace.s4)
+                .padding(.top, MGSpace.s3)
+            }
             VStack(spacing: MGSpace.s3) {
                 Image(systemName: console.symbol).font(.largeTitle).accessibilityHidden(true)
                 Text(screen).font(MGFonts.display(.title2)).accessibilityAddTraits(.isHeader)
@@ -388,13 +410,23 @@ struct ScreenPlaceholder: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) { SessionMenu(model: model, persona: persona) }
         }
+        .navigationDestination(isPresented: $showingThreeD) {
+            if let threeD {
+                threeD.makeView()
+                    .navigationTitle(threeD.title)
+                    .navigationBarTitleDisplayMode(.inline)
+            }
+        }
     }
 }
 
-/// The session menu: who is signed in (and switching persona), sync now, offline, lock.
+/// The session menu: who is signed in (and switching persona), sync now, offline, lock;
+/// in the 3D edition only, About (the edition, and that it is not the signed release).
+/// The release app's menu is unchanged.
 struct SessionMenu: View {
     @ObservedObject var model: AppModel
     let persona: PersonaInfo
+    @State private var showingAbout = false
 
     var body: some View {
         let offline = model.isOffline
@@ -431,11 +463,33 @@ struct SessionMenu: View {
                 Label("Lock", systemImage: "lock")
             }
             .accessibilityIdentifier("mg.session.lock")
+            if model.about != nil {
+                Button {
+                    showingAbout = true
+                } label: {
+                    Label("About", systemImage: "info.circle")
+                }
+                .accessibilityIdentifier("mg.session.about")
+            }
         } label: {
             Label("Session", systemImage: "person.crop.circle")
                 .frame(minWidth: 44, minHeight: 44)
         }
         .accessibilityLabel(Text("Session: \(persona.display)"))
         .accessibilityIdentifier("mg.0.session-menu")
+        .sheet(isPresented: $showingAbout) {
+            NavigationStack {
+                Group {
+                    if let about = model.about { AboutView(about) }
+                }
+                .frame(maxHeight: .infinity, alignment: .top)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { showingAbout = false }
+                            .accessibilityIdentifier("mg.about.done")
+                    }
+                }
+            }
+        }
     }
 }
