@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Typecheck MidgardKit and MidgardAuditKit (against the platform's XCTest) for iOS
-# (device and simulator) with swiftc against the iOS SDK,
-# without the iOS platform component or a simulator runtime: no build, no link, no
-# run. Use it where `xcodebuild -destination 'generic/platform=iOS…'` reports the
-# platform as not installed. [DD-6]
+# Typecheck MidgardKit (with the MidgardHooks C module), MidgardGlobeKit and
+# MidgardAuditKit (against the platform's XCTest) for iOS (device and simulator) with
+# swiftc against the iOS SDK, without the iOS platform component or a simulator runtime:
+# no build, no link, no run. Use it where `xcodebuild -destination
+# 'generic/platform=iOS…'` reports the platform as not installed. [DD-6]
 #
 #   bash clients/shells/apple/tools/typecheck-ios.sh
 #
@@ -36,6 +36,7 @@ extension Bundle { static var module: Bundle { .main } }
 EOF
 kit_sources="$(find Sources/MidgardKit -name '*.swift' | sort)"
 audit_sources="$(find Sources/MidgardAuditKit -name '*.swift' | sort)"
+globe_sources="$(find Sources/MidgardGlobeKit -name '*.swift' | sort)"
 failures=0
 for pair in "iphoneos:arm64-apple-ios17.0:ios-arm64" "iphonesimulator:arm64-apple-ios17.0-simulator:ios-arm64-simulator"; do
     sdk="${pair%%:*}"
@@ -50,8 +51,11 @@ for pair in "iphoneos:arm64-apple-ios17.0:ios-arm64" "iphonesimulator:arm64-appl
     # shellcheck disable=SC2086
     if xcrun --sdk "$sdk" swiftc $common -I "$xcf/$slice/Headers" -module-name MidgardCore -parse-as-library \
         -emit-module -emit-module-path "$out/MidgardCore.swiftmodule" "$gen" \
-        && xcrun --sdk "$sdk" swiftc $common -I "$xcf/$slice/Headers" -I "$out" -module-name MidgardKit \
-            -parse-as-library -typecheck $kit_sources "$scratch/BundleModule.swift" \
+        && xcrun --sdk "$sdk" swiftc $common -I "$xcf/$slice/Headers" -I "$out" -I Sources/MidgardHooks/include \
+            -module-name MidgardKit -parse-as-library -emit-module -emit-module-path "$out/MidgardKit.swiftmodule" \
+            $kit_sources "$scratch/BundleModule.swift" \
+        && xcrun --sdk "$sdk" swiftc $common -I "$xcf/$slice/Headers" -I "$out" -I Sources/MidgardHooks/include \
+            -module-name MidgardGlobeKit -parse-as-library -typecheck $globe_sources \
         && xcrun --sdk "$sdk" swiftc $common -F "$platform/Developer/Library/Frameworks" \
             -I "$platform/Developer/usr/lib" -module-name MidgardAuditKit -parse-as-library -typecheck $audit_sources; then
         echo "typecheck-ios: ok    $target"

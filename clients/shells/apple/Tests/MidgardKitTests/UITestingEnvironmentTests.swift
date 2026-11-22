@@ -22,7 +22,7 @@ final class UITestingEnvironmentTests: XCTestCase {
         let url = tmp.appendingPathComponent("App-\(UUID().uuidString).bundle", isDirectory: true)
         let contents = url.appendingPathComponent("Contents", isDirectory: true)
         try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
-        try PropertyListSerialization.data(fromPropertyList: ["MidgardDataSource": dataSource,
+        try PropertyListSerialization.data(fromPropertyList: ["MidgardDataSource": dataSource, "MidgardEdition": "release",
                                                               "CFBundleIdentifier": "test.midgard.\(UUID().uuidString)"],
                                            format: .xml, options: 0)
             .write(to: contents.appendingPathComponent("Info.plist"))
@@ -70,7 +70,7 @@ final class UITestingEnvironmentTests: XCTestCase {
         try FileManager.default.createDirectory(at: old, withIntermediateDirectories: true)
         XCTAssertThrowsError(try UITestingEnvironment.make(reason: "test", device: DeviceInfo(ramMb: 1, hasAccelerator: false),
                                                            bundle: try bundle("demo"), temporaryDirectory: tmp)) {
-            XCTAssertEqual($0 as? AppEnvironment.Failure, .misconfigured)
+            XCTAssertEqual($0 as? AppEnvironment.Failure, .misconfigured(AppEnvironment.dataSourceKey))
         }
         XCTAssertTrue(FileManager.default.fileExists(atPath: old.path))
     }

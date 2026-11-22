@@ -360,7 +360,7 @@ final class AccessibilityPrecheckTests: XCTestCase {
         let keyRoot = SoftwareKeyRoot(reason: "test", label: "Software key (test)", secrets: secrets,
                                       presence: AlwaysPresent())
         let model = AppModel(idleTimeout: 3600)
-        await model.start(AppEnvironment(dataSource: .bundled(releaseDataset()), storeDirectory: dir, secrets: secrets,
+        await model.start(AppEnvironment(dataSource: .bundled(releaseDataset()), edition: .release, storeDirectory: dir, secrets: secrets,
                                          keyRoot: keyRoot, device: DeviceInfo(ramMb: 8192, hasAccelerator: true),
                                          replicaId: "a11y-test"))
         return model

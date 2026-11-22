@@ -41,6 +41,16 @@ public final class AppModel: ObservableObject {
         }
     }
     public private(set) var custodyLabel: String?
+    /// Which app this is, once the environment is known (Task B7).
+    @Published public private(set) var edition: AppEdition?
+    /// The banner under the source banner: only the 3D editions have one. [AC-C-13]
+    public var editionBanner: EditionBanner? { edition.flatMap(EditionBanner.init) }
+    /// The About screen: only the 3D editions have one; the release apps show nothing new.
+    public var about: EditionAbout? { edition.flatMap(EditionAbout.init) }
+    /// Heimdall's "3D" entry: in the 3D editions, when the 3D library is linked.
+    public var threeDEntry: HeimdallThreeDView? {
+        HeimdallThreeD.entry(edition: edition, registered: HeimdallThreeD.registered)
+    }
 
     public var chipsPresentation: StatusChipsPresentation? { chips.map(StatusChipsPresentation.init) }
 
@@ -80,6 +90,7 @@ public final class AppModel: ObservableObject {
             // The banner follows the client, never the request: a bundled dataset that
             // is missing or fails its signature check claims no source. [AC-C-13]
             dataSourceKind = nil
+            edition = env.edition
             let datasetPath: String?
             switch env.dataSource {
             case .none: datasetPath = nil
