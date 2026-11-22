@@ -47,9 +47,11 @@ Third-party components:
   compiler (its CLI): they are in the dependency closure and the SBOM, but no
   console bundle includes them.
 
-  With its map tiles switch on (VITE_HEIMDALL_TILES, the default), the Heimdall
-  console fetches map tiles at run time from three sources. None of their data is
-  bundled; the tests use three recorded tiles, credited in
+  Built with map tiles (VITE_HEIMDALL_TILE_SOURCE=mirror or public; the default,
+  none, has none), the Heimdall console shows map tiles at run time from three
+  sources: in a mirror build from the enclosure's own copy of them, in a public
+  (demo) build from the providers' hosts. None of their data is bundled; the tests
+  use three recorded tiles, credited in
   products/heimdall/ui/fixtures/tiles/CREDITS.md. The console's CREDITS control
   shows each source while it is in use.
 

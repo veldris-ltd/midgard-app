@@ -15,6 +15,7 @@ import { type Region, bearingText, buildRegions, describeCamera, regionInView } 
 import { type ViewState, viewLookingAt } from './view.ts';
 import { type GlobeOutlines, GlobeRenderer, webglAvailable } from './renderer.ts';
 import { GLOBE_STYLES, type GlobeStyle, type GlobeTileLayer } from './tileLayer.ts';
+import { type CameraMove, TILES_PAUSED_NOTICE, pausedAfter, regionMove } from '../tilePause.ts';
 import './globe.css';
 
 /* The operating picture as a 3D globe. Loaded lazily, with three.js and the bundled
@@ -62,6 +63,21 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
   // Map tiles: the layer, once its module has loaded, and whether the network answers.
   const layerRef = React.useRef<GlobeTileLayer | null>(null);
   const [tileState, setTileState] = React.useState<'online' | 'offline' | null>(null);
+  // Public build: tiles pause after a move the tracks decide (src/tilePause.ts). [NFR-PRV-1]
+  const pausedRef = React.useRef(false);
+  const [paused, setPaused] = React.useState(false);
+  const moved = React.useCallback((move: CameraMove) => {
+    const p = __HEIMDALL_TILES__ && pausedAfter(move, __HEIMDALL_TILE_PUBLIC__);
+    pausedRef.current = p;
+    layerRef.current?.setPaused(p);
+    setPaused(p);
+  }, []);
+  const movedRef = React.useRef(moved);
+  movedRef.current = moved;
+  // The first view waits for the tracks: until they arrive it is a fixed one, then it
+  // is fitted to them once, unless the user has moved the camera by then.
+  const fitted = React.useRef(false);
+  const interacted = React.useRef(false);
   const [style, setStyle] = React.useState<GlobeStyle>(storedStyle);
   const styleRef = React.useRef(style);
   styleRef.current = style;
@@ -107,15 +123,23 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
         onSelect: (id) => onSelectRef.current(id),
         onCamera: (c, settled) => { if (settled) setCamera(c); },
         onContextLost: () => setFailed(true),
+        onUserMove: () => {
+          interacted.current = true;
+          movedRef.current('user');
+        },
       });
     } catch {
       setFailed(true);
       return;
     }
     rendererRef.current = r;
+    // The first view, fitted to the tracks, or a fixed one until they arrive: either
+    // way the console chose it, not the user, so a public build starts paused.
+    fitted.current = Boolean(sector.fittedToTracks);
+    moved('track');
     r.flyTo(sector.camera, true);
-    // The tile layer is its own chunk, behind the tiles switch: with the switch off
-    // the build has neither the layer nor any tile host. [FR-H-1]
+    // The tile layer is its own chunk, only in a build with map tiles: a `none` build
+    // has neither the layer nor any tile host. [FR-H-1] [NFR-PRV-1]
     let live = true;
     if (__HEIMDALL_TILES__) {
       import('../tiles/globeTiles.ts').then(
@@ -123,6 +147,7 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
           if (!live) return;
           const layer = new GlobeTiles(r.tileHost, { onState: (s) => { if (live) setTileState(s); } });
           layer.setStyle(styleRef.current);
+          layer.setPaused(pausedRef.current);
           layerRef.current = layer;
           r.setTileLayer(layer);
           setTileState(layer.state);
@@ -154,6 +179,16 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
     r.setCameraFloor(cameraFloorKm(highest));
   }, [items, tracks, heights, failed, outlines]);
 
+  // Tracks that arrive after start-up: fit the first view to them, once.
+  React.useEffect(() => {
+    const r = rendererRef.current;
+    if (!r || fitted.current || !sector.fittedToTracks) return;
+    fitted.current = true;
+    if (interacted.current) return;
+    moved('track');
+    r.flyTo(sector.camera, true);
+  }, [sector, moved, failed, outlines]);
+
   React.useEffect(() => { rendererRef.current?.setSelected(selectedId); }, [selectedId, items, failed, outlines]);
   React.useEffect(() => { layerRef.current?.setStyle(style); }, [style, tileState]);
   React.useEffect(() => { rendererRef.current?.setTooltipAnchor(tooltipRef.current); }, [hover, failed, outlines]);
@@ -177,7 +212,14 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
     const km = alt ? alt.metres / 1000 : 0;
     const k = clampExaggeration(heights);
     const altKm = Math.max(trackFlyAltitudeKm(km, k, now?.altKm ?? 800), km * k * 3);
+    interacted.current = true;
+    moved('track');
     flyTo(viewLookingAt({ lat: t.lat, lon: t.lon }, altKm, now?.pitch ?? 0, now?.heading ?? 0));
+  };
+  const flyToRegion = (r: Region) => {
+    interacted.current = true;
+    moved(regionMove(r));
+    flyTo(r.camera);
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -251,8 +293,11 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
       />
       <div ref={labelsRef} className="hg-globe-labels" aria-hidden="true" />
       {!outlines && <div className="hg-globe-loading" role="status">LOADING 3D VIEW…</div>}
-      {tileState === 'offline' && (
+      {__HEIMDALL_TILES__ && tileState === 'offline' && (
         <div className="hg-globe-notice" role="status">MAP TILES NEED A CONNECTION</div>
+      )}
+      {__HEIMDALL_TILES__ && paused && tileState === 'online' && (
+        <div className="hg-globe-notice" role="status">{TILES_PAUSED_NOTICE}</div>
       )}
       {hovered && (
         <div ref={tooltipRef} style={{ position: 'absolute', left: 0, top: 0, zIndex: 5, pointerEvents: 'none', display: 'none' }}>
@@ -266,7 +311,7 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
           <ul className="hg-globe-list" aria-labelledby={`${summaryId}-regions`}>
             {regions.map((r) => (
               <li key={r.id}>
-                <button type="button" aria-current={current?.id === r.id ? 'true' : undefined} onClick={() => flyTo(r.camera)}>
+                <button type="button" aria-current={current?.id === r.id ? 'true' : undefined} onClick={() => flyToRegion(r)}>
                   {r.label}
                 </button>
               </li>

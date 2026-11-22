@@ -13,19 +13,24 @@
  * When the loader goes offline the layer stops drawing and the globe falls back to
  * its own sphere.
  *
- * Reached only through the tiles switch: this module is never in a build with
- * `VITE_HEIMDALL_TILES` off. */
+ * Tiles are decoded in the decode worker (decodePool.ts), within its limits. In the
+ * `public` build the loader is paused after a camera move driven by the tracks
+ * (`setPaused`, src/tilePause.ts).
+ *
+ * Reached only in a build with map tiles: this module is never in a `none` build.
+ * [NFR-PRV-1] */
 import * as THREE from 'three';
 
 import { CAMERA_FOV_DEG, type CameraState } from '../globe/camera.ts';
 import type { GlobeStyle, GlobeTileLayer, TileLayerHost } from '../globe/tileLayer.ts';
-import { tileUrl } from './hosts.ts';
+import { TILES } from './active.ts';
+import { type DecodePool, browserDecodePool } from './decodePool.ts';
 import { type LoaderState, TileLoader } from './loader.ts';
 import { TOPO_DARK, TOPO_LIGHT, contourIntervalM, shadeZFactor, topoPixels } from './topo.ts';
 import { LruCache } from './cache.ts';
 import { buildPatch, drawnGroundM } from './mesh.ts';
 import { selectGlobeTiles } from './select.ts';
-import { type HeightGrid, decodeTerrarium, resampleGrid } from './terrarium.ts';
+import { type HeightGrid, resampleGrid } from './terrarium.ts';
 import { type Tile, ancestorAt, lonToTileX, latToTileY, metresPerPixel, subRect, tileAt, tileKey, tileYToLat } from './tileMath.ts';
 
 /** Terrain heights are fetched to this zoom; finer patches sample their ancestor. */
@@ -79,34 +84,11 @@ export interface GlobeTilesOptions {
   onState?: (state: LoaderState) => void;
 }
 
-/** Decodes an imagery tile in the browser. */
-async function decodeImage(bytes: ArrayBuffer): Promise<ImageBitmap> {
-  return createImageBitmap(new Blob([bytes], { type: 'image/jpeg' }));
-}
-
-/** Decodes a terrarium PNG in the browser, with no colour management. */
-async function decodeTerrainPng(bytes: ArrayBuffer): Promise<HeightGrid> {
-  const bmp = await createImageBitmap(new Blob([bytes], { type: 'image/png' }), {
-    colorSpaceConversion: 'none',
-    premultiplyAlpha: 'none',
-  });
-  try {
-    const { width, height } = bmp;
-    const canvas: OffscreenCanvas | HTMLCanvasElement =
-      typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(width, height) : Object.assign(document.createElement('canvas'), { width, height });
-    const ctx = canvas.getContext('2d', { willReadFrequently: true }) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
-    if (!ctx) throw new Error('terrain: no 2D canvas');
-    ctx.drawImage(bmp, 0, 0);
-    return decodeTerrarium(ctx.getImageData(0, 0, width, height).data, width, height);
-  } finally {
-    bmp.close();
-  }
-}
-
 export class GlobeTiles implements GlobeTileLayer {
   readonly object = new THREE.Group();
   private readonly host: TileLayerHost;
   private readonly loader: TileLoader;
+  private readonly pool: DecodePool;
   private readonly meshes: LruCache<THREE.Mesh>;
   private readonly blank: THREE.DataTexture;
   private readonly onState?: (state: LoaderState) => void;
@@ -128,8 +110,10 @@ export class GlobeTiles implements GlobeTileLayer {
     this.host = host;
     this.onState = o.onState;
     const f = o.fetch ?? ((url: string, init: RequestInit) => fetch(url, init));
+    this.pool = browserDecodePool();
     this.loader = new TileLoader({
       fetch: f,
+      tiles: TILES,
       online: () => (typeof navigator === 'undefined' ? true : navigator.onLine !== false),
       onChange: () => this.changed(),
     });
@@ -151,6 +135,11 @@ export class GlobeTiles implements GlobeTileLayer {
 
   get state(): LoaderState {
     return this.loader.state;
+  }
+
+  /** Paused, no tile is requested; tiles already loaded are still drawn. */
+  setPaused(paused: boolean): void {
+    this.loader.setPaused(paused);
   }
 
   setStyle(style: GlobeStyle): void {
@@ -245,6 +234,7 @@ export class GlobeTiles implements GlobeTileLayer {
   dispose(): void {
     window.removeEventListener('online', this.onOnline);
     this.loader.destroy();
+    this.pool.dispose();
     this.object.clear();
     this.meshes.protect = () => false;
     this.meshes.clear();
@@ -268,14 +258,14 @@ export class GlobeTiles implements GlobeTileLayer {
 
   private urlsFor(t: Tile): string[] {
     const urls: string[] = [];
-    if (this.needsTerrain(t)) urls.push(tileUrl('terrain', this.terrainTile(t)));
-    if (this.needsImagery()) urls.push(tileUrl('imagery', t));
+    if (this.needsTerrain(t)) urls.push(TILES.url('terrain', this.terrainTile(t)));
+    if (this.needsImagery()) urls.push(TILES.url('imagery', t));
     return urls;
   }
 
   /** The decoded terrain tile: a grid, null when the source has none, or undefined. */
   private terrain(t: Tile): HeightGrid | null | undefined {
-    return this.loader.get<HeightGrid>(tileUrl('terrain', t));
+    return this.loader.get<HeightGrid>(TILES.url('terrain', t));
   }
 
   /** Asks for what a tile needs; returns the URLs. */
@@ -285,8 +275,8 @@ export class GlobeTiles implements GlobeTileLayer {
       // The loader holds back a failed tile until its retry time, and probes when offline.
       const st = this.loader.status(u);
       if (st !== 'none' && st !== 'failed') continue;
-      if (u === tileUrl('terrain', this.terrainTile(t))) this.loader.request(u, priority, decodeTerrainPng);
-      else this.loader.request(u, priority, decodeImage, (b) => this.releaseBitmap(b, true));
+      if (u === TILES.url('terrain', this.terrainTile(t))) this.loader.request(u, priority, (b) => this.pool.decode<HeightGrid>('terrain', b));
+      else this.loader.request(u, priority, (b) => this.pool.decode<ImageBitmap>('imagery', b), (b) => this.releaseBitmap(b, true));
     }
     return urls;
   }
@@ -314,7 +304,7 @@ export class GlobeTiles implements GlobeTileLayer {
     }
     let image: ImageBitmap | null = null;
     if (this.needsImagery()) {
-      const b = this.loader.get<ImageBitmap>(tileUrl('imagery', t));
+      const b = this.loader.get<ImageBitmap>(TILES.url('imagery', t));
       if (b === undefined) return false;
       image = b;
     }

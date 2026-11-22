@@ -1,11 +1,19 @@
 /* The tile loader, on recorded tiles: allow-list, no cookies, cache, cancel,
- * concurrency and the offline fallback. No live network. [FR-H-1] */
+ * concurrency, the offline fallback, the byte caps and time limits on untrusted
+ * bodies (fuzz-style: a gzip bomb and a slow body, generated here), and the pause.
+ * No live network. [FR-H-1] [NFR-PRV-1] */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { tileUrl } from './hosts.ts';
-import { type FetchLike, TileLoader } from './loader.ts';
+import { gzipSync } from 'node:zlib';
+
+import { MAX_TILE_BYTES, mirrorSources, tileSet } from './hosts.ts';
+import { type FetchLike, TileDecodeTimeout, TileLoader } from './loader.ts';
+import { publicSources } from './publicHosts.ts';
+
+const TILES = tileSet(publicSources());
+const tileUrl = TILES.url;
 
 const fixture = (name: string) => readFileSync(new URL(`../../fixtures/tiles/${name}`, import.meta.url));
 const RECORDED: Record<string, Buffer> = {
@@ -45,7 +53,7 @@ const settle = () => new Promise((r) => setTimeout(r, 0));
 
 test('fetches an allowed tile once, with no cookies, no referrer and no redirects, and caches it', async () => {
   const net = recorded();
-  const l = new TileLoader({ fetch: net.fetch });
+  const l = new TileLoader({ tiles: TILES, fetch: net.fetch });
   assert.equal(l.status(TERRAIN), 'none');
   l.request(TERRAIN, 0, bytes);
   assert.equal(l.status(TERRAIN), 'pending');
@@ -64,7 +72,7 @@ test('fetches an allowed tile once, with no cookies, no referrer and no redirect
 
 test('refuses a URL off the allow-list without fetching it', async () => {
   const net = recorded();
-  const l = new TileLoader({ fetch: net.fetch });
+  const l = new TileLoader({ tiles: TILES, fetch: net.fetch });
   for (const u of ['http://tiles.versatiles.org/tiles/osm/1/0/0', 'https://example.com/a.png', 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/1/0/0.jpg']) {
     assert.throws(() => l.request(u, 0, bytes), /allow-list/);
   }
@@ -73,7 +81,7 @@ test('refuses a URL off the allow-list without fetching it', async () => {
 
 test('a 404 is remembered as missing, not as a failure', async () => {
   const net = recorded();
-  const l = new TileLoader({ fetch: net.fetch });
+  const l = new TileLoader({ tiles: TILES, fetch: net.fetch });
   const absent = tileUrl('terrain', { z: 6, x: 0, y: 0 });
   l.request(absent, 0, bytes);
   await settle();
@@ -84,7 +92,7 @@ test('a 404 is remembered as missing, not as a failure', async () => {
 
 test('keeps to its concurrency limit and serves the highest priority first', async () => {
   const net = recorded({ hold: true });
-  const l = new TileLoader({ fetch: net.fetch, maxInFlight: 2 });
+  const l = new TileLoader({ tiles: TILES, fetch: net.fetch, maxInFlight: 2 });
   l.request(VECTOR, 5, bytes);
   l.request(TERRAIN, 1, bytes);
   l.request(IMAGERY, 0, bytes);
@@ -103,7 +111,7 @@ test('keeps to its concurrency limit and serves the highest priority first', asy
 
 test('retain cancels queued and in-flight requests the view no longer needs', async () => {
   const net = recorded({ hold: true });
-  const l = new TileLoader({ fetch: net.fetch, maxInFlight: 1 });
+  const l = new TileLoader({ tiles: TILES, fetch: net.fetch, maxInFlight: 1 });
   l.request(TERRAIN, 0, bytes);
   l.request(IMAGERY, 1, bytes);
   await settle();
@@ -131,7 +139,7 @@ test('repeated network failures mean offline; it retries later and recovers', as
     return Promise.resolve(new Response(new Uint8Array(RECORDED[url] ?? [])));
   };
   const changes: string[] = [];
-  const l = new TileLoader({ fetch, offlineAfter: 3, retryAfterMs: 30_000, now: () => now, onChange: () => changes.push(l.state) });
+  const l = new TileLoader({ tiles: TILES, fetch, offlineAfter: 3, retryAfterMs: 30_000, now: () => now, onChange: () => changes.push(l.state) });
   l.request(TERRAIN, 0, bytes);
   l.request(IMAGERY, 0, bytes);
   l.request(VECTOR, 0, bytes);
@@ -156,7 +164,7 @@ test('repeated network failures mean offline; it retries later and recovers', as
 
 test('fewer failures than the limit still mean offline when nothing else is left to try', async () => {
   const fetch: FetchLike = () => Promise.reject(new TypeError('Failed to fetch'));
-  const l = new TileLoader({ fetch, offlineAfter: 3 });
+  const l = new TileLoader({ tiles: TILES, fetch, offlineAfter: 3 });
   l.request(TERRAIN, 0, bytes);
   l.request(IMAGERY, 0, bytes);
   await settle();
@@ -166,7 +174,7 @@ test('fewer failures than the limit still mean offline when nothing else is left
 
 test('a browser that says it is offline is offline at once', () => {
   const net = recorded();
-  const l = new TileLoader({ fetch: net.fetch, online: () => false });
+  const l = new TileLoader({ tiles: TILES, fetch: net.fetch, online: () => false });
   l.request(TERRAIN, 0, bytes);
   assert.equal(l.state, 'offline');
   assert.equal(net.calls.length, 0);
@@ -175,7 +183,7 @@ test('a browser that says it is offline is offline at once', () => {
 test('the cache is bounded and disposes what it evicts', async () => {
   const net = recorded();
   const gone: string[] = [];
-  const l = new TileLoader({ fetch: net.fetch, cacheEntries: 2 });
+  const l = new TileLoader({ tiles: TILES, fetch: net.fetch, cacheEntries: 2 });
   for (const u of [TERRAIN, IMAGERY, VECTOR]) {
     l.request(u, 0, async (b) => ({ u, n: b.byteLength }), (v) => gone.push(v.u));
     await settle();
@@ -194,7 +202,7 @@ test('a 503 or a 429 is retried after the retry time, never remembered as missin
       calls.push(url);
       return Promise.resolve(answer === 200 ? new Response(new Uint8Array(RECORDED[url])) : new Response(null, { status: answer }));
     };
-    const l = new TileLoader({ fetch, retryAfterMs: 30_000, now: () => now });
+    const l = new TileLoader({ tiles: TILES, fetch, retryAfterMs: 30_000, now: () => now });
     l.request(TERRAIN, 0, bytes);
     await settle();
     await settle();
@@ -218,7 +226,7 @@ test('a 503 or a 429 is retried after the retry time, never remembered as missin
 
 test('a tile that will not decode, or any other 4xx, is remembered as missing', async () => {
   const fetch: FetchLike = (url) => Promise.resolve(url === TERRAIN ? new Response(new Uint8Array([1, 2, 3])) : new Response(null, { status: 403 }));
-  const l = new TileLoader({ fetch });
+  const l = new TileLoader({ tiles: TILES, fetch });
   l.request(TERRAIN, 0, async () => { throw new Error('not a PNG'); });
   l.request(IMAGERY, 0, bytes);
   await settle();
@@ -230,7 +238,7 @@ test('a tile that will not decode, or any other 4xx, is remembered as missing', 
 test('after tiles have loaded, one network failure with nothing else pending stays online', async () => {
   let fail = false;
   const fetch: FetchLike = (url) => (fail ? Promise.reject(new TypeError('Failed to fetch')) : Promise.resolve(new Response(new Uint8Array(RECORDED[url]))));
-  const l = new TileLoader({ fetch, offlineAfter: 3 });
+  const l = new TileLoader({ tiles: TILES, fetch, offlineAfter: 3 });
   l.request(TERRAIN, 0, bytes);
   l.request(IMAGERY, 0, bytes);
   await settle();
@@ -246,7 +254,7 @@ test('after tiles have loaded, one network failure with nothing else pending sta
 test('going offline arms a timer that tells the view to ask again at the retry time', async () => {
   const fetch: FetchLike = () => Promise.reject(new TypeError('Failed to fetch'));
   let changes = 0;
-  const l = new TileLoader({ fetch, retryAfterMs: 20, onChange: () => changes++ });
+  const l = new TileLoader({ tiles: TILES, fetch, retryAfterMs: 20, onChange: () => changes++ });
   l.request(TERRAIN, 0, bytes);
   await settle();
   await settle();
@@ -260,7 +268,7 @@ test('going offline arms a timer that tells the view to ask again at the retry t
 test('failure records are pruned once their retry time has passed', async () => {
   let now = 0;
   const fetch: FetchLike = () => Promise.reject(new TypeError('Failed to fetch'));
-  const l = new TileLoader({ fetch, retryAfterMs: 1000, now: () => now, offlineAfter: 1000 });
+  const l = new TileLoader({ tiles: TILES, fetch, retryAfterMs: 1000, now: () => now, offlineAfter: 1000 });
   l.request(TERRAIN, 0, bytes);
   l.request(IMAGERY, 0, bytes);
   await settle();
@@ -272,5 +280,225 @@ test('failure records are pruned once their retry time has passed', async () => 
   await settle();
   await settle();
   assert.equal(l.failureRecords, 1);
+  l.destroy();
+});
+
+// --- untrusted bodies: byte caps and time limits ------------------------------------
+
+/** A body that yields `chunks` chunks of `size` bytes, counting how many were pulled. */
+function streamed(chunks: number, size: number) {
+  const seen = { pulled: 0 };
+  const body = new ReadableStream<Uint8Array>({
+    pull(c) {
+      if (seen.pulled >= chunks) return c.close();
+      seen.pulled++;
+      c.enqueue(new Uint8Array(size));
+    },
+  });
+  return { body, seen };
+}
+
+test('a Content-Length over the cap is refused before the body is read: a permanent missing tile', async () => {
+  const { body, seen } = streamed(100, 64 * 1024);
+  const fetch: FetchLike = () => Promise.resolve(new Response(body, { headers: { 'content-length': String(MAX_TILE_BYTES.terrain + 1) } }));
+  let decoded = 0;
+  const l = new TileLoader({ tiles: TILES, fetch });
+  l.request(TERRAIN, 0, async (b) => { decoded++; return b.byteLength; });
+  await settle();
+  await settle();
+  assert.equal(l.status(TERRAIN), 'missing');
+  assert.equal(decoded, 0);
+  assert.ok(seen.pulled <= 1, `pulled ${seen.pulled} chunks`);
+  assert.equal(l.stats.oversize, 1);
+  assert.equal(l.state, 'online');
+});
+
+test('a streamed body past the cap is stopped there, whatever it claimed: 1 MB terrain, 2 MB imagery and vector', async () => {
+  for (const [url, cap] of [[TERRAIN, MAX_TILE_BYTES.terrain], [IMAGERY, MAX_TILE_BYTES.imagery], [VECTOR, MAX_TILE_BYTES.vector]] as const) {
+    const { body, seen } = streamed(1000, 64 * 1024);
+    // A lying Content-Length, under the cap.
+    const fetch: FetchLike = () => Promise.resolve(new Response(body, { headers: { 'content-length': '1000' } }));
+    const l = new TileLoader({ tiles: TILES, fetch });
+    l.request(url, 0, bytes);
+    for (let i = 0; i < 5; i++) await settle();
+    assert.equal(l.status(url), 'missing', url);
+    assert.ok(seen.pulled * 64 * 1024 <= cap + 2 * 64 * 1024, `read ${seen.pulled} chunks of 64 KB for a ${cap}-byte cap`);
+  }
+  // At the cap exactly, the tile is read.
+  const exact = streamed(16, 64 * 1024);
+  const l = new TileLoader({ tiles: TILES, fetch: () => Promise.resolve(new Response(exact.body)) });
+  l.request(TERRAIN, 0, bytes);
+  for (let i = 0; i < 5; i++) await settle();
+  assert.equal(l.get(TERRAIN), MAX_TILE_BYTES.terrain);
+});
+
+test('a gzip bomb (a few KB inflating to 16 MB) is stopped at the cap as it inflates', async () => {
+  const bomb = gzipSync(Buffer.alloc(16 * 1024 * 1024));
+  assert.ok(bomb.length < 64 * 1024, `${bomb.length} bytes compressed`);
+  let inflated = 0;
+  const fetch: FetchLike = () => {
+    // As the browser undoes Content-Encoding: gzip, the body inflates while it is read.
+    const body = new Blob([bomb]).stream().pipeThrough(new DecompressionStream('gzip')).pipeThrough(
+      new TransformStream<Uint8Array, Uint8Array>({ transform(c, out) { inflated += c.byteLength; out.enqueue(c); } }),
+    );
+    return Promise.resolve(new Response(body));
+  };
+  let decoded = 0;
+  const l = new TileLoader({ tiles: TILES, fetch });
+  l.request(VECTOR, 0, async (b) => { decoded++; return b.byteLength; });
+  for (let i = 0; i < 20 && l.status(VECTOR) === 'pending'; i++) await new Promise((r) => setTimeout(r, 5));
+  assert.equal(l.status(VECTOR), 'missing');
+  assert.equal(decoded, 0);
+  assert.ok(inflated < 4 * 1024 * 1024, `inflated ${inflated} bytes before stopping`);
+});
+
+test('a slow body runs into the request time limit: a network failure, retried later', async () => {
+  const fetch: FetchLike = () => {
+    // One chunk, then nothing more, ever.
+    let sent = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(c) {
+        if (!sent) { sent = true; c.enqueue(new Uint8Array(100)); }
+        return new Promise(() => {});
+      },
+    });
+    return Promise.resolve(new Response(body));
+  };
+  let decoded = 0;
+  const l = new TileLoader({ tiles: TILES, fetch, fetchTimeoutMs: 40, offlineAfter: 5 });
+  l.request(TERRAIN, 0, async (b) => { decoded++; return b.byteLength; });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(l.status(TERRAIN), 'pending');
+  await new Promise((r) => setTimeout(r, 80));
+  assert.equal(l.status(TERRAIN), 'failed');
+  assert.equal(decoded, 0);
+  assert.equal(l.stats.failed, 1);
+  l.destroy();
+});
+
+test('a request that never answers times out as a network failure; the timeout and the cancel share one signal', async () => {
+  const signals: AbortSignal[] = [];
+  const fetch: FetchLike = (_url, init) => new Promise((_res, reject) => {
+    signals.push(init.signal as AbortSignal);
+    init.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+  });
+  const l = new TileLoader({ tiles: TILES, fetch, fetchTimeoutMs: 30, offlineAfter: 1 });
+  l.request(TERRAIN, 0, bytes);
+  await new Promise((r) => setTimeout(r, 80));
+  assert.ok(signals[0].aborted);
+  assert.equal(l.status(TERRAIN), 'failed');
+  assert.equal(l.state, 'offline', 'a timeout counts towards offline');
+  // A cancel by the view, through the same signal, is no failure at all.
+  const l2 = new TileLoader({ tiles: TILES, fetch, fetchTimeoutMs: 10_000, offlineAfter: 1 });
+  l2.request(IMAGERY, 0, bytes);
+  await settle();
+  l2.retain(new Set());
+  await settle();
+  assert.ok(signals[1].aborted);
+  assert.equal(l2.stats.failed, 0);
+  assert.equal(l2.state, 'online');
+  l.destroy();
+  l2.destroy();
+});
+
+test('a decode that runs out of time is a failure retried later, not a missing tile', async () => {
+  let now = 0;
+  const net = recorded();
+  const l = new TileLoader({ tiles: TILES, fetch: net.fetch, now: () => now, retryAfterMs: 30_000 });
+  l.request(TERRAIN, 0, async () => { throw new TileDecodeTimeout(); });
+  await settle();
+  await settle();
+  assert.equal(l.status(TERRAIN), 'failed');
+  assert.equal(l.state, 'online');
+  now = 31_000;
+  assert.equal(l.status(TERRAIN), 'none');
+});
+
+test('a mirror build\'s loader fetches the mirror and refuses the public hosts', async () => {
+  const M = tileSet(mirrorSources('https://tiles.enclosure.internal/heimdall'));
+  const calls: string[] = [];
+  const l = new TileLoader({ tiles: M, fetch: (url) => { calls.push(url); return Promise.resolve(new Response(new Uint8Array(4))); } });
+  assert.throws(() => l.request(TERRAIN, 0, bytes), /allow-list/);
+  const url = M.url('terrain', { z: 6, x: 31, y: 19 });
+  l.request(url, 0, bytes);
+  await settle();
+  assert.deepEqual(calls, [url]);
+});
+
+// --- the pause --------------------------------------------------------------------
+
+test('paused, nothing is sent and what was in flight is cancelled; resuming asks the view again', async () => {
+  const net = recorded({ hold: true });
+  let changes = 0;
+  const l = new TileLoader({ tiles: TILES, fetch: net.fetch, onChange: () => changes++ });
+  l.request(TERRAIN, 0, bytes);
+  await settle();
+  assert.equal(net.calls.length, 1);
+  l.setPaused(true);
+  assert.ok(l.isPaused);
+  assert.ok(net.calls[0].init.signal?.aborted, 'the request in flight is cancelled');
+  assert.equal(l.status(TERRAIN), 'none');
+  l.request(IMAGERY, 0, bytes);
+  l.request(VECTOR, 0, bytes);
+  await settle();
+  assert.equal(net.calls.length, 1, 'nothing sent while paused');
+  assert.equal(l.status(IMAGERY), 'none');
+  assert.equal(l.state, 'online', 'a pause is not a failure');
+  const before = changes;
+  l.setPaused(false);
+  assert.ok(changes > before);
+  l.request(IMAGERY, 0, bytes);
+  await settle();
+  assert.equal(net.calls.length, 2);
+  assert.equal(net.calls[1].url, IMAGERY);
+  net.release();
+  await settle();
+  await settle();
+  assert.equal(l.status(IMAGERY), 'ready');
+});
+
+test('paused, tiles already loaded are still served from the cache', async () => {
+  const net = recorded();
+  const l = new TileLoader({ tiles: TILES, fetch: net.fetch });
+  l.request(TERRAIN, 0, bytes);
+  await settle();
+  await settle();
+  l.setPaused(true);
+  assert.equal(l.status(TERRAIN), 'ready');
+  assert.equal(l.get(TERRAIN), RECORDED[TERRAIN].byteLength);
+});
+
+test('a request sent before going offline that fails later does not push the next probe away', async () => {
+  let now = 0;
+  const hung: (() => void)[] = [];
+  let mode: 'hang' | 'fail' | 'ok' = 'hang';
+  const calls: string[] = [];
+  const fetch: FetchLike = (url) => {
+    calls.push(url);
+    if (mode === 'hang') return new Promise((_r, reject) => hung.push(() => reject(new TypeError('Failed to fetch'))));
+    if (mode === 'fail') return Promise.reject(new TypeError('Failed to fetch'));
+    return Promise.resolve(new Response(new Uint8Array(RECORDED[url])));
+  };
+  const l = new TileLoader({ tiles: TILES, fetch, offlineAfter: 1, retryAfterMs: 30_000, now: () => now });
+  l.request(TERRAIN, 0, bytes);
+  await settle();
+  mode = 'fail';
+  now = 1000;
+  l.request(IMAGERY, 0, bytes);
+  await settle();
+  await settle();
+  assert.equal(l.state, 'offline');
+  // The first request, sent while online, fails 15 s later.
+  now = 15_000;
+  hung.forEach((f) => f());
+  await settle();
+  await settle();
+  // The probe is still due 30 s after going offline, not 30 s after that late failure.
+  mode = 'ok';
+  now = 31_000;
+  l.request(VECTOR, 0, bytes);
+  await settle();
+  await settle();
+  assert.equal(l.state, 'online');
   l.destroy();
 });

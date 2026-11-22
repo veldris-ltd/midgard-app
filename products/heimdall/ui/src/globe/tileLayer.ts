@@ -1,8 +1,9 @@
 /* What the globe renderer needs from a map-tile layer, as types only. [FR-H-1]
  *
  * The renderer draws with or without one. The layer itself (src/tiles/globeTiles.ts)
- * is loaded only behind the tiles switch, so with the switch off the renderer, and
- * the bundle, carry nothing that fetches tiles. */
+ * is loaded only in a build with map tiles (`VITE_HEIMDALL_TILE_SOURCE` mirror or
+ * public), so in a `none` build the renderer, and the bundle, carry nothing that
+ * fetches tiles. [NFR-PRV-1] */
 import type * as THREE from 'three';
 
 import type { CameraState } from './camera.ts';
@@ -33,6 +34,8 @@ export interface GlobeTileLayer {
   groundKm(lat: number, lon: number): number | null;
   setExaggeration(k: number): void;
   setStyle(style: GlobeStyle): void;
+  /** Paused, the layer requests no tile (the public build, after a track-driven move). */
+  setPaused(paused: boolean): void;
   /** The console's mode, for palettes drawn by the layer. */
   setDark(dark: boolean): void;
   dispose(): void;

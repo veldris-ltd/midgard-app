@@ -7,19 +7,28 @@
  * design tokens' colours. While a tile loads, its nearest loaded ancestor stands in.
  * Track markers are the view's own buttons; this places them each frame.
  *
- * Reached only through the tiles switch, like every module that fetches tiles. */
-import { VectorTile } from '@mapbox/vector-tile';
-import { PbfReader } from 'pbf';
-
+ * Vector tiles are decoded in the decode worker (decodePool.ts), within its limits; at
+ * most `MAX_REQUESTED_TILES` are asked for at once, nearest the centre first, and the
+ * tiles in use this frame are kept in the cache, so a very large screen does not keep
+ * refetching. In the `public` build the loader is paused after a camera move driven
+ * by the tracks (`setPaused`, src/tilePause.ts).
+ *
+ * Reached only in a build with map tiles, like every module that fetches tiles.
+ * [NFR-PRV-1] */
 import { type Rgba, cssRgba, parseCssColour } from '../globe/colours.ts';
 import { type OutlineFile, decodeLine } from '../globe/outlines.ts';
-import { tileUrl, TILE_SOURCES } from '../tiles/hosts.ts';
+import { TILES } from '../tiles/active.ts';
+import { type DecodePool, browserDecodePool } from '../tiles/decodePool.ts';
 import { type LoaderState, TileLoader } from '../tiles/loader.ts';
 import { type Tile, lonToTileX, latToTileY, parent } from '../tiles/tileMath.ts';
-import { type FillClass, type LineClass, type MapTileData, FILL_CLASSES, LINE_CLASSES, extractFeatures } from './features.ts';
+import { type FillClass, type LineClass, type MapTileData, FILL_CLASSES, LINE_CLASSES } from './features.ts';
 import { type MapCamera, clampMapCamera, nearestCopyX, panMap, project, visibleTiles, worldWidthPx, zoomMapAt } from './mapCamera.ts';
 
-const VECTOR_MAX_ZOOM = TILE_SOURCES.vector.maxZoom;
+const VECTOR_MAX_ZOOM = TILES.sources.vector.maxZoom;
+/** The most tiles requested at once; beyond them, ancestors stand in. */
+export const MAX_REQUESTED_TILES = 96;
+/** Decoded tiles kept: above the requested tiles and their stand-ins. */
+const CACHE_ENTRIES = 192;
 /** How many zooms up a loading tile looks for a stand-in. */
 const ANCESTOR_LEVELS = 5;
 
@@ -28,6 +37,8 @@ export interface MapCallbacks {
   onCamera(c: MapCamera, settled: boolean): void;
   /** The vector tiles' network went away or came back. */
   onState(s: LoaderState): void;
+  /** The user moved the map: a drag, a zoom or a key. [NFR-PRV-1] */
+  onUserMove?(): void;
 }
 
 interface MapColours {
@@ -148,6 +159,9 @@ export class MapRenderer {
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
   private readonly loader: TileLoader;
+  private readonly pool: DecodePool;
+  /** The tiles drawn or wanted this frame: never evicted from the cache. */
+  private inUse = new Set<string>();
   private readonly resize: ResizeObserver;
   private readonly unlisten: (() => void)[] = [];
   private colours: MapColours;
@@ -185,9 +199,11 @@ export class MapRenderer {
     this.ctx = ctx;
     this.colours = readColours(host);
     this.setLand(land);
+    this.pool = browserDecodePool();
     this.loader = new TileLoader({
       fetch: (url, init) => fetch(url, init),
-      cacheEntries: 192,
+      tiles: TILES,
+      cacheEntries: CACHE_ENTRIES,
       online: () => navigator.onLine !== false,
       onChange: () => {
         if (this.loader.state !== this.lastState) {
@@ -197,6 +213,7 @@ export class MapRenderer {
         this.requestRender();
       },
     });
+    this.loader.protect = (url) => this.inUse.has(url);
     const online = () => this.requestRender();
     window.addEventListener('online', online);
     this.unlisten.push(() => window.removeEventListener('online', online));
@@ -212,6 +229,12 @@ export class MapRenderer {
 
   get state(): LoaderState {
     return this.loader.state;
+  }
+
+  /** Paused, no tile is requested; tiles already loaded are still drawn. */
+  setPaused(paused: boolean): void {
+    this.loader.setPaused(paused);
+    this.requestRender();
   }
 
   get viewportHeight(): number {
@@ -265,6 +288,7 @@ export class MapRenderer {
 
   /** Keyboard and button pan and zoom, about the centre. */
   nudge(dxPx: number, dyPx: number, dZoom = 0): void {
+    this.cb.onUserMove?.();
     this.flight = null;
     let c = panMap(this.cam, dxPx, dyPx, this.width, this.height);
     if (dZoom) c = zoomMapAt(c, c.zoom + dZoom, this.width / 2, this.height / 2, this.width, this.height);
@@ -280,6 +304,7 @@ export class MapRenderer {
     this.resize.disconnect();
     for (const u of this.unlisten) u();
     this.loader.destroy();
+    this.pool.dispose();
     this.canvas.remove();
   }
 
@@ -354,18 +379,21 @@ export class MapRenderer {
     const keep = new Set<string>();
     const labelled: { data: MapTileData; left: number; top: number; size: number }[] = [];
     view.tiles.forEach((v, i) => {
-      const url = tileUrl('vector', v.tile);
-      keep.add(url);
+      const url = TILES.url('vector', v.tile);
       // Offline, the loader queues these and lets one probe the network now and then.
-      const st = this.loader.status(url);
-      if (st === 'none' || st === 'failed') {
-        const z = v.tile.z;
-        this.loader.request(url, i, async (b) => extractFeatures(new VectorTile(new PbfReader(new Uint8Array(b))), z));
+      // Only the nearest tiles are asked for; the rest show what is already loaded.
+      if (i < MAX_REQUESTED_TILES) {
+        keep.add(url);
+        const st = this.loader.status(url);
+        if (st === 'none' || st === 'failed') {
+          const z = v.tile.z;
+          this.loader.request(url, i, (b) => this.pool.decode<MapTileData>('vector', b, z));
+        }
       }
       // The tile itself, or the nearest loaded ancestor standing in for it.
       let t: Tile | null = v.tile;
       for (let up = 0; t && up <= ANCESTOR_LEVELS; up++, t = parent(t)) {
-        const u = tileUrl('vector', t);
+        const u = TILES.url('vector', t);
         const d = this.loader.get<MapTileData>(u);
         if (d === undefined) continue;
         keep.add(u);
@@ -385,6 +413,7 @@ export class MapRenderer {
         break;
       }
     });
+    this.inUse = keep;
     this.loader.retain(keep);
     this.drawLabels(labelled);
     this.placeMarkers();
@@ -525,8 +554,10 @@ export class MapRenderer {
         if (d > 0) this.cam = zoomMapAt(this.cam, this.cam.zoom + Math.log2(d / this.pinch), mid.x, mid.y, this.width, this.height);
         this.pinch = d;
       } else {
+        if (e.clientX === prev.x && e.clientY === prev.y) return;
         this.cam = panMap(this.cam, e.clientX - prev.x, e.clientY - prev.y, this.width, this.height);
       }
+      this.cb.onUserMove?.();
       this.moved(false);
     });
     const end = (e: PointerEvent) => {
@@ -538,6 +569,7 @@ export class MapRenderer {
     on('pointercancel', end);
     on('wheel', (e) => {
       e.preventDefault();
+      this.cb.onUserMove?.();
       this.flight = null;
       const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? this.height : 1;
       const p = local(e);
@@ -546,6 +578,7 @@ export class MapRenderer {
       this.settleSoon();
     }, { passive: false });
     on('dblclick', (e) => {
+      this.cb.onUserMove?.();
       const p = local(e);
       this.cam = zoomMapAt(this.cam, this.cam.zoom + 1, p.x, p.y, this.width, this.height);
       this.moved(true);

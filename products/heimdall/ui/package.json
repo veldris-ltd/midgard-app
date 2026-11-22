@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --experimental-strip-types --test \"src/**/*.test.ts\"",
-    "test:bundle": "node --test scripts/tiles-switch.test.mjs"
+    "test:bundle": "node --test scripts/tile-source.test.mjs"
   },
   "dependencies": {
     "@mapbox/vector-tile": "3.0.0",

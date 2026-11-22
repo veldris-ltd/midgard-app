@@ -62,6 +62,8 @@ export interface GlobeCallbacks {
   onCamera(camera: ViewState, settled: boolean): void;
   /** WebGL went away after start-up. */
   onContextLost(): void;
+  /** The user moved the camera: a drag, a zoom, a tilt or turn, or a key. [NFR-PRV-1] */
+  onUserMove?(): void;
 }
 
 /** Whether this browser can give the globe a WebGL 2 context, which three.js needs.
@@ -249,6 +251,12 @@ export class GlobeRenderer {
   private height = 1;
   private frame = 0;
   private flight: { from: ViewState; to: ViewState; start: number; ms: number } | null = null;
+  /**
+   * A flight's target that the floor held higher because no tiles were drawn yet (a
+   * close-up asked for before any tile arrived, as after the public build's pause):
+   * flown to again once tiles show, unless the user moves first.
+   */
+  private wanted: { target: ViewState; reducedMotion: boolean } | null = null;
   /** One pointer down: `pan` drags the ground, `orbit` (right button, Ctrl or ⌥) tilts and turns. */
   private drag: { id: number; x: number; y: number; moved: boolean; mode: 'pan' | 'orbit' } | null = null;
   private readonly pointers = new Map<number, { x: number; y: number }>();
@@ -477,8 +485,10 @@ export class GlobeRenderer {
     }
   }
 
-  flyTo(target: ViewState, reducedMotion: boolean): void {
-    const to = normaliseView({ ...target, altKm: Math.max(target.altKm, this.currentFloor()) }, this.minKm);
+  flyTo(target: ViewState, reducedMotion: boolean, retry = false): void {
+    const floor = this.currentFloor();
+    this.wanted = !retry && !this.tilesShown && this.tiles && target.altKm < floor ? { target, reducedMotion } : null;
+    const to = normaliseView({ ...target, altKm: Math.max(target.altKm, floor) }, this.minKm);
     const ms = viewFlyDurationMs(this.cam, to, reducedMotion);
     if (ms === 0) {
       this.flight = null;
@@ -493,6 +503,7 @@ export class GlobeRenderer {
 
   /** Keyboard pan and zoom, for the focusable globe surface. */
   nudge(dxPx: number, dyPx: number, zoom = 1): void {
+    this.userMove();
     this.flight = null;
     this.cam = this.zoomed(panView(this.cam, dxPx, dyPx, this.height, CAMERA_FOV_DEG, this.minKm), zoom);
     this.applyCamera();
@@ -507,6 +518,7 @@ export class GlobeRenderer {
 
   /** Tilt by `dDeg` and turn by `turnDeg` about the point in view (buttons and keys). */
   orbit(dDeg: number, turnDeg = 0): void {
+    this.userMove();
     this.flight = null;
     const g = this.pivotGround(this.cam);
     this.cam = rotateView(tiltView(this.cam, dDeg, this.minKm, g), turnDeg, this.minKm, g);
@@ -516,6 +528,7 @@ export class GlobeRenderer {
 
   /** Back to north up and straight down, over the point in view. */
   resetOrientation(reducedMotion: boolean): void {
+    this.userMove();
     const g = this.pivotGround(this.cam);
     const flat = rotateView(tiltView(this.cam, -90, this.minKm, g), -this.cam.heading, this.minKm, g);
     this.flyTo(flat, reducedMotion);
@@ -757,6 +770,10 @@ export class GlobeRenderer {
       this.globeMesh.scale.setScalar(shown ? SPHERE_UNDER_TILES : 1);
       this.applyCamera();
       this.cb.onCamera(this.cam, true);
+      // A close-up held at the floor until now: on down to it, from where the camera is.
+      const w = this.wanted;
+      this.wanted = null;
+      if (shown && w) this.flyTo(w.target, w.reducedMotion, true);
     } else if (shown && this.cam.altKm < this.currentFloor()) {
       // Terrain arrived under the camera: stay above it.
       this.applyCamera();
@@ -848,6 +865,7 @@ export class GlobeRenderer {
       canvas.setPointerCapture(e.pointerId);
       this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       this.flight = null;
+      this.wanted = null;
       if (this.pointers.size === 1) {
         const orbit = e.button === 2 || e.ctrlKey || e.altKey;
         this.drag = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: false, mode: orbit ? 'orbit' : 'pan' };
@@ -864,6 +882,7 @@ export class GlobeRenderer {
       }
       this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (this.pointers.size >= 2 && this.pinch) {
+        this.userMove();
         const g = this.gesture();
         if (g.d > 0 && this.pinch.d > 0) this.cam = this.zoomed(this.cam, this.pinch.d / g.d);
         // Both fingers up the screen tilt towards the horizon; twisting them turns.
@@ -877,7 +896,10 @@ export class GlobeRenderer {
       if (this.drag && this.drag.id === e.pointerId) {
         const dx = e.clientX - prev.x;
         const dy = e.clientY - prev.y;
-        if (Math.abs(e.clientX - this.drag.x) + Math.abs(e.clientY - this.drag.y) > 4) this.drag.moved = true;
+        if (!this.drag.moved && Math.abs(e.clientX - this.drag.x) + Math.abs(e.clientY - this.drag.y) > 4) {
+          this.drag.moved = true;
+          this.userMove();
+        }
         if (this.drag.moved) {
           this.cam = this.drag.mode === 'orbit'
             ? this.orbited(-dy * TILT_PER_PX, -dx * TURN_PER_PX)
@@ -915,6 +937,7 @@ export class GlobeRenderer {
     on('contextmenu', (e) => e.preventDefault());
     on('wheel', (e) => {
       e.preventDefault();
+      this.userMove();
       this.flight = null;
       const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? this.height : 1;
       this.cam = this.zoomed(this.cam, Math.exp(e.deltaY * unit * 0.0015));
@@ -973,6 +996,12 @@ export class GlobeRenderer {
   private settleSoon(): void {
     window.clearTimeout(this.settleTimer);
     this.settleTimer = window.setTimeout(() => this.settled(), 250);
+  }
+
+  /** The user's own move: drops a held close-up and tells the view (tile pause). */
+  private userMove(): void {
+    this.wanted = null;
+    this.cb.onUserMove?.();
   }
 
   private settled(): void {

@@ -1,5 +1,5 @@
 /* The map tile sources' credits, shown by the CREDITS control while each is in use and
- * recorded in NOTICE. Reached only through the tiles switch. [FR-H-1] */
+ * recorded in NOTICE. Reached only in a build with map tiles. [FR-H-1] */
 import type { Credit } from '../app/dataSources.ts';
 
 export const TERRAIN_CREDIT: Credit = {

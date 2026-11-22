@@ -22,6 +22,9 @@ export interface Region {
   camera: ViewState;
   /** The area the region names; WORLD has none and never counts as "over" it. */
   bounds?: Bounds;
+  /** Framed on the tracks' positions (SECTOR NORTH with tracks), not a fixed place:
+   *  a public build pauses map tiles after flying there (src/tilePause.ts). */
+  fittedToTracks?: boolean;
 }
 
 const RAD = Math.PI / 180;
@@ -95,7 +98,7 @@ export function sectorNorth(tracks: readonly { lat?: number; lon?: number }[]): 
   const altKm = clampAltitude((spanKm * 1.15) / (2 * Math.tan((CAMERA_FOV_DEG * RAD) / 2)));
   // Tilted, the view reaches past its centre towards the horizon, so it sits a little lower.
   const camera = viewLookingAt({ lat, lon }, altKm * 0.9, 50, 0);
-  return { id: 'sector-north', label: 'SECTOR NORTH', camera, bounds: { south, north, west, east } };
+  return { id: 'sector-north', label: 'SECTOR NORTH', camera, bounds: { south, north, west, east }, fittedToTracks: true };
 }
 
 /** The REGION list: the fixed presets, the close-ups while tiles are drawn, then SECTOR NORTH. */

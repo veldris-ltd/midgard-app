@@ -9,6 +9,7 @@ import { TrackTooltip } from '../app/TrackTooltip';
 import { loadOutlines } from '../globe/outlineAssets.ts';
 import { type Region, buildRegions, regionAt } from '../globe/presets.ts';
 import type { LoaderState } from '../tiles/loader.ts';
+import { type CameraMove, TILES_PAUSED_NOTICE, pausedAfter, regionMove } from '../tilePause.ts';
 import { type MapCamera, MAP_MAX_ZOOM, MAP_MIN_ZOOM, zoomForAltitude } from './mapCamera.ts';
 import { MapRenderer } from './mapRenderer.ts';
 import '../globe/globe.css';
@@ -18,7 +19,7 @@ import './map.css';
  * layout. VersaTiles vector tiles (OpenStreetMap data) over the bundled Natural Earth
  * land, with the tracks at their positions. It shares the layer switches and the
  * inspector selection with the other views. Loaded lazily, and only in a build with
- * the tiles switch on. [FR-H-1] [AC-H-1] */
+ * map tiles (mirror or public). [FR-H-1] [AC-H-1] [NFR-PRV-1] */
 
 export interface MapViewProps {
   tracks: readonly HeimdallTrack[];
@@ -49,6 +50,19 @@ export default function MapView({ tracks, layerOn, selectedId, onSelect }: MapVi
   const [tileState, setTileState] = React.useState<LoaderState>('online');
   const [hover, setHover] = React.useState<string | null>(null);
   const [failed, setFailed] = React.useState(false);
+  // Public build: tiles pause after a move the tracks decide (src/tilePause.ts). [NFR-PRV-1]
+  const [paused, setPaused] = React.useState(false);
+  const moved = React.useCallback((move: CameraMove) => {
+    const p = pausedAfter(move, __HEIMDALL_TILE_PUBLIC__);
+    rendererRef.current?.setPaused(p);
+    setPaused(p);
+  }, []);
+  const movedRef = React.useRef(moved);
+  movedRef.current = moved;
+  // The first view waits for the tracks: until they arrive it is a fixed one, then it
+  // is fitted to them once, unless the user has moved the map by then.
+  const fitted = React.useRef(false);
+  const interacted = React.useRef(false);
   const mode = useResolvedMode();
   const summaryId = React.useId();
 
@@ -68,12 +82,20 @@ export default function MapView({ tracks, layerOn, selectedId, onSelect }: MapVi
       r = new MapRenderer(host, markers, null, {
         onCamera: (c, settled) => { if (settled) setCamera(c); },
         onState: setTileState,
+        onUserMove: () => {
+          interacted.current = true;
+          movedRef.current('user');
+        },
       });
     } catch {
       setFailed(true);
       return;
     }
     rendererRef.current = r;
+    // The first view, fitted to the tracks, or a fixed one until they arrive: either
+    // way the console chose it, not the user, so a public build starts paused.
+    fitted.current = Boolean(sector.fittedToTracks);
+    moved('track');
     r.flyTo(regionCamera(sector, r.viewportHeight), true);
     let live = true;
     // The bundled land, from the console's own files, under the tiles.
@@ -86,6 +108,16 @@ export default function MapView({ tracks, layerOn, selectedId, onSelect }: MapVi
     // One renderer per mount; the effects below push every later change in.
   }, []);
 
+  // Tracks that arrive after start-up: fit the first view to them, once.
+  React.useEffect(() => {
+    const r = rendererRef.current;
+    if (!r || fitted.current || !sector.fittedToTracks) return;
+    fitted.current = true;
+    if (interacted.current) return;
+    moved('track');
+    r.flyTo(regionCamera(sector, r.viewportHeight), true);
+  }, [sector, moved]);
+
   React.useEffect(() => { rendererRef.current?.refreshColours(); }, [mode]);
   React.useEffect(() => { rendererRef.current?.setTooltip(tooltipRef.current); }, [hover]);
   // The markers change: place them before the next frame.
@@ -95,6 +127,8 @@ export default function MapView({ tracks, layerOn, selectedId, onSelect }: MapVi
   const flyToTrack = (t: HeimdallTrack) => {
     if (typeof t.lat !== 'number' || typeof t.lon !== 'number') return;
     const z = Math.max(rendererRef.current?.camera.zoom ?? 8, 8);
+    interacted.current = true;
+    moved('track');
     flyTo({ lat: t.lat, lon: t.lon, zoom: z });
   };
 
@@ -166,6 +200,7 @@ export default function MapView({ tracks, layerOn, selectedId, onSelect }: MapVi
         })}
       </div>
       {tileState === 'offline' && <div className="hg-globe-notice" role="status">MAP TILES NEED A CONNECTION</div>}
+      {paused && tileState === 'online' && <div className="hg-globe-notice" role="status">{TILES_PAUSED_NOTICE}</div>}
       {hoverPlaced && (
         // The renderer keeps this beside its track each frame, so it follows a pan.
         <div
@@ -187,7 +222,11 @@ export default function MapView({ tracks, layerOn, selectedId, onSelect }: MapVi
                 <button
                   type="button"
                   aria-current={current?.id === r.id ? 'true' : undefined}
-                  onClick={() => flyTo(regionCamera(r, rendererRef.current?.viewportHeight ?? 600))}
+                  onClick={() => {
+                    interacted.current = true;
+                    moved(regionMove(r));
+                    flyTo(regionCamera(r, rendererRef.current?.viewportHeight ?? 600));
+                  }}
                 >
                   {r.label}
                 </button>

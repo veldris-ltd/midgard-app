@@ -492,10 +492,12 @@ job_js_build() {
     # The selftest job has no installed workspace, so the mock-bundle test runs here:
     # an http build of the midgard console holds no mock fixture. [AC-25.2]
     bash tools/ci/tests/js-mock-bundle.test.sh
-    # The Heimdall console's unit tests (the tile allow-list, the loader and the rest),
-    # and a build with the map tiles switch off holds no tile host or tile code
-    # (VITE_HEIMDALL_TILES): the controls the residual-risk register's tile entry rests
-    # on. [FR-H-1]
+    # The Heimdall console's unit tests (the tile source setting, the allow-lists, the
+    # loader's limits, the decode limits, the pause and the rest), and the bundle test:
+    # a none build (the default, and the signed one) holds no tile host or tile code, a
+    # mirror build only its mirror, a public build the three public hosts, and any other
+    # VITE_HEIMDALL_TILE_SOURCE fails: the controls the residual-risk register's tile
+    # entry rests on. [FR-H-1] [NFR-PRV-1]
     pnpm --filter @midgard/console-heimdall test
     pnpm --filter @midgard/console-heimdall test:bundle
     bash tools/ci/js-artefacts.sh build --all --out "${MIDGARD_JS_OUT:-target/js-out}"

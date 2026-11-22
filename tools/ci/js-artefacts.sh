@@ -116,8 +116,12 @@ build_once() { # build_once KIND DIR FILE SCRATCH
                 echo "js-artefacts: the workspace is not installed; run \`pnpm install --frozen-lockfile\` first" >&2
                 return 1
             }
+            # The signed bundles have no map tiles: the Heimdall console's tile source is
+            # pinned to none, whatever the environment says, so the release never ships
+            # a build that makes an outbound request. [NFR-PRV-1]
             (cd "$dir" && pnpm exec tsc -p tsconfig.json --noEmit \
-                && pnpm exec vite build --outDir "$scratch/dist" --emptyOutDir --logLevel warn) >&2
+                && env -u VITE_HEIMDALL_TILE_MIRROR -u VITE_HEIMDALL_TILES VITE_HEIMDALL_TILE_SOURCE=none \
+                    pnpm exec vite build --outDir "$scratch/dist" --emptyOutDir --logLevel warn) >&2
             # A tar of the bundle with everything that is not content pinned: entries
             # sorted, times, owners and modes fixed. Two builds of the same source are
             # then the same bytes or the build is not reproducible.

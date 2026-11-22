@@ -2,7 +2,7 @@ import * as React from 'react';
 
 /* The operating picture's view switch, remembered per browser: 2D (the reference
  * layout, the default), MAP (the tracks on a real map) and 3D (the globe). MAP exists
- * only in a build with the map tiles switch on. [FR-H-1] */
+ * only in a build with map tiles (`VITE_HEIMDALL_TILE_SOURCE` mirror or public). [FR-H-1] */
 
 export type PictureView = '2d' | 'map' | '3d';
 

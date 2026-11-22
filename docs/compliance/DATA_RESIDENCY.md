@@ -15,6 +15,7 @@ the platform, enforced and testable in code.
 | Credentials / MFA enrolments | In-enclosure durable directory (encrypted) | **No** |
 | Telemetry (logs, metrics, traces) | In-enclosure; **pull-only** collector | **No** |
 | Model weights / inference | In-enclosure model server / GPU | **No** |
+| Heimdall console map tiles | None by default (the signed console has no tile code); a `mirror` build fetches them from one origin inside the enclosure | **No.** Only a `public` build, a demo outside the enclosure, requests tiles from public hosts, which learn the area viewed |
 
 ## How residency is enforced (not just promised)
 
@@ -29,6 +30,12 @@ the platform, enforced and testable in code.
   with a hardware root, the root would never leave the device. [VLD-ANB-MIDGARD-0007]
 - **Encrypted in transit, internally.** Service-to-service is PQ-mTLS; there is no
   external transit to reside anywhere else.
+- **No tile egress in the console.** The Heimdall console's map tile source is fixed at
+  build time and fails closed: `none` (the default, and the build the release signs,
+  pinned in `tools/ci/js-artefacts.sh`) holds no tile code or host; `mirror` holds only
+  the enclosure's own mirror; `public` is a demo build only. CI's `js-build` job runs
+  `pnpm --filter @midgard/console-heimdall test:bundle`, which checks each build's
+  `dist/` and that any other setting stops the build. [NFR-PRV-1]
 - **Sandboxed ingress.** Connectors that would reach out enforce `SandboxPolicy`
   egress checks and are **air-gapped by default** — an egress-violating connector is
   blocked (RT-27).

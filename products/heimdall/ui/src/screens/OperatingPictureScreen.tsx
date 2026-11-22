@@ -22,8 +22,8 @@ import '../app/picture.css';
 /* The 3D globe, with three.js and the bundled outlines, is its own chunk, fetched
  * from the console's own files only when 3D is opened. [FR-H-1] */
 const GlobeView = React.lazy(() => import('../globe/GlobeView'));
-/* The 2D geographic map, likewise its own chunk, and only in a build with the map
- * tiles switch on. [FR-H-1] */
+/* The 2D geographic map, likewise its own chunk, and only in a build with map tiles
+ * (`VITE_HEIMDALL_TILE_SOURCE` mirror or public). [FR-H-1] [NFR-PRV-1] */
 const MapView = __HEIMDALL_TILES__ ? React.lazy(() => import('../map/MapView')) : null;
 
 /** If the globe's chunk cannot load, say so; the 2D view is unaffected. */
