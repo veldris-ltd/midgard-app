@@ -497,6 +497,9 @@ job_js_build() {
     # run here.
     # [AC-C-13] [FR-C-1]
     bash tools/ci/tests/demo-fixtures.test.sh
+    # The apps' sample data is extracted from the same mocks, with its drift check
+    # against the signed tag. [AC-C-13] [FR-C-5]
+    bash tools/ci/tests/sample-data.test.sh
     bash tools/ci/tests/gen-read-models.test.sh
     bash tools/ci/js-artefacts.sh build --all --out "${MIDGARD_JS_OUT:-target/js-out}"
 }

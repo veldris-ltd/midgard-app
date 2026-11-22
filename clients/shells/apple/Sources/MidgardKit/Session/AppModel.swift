@@ -32,10 +32,11 @@ public final class AppModel: ObservableObject {
     /// What the client runs on, once the environment is known.
     @Published public private(set) var dataSourceKind: DataSourceKind?
     /// The banner above everything: the demonstration notice while the source is the
-    /// demo dataset, "No data source connected" with none. [AC-C-13] [FR-C-5]
+    /// release's sample data or the demo dataset (the web consoles' own words in mock
+    /// mode), "No data source connected" with none. [AC-C-13] [FR-C-5]
     public var banner: SourceBanner? {
         switch dataSourceKind {
-        case DataSourceKind.demo?: return .demo
+        case DataSourceKind.demo?, DataSourceKind.sample?: return .demo
         case DataSourceKind.none?: return .noSource
         case nil: return nil
         }
@@ -89,12 +90,7 @@ public final class AppModel: ObservableObject {
             // is missing or fails its signature check claims no source. [AC-C-13]
             dataSourceKind = nil
             edition = env.edition
-            let datasetPath: String?
-            switch env.dataSource {
-            case .none: datasetPath = nil
-            case let .bundled(url): datasetPath = url.path
-            }
-            let config = ClientConfig(datasetPath: datasetPath, replicaId: env.replicaId, device: env.device)
+            let config = ClientConfig(source: env.dataSource.coreChoice, replicaId: env.replicaId, device: env.device)
             let gateway = try await Self.open(env: env, config: config)
             self.gateway = gateway
             custodyLabel = env.keyRoot.custodyLabel
@@ -185,6 +181,12 @@ public final class AppModel: ObservableObject {
         guard let (id, chips) = await call({ try $0.requestAction(action) }) else { return nil }
         self.chips = chips
         return id
+    }
+
+    /// An action's state as this device knows it (queued, applied with its audit id,
+    /// refused with the reason); nil, with a message, on error.
+    public func actionStatus(_ id: String) async -> ActionStatus? {
+        await call { try $0.actionStatus(id) }
     }
 
     public func resetDemo() async {

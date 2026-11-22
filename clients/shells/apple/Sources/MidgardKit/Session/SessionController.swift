@@ -129,6 +129,10 @@ public final class SessionController {
         return (id, try client.statusChips())
     }
 
+    public func actionStatus(_ id: String) throws -> ActionStatus {
+        try client.actionStatus(actionId: id)
+    }
+
     public func setOffline(_ offline: Bool) throws -> StatusChips {
         try client.setOffline(offline: offline)
     }

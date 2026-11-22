@@ -6987,3 +6987,43 @@ above.
   any `MidgardTileKit` symbol and the Info.plist keys `NSAppTransportSecurity`,
   `NSLocalNetworkUsageDescription` and `NSBonjourServices`; I2 must keep those out of
   them and add no ATS exception to the Maps apps beyond what the four tile hosts need.
+
+## Owner decisions (22 Nov 2026): look matched to the web suite, with its sample data
+
+**Dev signing and the Secure Enclave.** Development signing is set up under team
+64JX2CTLJR and the three Mac apps are signed. The owner enrolled, locked and unlocked
+on the signed release Mac app: the Secure Enclave key works.
+
+**The apps should look like the web suite.** The owner saw the shell and found it
+"nothing like the suite". Two decisions follow.
+
+1. **Native, matched to the web consoles.** Every screen stays native SwiftUI, per
+   SAD_06. Each is matched closely to its web console's layout, density, tokens and
+   type.
+2. **The signed release's own sample data.** The apps show exactly the built-in sample
+   data that the `v0.1.0-rc.3` web consoles ship with (`sdk/ts/src/mock/`), under the
+   same "Demonstration data" banner. There are no feeds and no network. This replaces
+   the 19 Nov "nothing at all" choice for what the apps display.
+   - **Mode:** `MidgardDataSource = sample`, a new `SampleSource` in the core.
+   - **Data source:** the data is generated from the SDK mocks at the tag by an
+     extraction script (Phase A style), so there is one source of truth. A drift check
+     compares it with the tag.
+   - **Actions:** they behave as they do in the web mock.
+
+### Task R1: reference screen (before Phases C–H)
+
+1. **`SampleSource`.** Build it in `midgard-client-core` from the rc.3 SDK mocks, with
+   the extraction script and drift check, the FFI and the Swift wiring. All six apps use
+   `sample`. The banner text is identical to the web's.
+2. **Heimdall Operating Picture.** Build it natively, matched to the web console's 2D
+   reference layout:
+   - the navigation (PICTURE / DECIDE, LAYERS);
+   - the picture with its five tracks;
+   - the header chips;
+   - the inspector with the ranked options and Authorise/Reject;
+   - the stats footer;
+   - the classification banner.
+
+   It has both Mac and iPhone layouts.
+3. **Side-by-side screenshots.** Web, Mac and iPhone, for the owner's sign-off. Phases
+   C–H follow the standard the owner approves.

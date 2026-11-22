@@ -114,6 +114,19 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(client.dataSourceKind(), DataSourceKind.none)
     }
 
+    /// Over the release's sample data: the mock personas and collections, and the
+    /// demonstration banner's kind.
+    func testSampleData() throws {
+        let client = try MidgardClient(config: makeConfig(source: .sample), keyRoot: TestKeyRoot())
+        XCTAssertEqual(client.dataSourceKind(), DataSourceKind.sample)
+        XCTAssertEqual(client.personas().map(\.id), ["k.rao", "j.benjamin", "k.osei", "a.holt"])
+        XCTAssertTrue(client.collections().contains { $0.name == "heimdall.tracks" && $0.rowType == "HeimdallTrack" })
+        _ = try client.unlock(keys: try client.enrol(), personaId: "k.osei")
+        XCTAssertEqual(try client.collectionRows(collection: "heimdall.tracks").count, 5)
+        try client.resetDemo()
+        XCTAssertEqual(client.dataSourceKind(), DataSourceKind.sample)
+    }
+
     /// The key root is implemented (not called) here; it is exercised through the
     /// client: `seal` at enrolment, `unseal` at unlock, `hardwareBacked` for the chip.
     func testKeyRootCallbacksAreReachedThroughTheClient() throws {

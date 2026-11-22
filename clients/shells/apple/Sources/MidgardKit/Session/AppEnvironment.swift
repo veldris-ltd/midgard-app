@@ -1,12 +1,23 @@
 import Foundation
 import MidgardCore
 
-/// What the app runs on, from its Info.plist key `MidgardDataSource` (owner decision
-/// 19 Nov 2026): `none` (the shipped apps: no data, one local user) or `bundled` (the
-/// signed demo dataset in the app's resources). [FR-C-5] [AC-C-13]
+/// What the app runs on, from its Info.plist key `MidgardDataSource`: `sample` (the
+/// shipped apps since 22 Nov 2026: the signed release's own sample data, compiled into
+/// the core), `none` (no data, one local user; owner decision 19 Nov 2026) or `bundled`
+/// (the signed demo dataset in the app's resources). [FR-C-5] [AC-C-13]
 public enum DataSourceChoice: Equatable {
     case none
+    case sample
     case bundled(URL)
+
+    /// The core's configuration for this choice.
+    public var coreChoice: SourceChoice {
+        switch self {
+        case .none: return .none
+        case .sample: return .sample
+        case let .bundled(url): return .bundled(path: url.path)
+        }
+    }
 }
 
 /// Everything the app model needs from the device, injectable for tests. [FR-C-1]
@@ -64,7 +75,7 @@ public struct AppEnvironment {
                               device: device, replicaId: replicaId())
     }
 
-    /// The data source `bundle`'s Info.plist names: `none`, or `bundled` (its
+    /// The data source `bundle`'s Info.plist names: `sample`, `none`, or `bundled` (its
     /// `<release>.mgdemo`, which must be there: `ClientError.NotFound` otherwise). Any
     /// other value, or none, is `Failure.misconfigured`.
     public static func dataSourceChoice(in bundle: Bundle) throws -> DataSourceChoice {
@@ -73,6 +84,8 @@ public struct AppEnvironment {
         switch bundle.infoDictionary?[dataSourceKey] as? String {
         case "none"?:
             return .none
+        case "sample"?:
+            return .sample
         case "bundled"?:
             guard let url = StorePaths.bundledDataset(in: bundle) else {
                 throw ClientError.NotFound(what: "bundled dataset")

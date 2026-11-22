@@ -7,10 +7,12 @@
 //! all of them are sealed, and this crate opens them only in the core. The one file
 //! this crate reads itself is the bundled dataset, verified under the anchors
 //! compiled into the core (`DemoEnclosure::open_pinned`), and only when
-//! [`ClientConfig::dataset_path`] names one. With no path the client runs with no
-//! data source (`LocalSource`, owner decision 19 Nov 2026): one `local` persona,
-//! every collection empty, every action refused. A path that does not open or verify
-//! is an error, never a fallback to that mode. `[FR-C-5]`
+//! [`ClientConfig::source`] is [`SourceChoice::Bundled`]. [`SourceChoice::Sample`]
+//! runs on the release's own sample data compiled into the core (`SampleSource`,
+//! owner decision 22 Nov 2026), and [`SourceChoice::None`] with no data source
+//! (`LocalSource`, owner decision 19 Nov 2026): one `local` persona, every collection
+//! empty, every action refused. A path that does not open or verify is an error,
+//! never a fallback to another mode. `[FR-C-5]`
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -20,6 +22,7 @@ use midgard_client_core::keystore::sealed_root::SealedRootKeystore;
 use midgard_client_core::keystore::Keystore;
 use midgard_client_core::local_source::LocalSource;
 use midgard_client_core::marking::RowMarking;
+use midgard_client_core::sample_source::SampleSource;
 use midgard_client_core::session::{self, Session};
 use midgard_client_core::source::{
     DataSource, Delivered, Grant, Persona, Seal, SourceError, VerifiedDigest,
@@ -39,12 +42,25 @@ use crate::{ClientError, KeyValue};
 /// the sealed blob.
 const ROOT_KEY_ID: &str = "device-root";
 
+/// What the client runs on: the shell's Info.plist `MidgardDataSource`. `[FR-C-5]`
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum SourceChoice {
+    /// No data source (`none`): one `local` persona, every collection empty.
+    None,
+    /// The signed release's own sample data, compiled into the core (`sample`).
+    Sample,
+    /// The bundled, signed demo dataset at `path` (`bundled`).
+    Bundled {
+        /// Path of the bundled `<release>.mgdemo`.
+        path: String,
+    },
+}
+
 /// How the shell configures the client.
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct ClientConfig {
-    /// Path of the bundled `<release>.mgdemo`, or `None` for no data source (the
-    /// shipped apps: `MidgardDataSource = none`). `[FR-C-5]`
-    pub dataset_path: Option<String>,
+    /// What the client runs on. `[FR-C-5]`
+    pub source: SourceChoice,
     /// Stable per install.
     pub replica_id: String,
     /// The device, for the inference tier.
@@ -59,6 +75,9 @@ pub enum DataSourceKind {
     None,
     /// The bundled, signed demo dataset (the demonstration banner).
     Demo,
+    /// The release's own sample data (the demonstration banner, as the web consoles
+    /// show it in mock mode).
+    Sample,
 }
 
 /// Device capability as the shell measures it.
@@ -279,11 +298,12 @@ pub struct SyncReport {
     pub chips: StatusChips,
 }
 
-/// What serves the session: the signed demo dataset, or no data at all. Delegates
-/// every call, the seal included, so the demo's in-core audit checks still reach the
-/// session. `[FR-C-5]` `[NFR-PQ-3]`
+/// What serves the session: the signed demo dataset, the release's sample data, or
+/// no data at all. Delegates every call, the seal included, so the demo's in-core
+/// audit checks still reach the session. `[FR-C-5]` `[NFR-PQ-3]`
 enum Source {
     Demo(Box<DemoEnclosure>),
+    Sample(Box<SampleSource>),
     Local(LocalSource),
 }
 
@@ -291,6 +311,7 @@ impl DataSource for Source {
     fn personas(&self) -> Vec<Persona> {
         match self {
             Source::Demo(s) => s.personas(),
+            Source::Sample(s) => s.personas(),
             Source::Local(s) => s.personas(),
         }
     }
@@ -298,6 +319,7 @@ impl DataSource for Source {
     fn collections(&self) -> Vec<(String, String)> {
         match self {
             Source::Demo(s) => s.collections(),
+            Source::Sample(s) => s.collections(),
             Source::Local(s) => s.collections(),
         }
     }
@@ -305,6 +327,7 @@ impl DataSource for Source {
     fn grant(&self, persona_id: &str) -> Result<Grant, SourceError> {
         match self {
             Source::Demo(s) => s.grant(persona_id),
+            Source::Sample(s) => s.grant(persona_id),
             Source::Local(s) => s.grant(persona_id),
         }
     }
@@ -312,6 +335,7 @@ impl DataSource for Source {
     fn fetch(&self, grant: &Grant, collection: &str) -> Result<Vec<Delivered>, SourceError> {
         match self {
             Source::Demo(s) => s.fetch(grant, collection),
+            Source::Sample(s) => s.fetch(grant, collection),
             Source::Local(s) => s.fetch(grant, collection),
         }
     }
@@ -319,6 +343,7 @@ impl DataSource for Source {
     fn exchange(&mut self, grant: &Grant, ops: &[Vec<u8>]) -> Result<Vec<Vec<u8>>, SourceError> {
         match self {
             Source::Demo(s) => s.exchange(grant, ops),
+            Source::Sample(s) => s.exchange(grant, ops),
             Source::Local(s) => s.exchange(grant, ops),
         }
     }
@@ -326,6 +351,7 @@ impl DataSource for Source {
     fn takes_actions(&self) -> bool {
         match self {
             Source::Demo(s) => s.takes_actions(),
+            Source::Sample(s) => s.takes_actions(),
             Source::Local(s) => s.takes_actions(),
         }
     }
@@ -333,6 +359,7 @@ impl DataSource for Source {
     fn online(&self) -> bool {
         match self {
             Source::Demo(s) => s.online(),
+            Source::Sample(s) => s.online(),
             Source::Local(s) => s.online(),
         }
     }
@@ -340,6 +367,7 @@ impl DataSource for Source {
     fn set_online(&mut self, online: bool) {
         match self {
             Source::Demo(s) => s.set_online(online),
+            Source::Sample(s) => s.set_online(online),
             Source::Local(s) => s.set_online(online),
         }
     }
@@ -353,6 +381,7 @@ impl DataSource for Source {
     ) -> Option<VerifiedDigest> {
         match self {
             Source::Demo(s) => s.in_core_verified(seal, grant, collection, id),
+            Source::Sample(s) => s.in_core_verified(seal, grant, collection, id),
             Source::Local(s) => s.in_core_verified(seal, grant, collection, id),
         }
     }
@@ -423,14 +452,17 @@ fn persona_info(p: &Persona) -> PersonaInfo {
     }
 }
 
-/// The configured source. No dataset path: a fresh [`LocalSource`], with no file
-/// read. A path: read and verify the bundled dataset against the anchors compiled
-/// into the core, failing closed (never falling back to [`LocalSource`]). A read
-/// error names the file only: the full path holds the app's container and the user
-/// name, and error text can reach the screen or a log. [FR-C-9] [FR-C-5]
+/// The configured source. None: a fresh [`LocalSource`], with no file read. Sample:
+/// a fresh [`SampleSource`] over the data compiled into the core, no file read
+/// either. Bundled: read and verify the dataset against the anchors compiled into
+/// the core, failing closed (never falling back to another source). A read error
+/// names the file only: the full path holds the app's container and the user name,
+/// and error text can reach the screen or a log. [FR-C-9] [FR-C-5]
 fn load_source(config: &ClientConfig) -> Result<Source, ClientError> {
-    let Some(path) = &config.dataset_path else {
-        return Ok(Source::Local(LocalSource::new()));
+    let path = match &config.source {
+        SourceChoice::None => return Ok(Source::Local(LocalSource::new())),
+        SourceChoice::Sample => return Ok(Source::Sample(Box::new(SampleSource::new()?))),
+        SourceChoice::Bundled { path } => path,
     };
     let file = std::fs::read(path).map_err(|e| {
         let name = std::path::Path::new(path).file_name().map_or_else(
@@ -521,8 +553,8 @@ impl MidgardClient {
 
 #[uniffi::export]
 impl MidgardClient {
-    /// Verify the bundled dataset against the pinned anchors (or, with no dataset
-    /// path, take no data source) and start locked.
+    /// Load the configured source (verifying a bundled dataset against the pinned
+    /// anchors) and start locked.
     #[uniffi::constructor]
     pub fn new(config: ClientConfig, key_root: Arc<dyn KeyRoot>) -> Result<Arc<Self>, ClientError> {
         let source = load_source(&config)?;
@@ -535,12 +567,13 @@ impl MidgardClient {
         }))
     }
 
-    /// What the client runs on: no data source, or the demo dataset. Fixed by the
-    /// configuration, whatever the state.
+    /// What the client runs on: no data source, the sample data or the demo dataset.
+    /// Fixed by the configuration, whatever the state.
     pub fn data_source_kind(&self) -> DataSourceKind {
-        match self.config.dataset_path {
-            None => DataSourceKind::None,
-            Some(_) => DataSourceKind::Demo,
+        match self.config.source {
+            SourceChoice::None => DataSourceKind::None,
+            SourceChoice::Sample => DataSourceKind::Sample,
+            SourceChoice::Bundled { .. } => DataSourceKind::Demo,
         }
     }
 
@@ -809,7 +842,8 @@ impl MidgardClient {
 
     /// "Reset demo": lock and reload the dataset, so the demo's own state (actions
     /// applied, audit rows appended) starts again; with no data source, lock with a
-    /// fresh `LocalSource` (no file is read). The shell deletes its files and its
+    /// fresh `LocalSource` (no file is read); with the sample data, a fresh
+    /// `SampleSource`. The shell deletes its files and its
     /// platform key itself.
     ///
     /// Also the way back from a client whose lock was poisoned by a panic: the
@@ -849,7 +883,9 @@ mod tests {
 
     fn config() -> ClientConfig {
         ClientConfig {
-            dataset_path: Some("unused".into()),
+            source: SourceChoice::Bundled {
+                path: "unused".into(),
+            },
             replica_id: "unit".into(),
             device: DeviceInfo {
                 ram_mb: 8192,
@@ -901,7 +937,7 @@ mod tests {
     fn local_client() -> MidgardClient {
         MidgardClient {
             config: ClientConfig {
-                dataset_path: None,
+                source: SourceChoice::None,
                 ..config()
             },
             key_root: Arc::new(Plain),
@@ -972,13 +1008,15 @@ mod tests {
             c.status_chips(),
             Err(ClientError::Internal { .. })
         ));
-        // reset_demo reloads the dataset from `dataset_path`: point it at a real one.
+        // reset_demo reloads the dataset from its path: point it at a real one.
         let mut c = Arc::try_unwrap(c).ok().unwrap();
-        c.config.dataset_path = Some(format!(
-            "{}/../demo/datasets/{}.mgdemo",
-            env!("CARGO_MANIFEST_DIR"),
-            midgard_client_core::CORE_VERSION
-        ));
+        c.config.source = SourceChoice::Bundled {
+            path: format!(
+                "{}/../demo/datasets/{}.mgdemo",
+                env!("CARGO_MANIFEST_DIR"),
+                midgard_client_core::CORE_VERSION
+            ),
+        };
         c.reset_demo().unwrap();
         assert!(!c.state.is_poisoned());
         assert!(c.is_locked());

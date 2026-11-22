@@ -118,7 +118,43 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.banner, .noSource)
     }
 
+    /// The shipped apps' mode (owner decision 22 Nov 2026): the release's own sample
+    /// data, under the web consoles' demonstration notice, with the mock personas and
+    /// Heimdall's authorise behaving as the web mock does.
+    func testWithTheSampleDataTheMockPersonasSeeTheWebPicture() async throws {
+        let model = await started(environment(dataSource: .sample))
+        XCTAssertEqual(model.phase, .needsEnrolment)
+        XCTAssertEqual(model.dataSourceKind, DataSourceKind.sample)
+        XCTAssertEqual(model.banner, .demo)
+        XCTAssertEqual(model.banner?.text,
+                       "Demonstration data. This console runs on built-in sample data and is not connected to an enclosure.")
+        XCTAssertEqual(model.personas.map(\.id), ["k.rao", "j.benjamin", "k.osei", "a.holt"])
+        XCTAssertEqual(model.collections.count, 52)
+
+        await model.enrol()
+        let osei = try XCTUnwrap(model.personas.first { $0.id == "k.osei" })
+        await model.signIn(osei)
+        let tracks = await model.rows("heimdall.tracks")
+        XCTAssertEqual(tracks.count, 5)
+        XCTAssertTrue(tracks.allSatisfy { !$0.withheld })
+        _ = await model.rows("heimdall.workflows")
+        let id = await model.requestAction(ActionInput(verb: "heimdall.authoriseWorkflow", target: "heimdall.workflows/W-0912",
+                                                       params: [KeyValue(key: "humanGateToken", value: "HG-test")]))
+        XCTAssertNotNil(id)
+        await model.syncNow()
+        let status = await model.actionStatus(try XCTUnwrap(id))
+        XCTAssertEqual(status?.state, .applied)
+        XCTAssertEqual(status?.auditId, "D-4473")
+
+        // A lower clearance sees the OPS-N tracks withheld, by level only.
+        let rao = try XCTUnwrap(model.personas.first { $0.id == "k.rao" })
+        await model.switchPersona(rao)
+        let lower = await model.rows("heimdall.tracks")
+        XCTAssertEqual(lower.filter(\.withheld).count, 4)
+    }
+
     func testTheDataSourceIsReadFromTheInfoPlist() throws {
+        XCTAssertEqual(try AppEnvironment.dataSourceChoice(in: try fakeBundle(["MidgardDataSource": "sample"])), DataSourceChoice.sample)
         XCTAssertEqual(try AppEnvironment.dataSourceChoice(in: try fakeBundle(["MidgardDataSource": "none"])), DataSourceChoice.none)
         let withDataset = try fakeBundle(["MidgardDataSource": "bundled"], dataset: true)
         guard case let .bundled(url) = try AppEnvironment.dataSourceChoice(in: withDataset) else {
