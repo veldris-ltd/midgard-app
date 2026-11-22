@@ -1,0 +1,29 @@
+/* The 2D geographic map's track markers. The panels, lists and notices are the
+ * globe's (globe.css). [FR-H-1] */
+.hg-map-markers { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.hg-map-marker {
+  position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none;
+}
+.hg-map-marker .dot {
+  position: absolute; left: 0; top: 0; width: 12px; height: 12px; border-radius: 50%;
+  background: var(--accent); cursor: pointer; pointer-events: auto;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--bg-sunken) 70%, transparent);
+}
+.hg-map-marker[data-layer='maritime'] .dot { border-radius: 2px; }
+.hg-map-marker[data-layer='ground'] .dot { border-radius: 1px; width: 10px; height: 10px; }
+.hg-map-marker[data-tone='warn'] .dot { background: var(--warn); }
+.hg-map-marker[data-selected='true'] .dot {
+  box-shadow: 0 0 0 4px var(--accent-tint), 0 0 0 5px var(--accent);
+}
+.hg-map-marker[data-selected='true'][data-tone='warn'] .dot { box-shadow: 0 0 0 4px var(--warn-tint), 0 0 0 5px var(--warn); }
+.hg-map-marker .vec {
+  position: absolute; left: -1px; top: -28px; width: 2px; height: 22px; transform-origin: 1px 28px;
+  background: linear-gradient(to top, var(--accent), transparent); pointer-events: none;
+}
+.hg-map-marker[data-tone='warn'] .vec { background: linear-gradient(to top, var(--warn), transparent); }
+.hg-map-marker .label {
+  position: absolute; left: 0; top: 10px; transform: translateX(-50%); white-space: nowrap; pointer-events: none;
+  font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.08em; color: var(--text-muted);
+  text-shadow: 0 0 3px var(--bg-sunken), 0 0 2px var(--bg-sunken);
+}
+.hg-map-marker[data-selected='true'] .label { color: var(--text-heading); }

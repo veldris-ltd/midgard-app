@@ -22,9 +22,12 @@ import '../app/picture.css';
 /* The 3D globe, with three.js and the bundled outlines, is its own chunk, fetched
  * from the console's own files only when 3D is opened. [FR-H-1] */
 const GlobeView = React.lazy(() => import('../globe/GlobeView'));
+/* The 2D geographic map, likewise its own chunk, and only in a build with the map
+ * tiles switch on. [FR-H-1] */
+const MapView = __HEIMDALL_TILES__ ? React.lazy(() => import('../map/MapView')) : null;
 
 /** If the globe's chunk cannot load, say so; the 2D view is unaffected. */
-class GlobeBoundary extends React.Component<{ children: React.ReactNode }, { failed: boolean }> {
+class GlobeBoundary extends React.Component<{ children: React.ReactNode; what?: string }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError() {
     return { failed: true };
@@ -33,7 +36,7 @@ class GlobeBoundary extends React.Component<{ children: React.ReactNode }, { fai
     if (!this.state.failed) return this.props.children;
     return (
       <div role="status" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-mono)', fontSize: 12, letterSpacing: '0.14em', color: 'var(--warn)' }}>
-        3D VIEW UNAVAILABLE · RELOAD TO RETRY · THE 2D VIEW STILL WORKS
+        {this.props.what ?? '3D VIEW'} UNAVAILABLE · RELOAD TO RETRY · THE 2D VIEW STILL WORKS
       </div>
     );
   }
@@ -193,7 +196,15 @@ export function OperatingPictureScreen() {
       }
       aside={aside}
     >
-      {view === '3d' ? (
+      {view === 'map' && MapView ? (
+        <GlobeBoundary what="MAP VIEW">
+          <React.Suspense
+            fallback={<div role="status" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.14em', color: 'var(--text-faint)' }}>LOADING MAP VIEW…</div>}
+          >
+            <MapView tracks={tracks} layerOn={layerOn} selectedId={sel} onSelect={select} />
+          </React.Suspense>
+        </GlobeBoundary>
+      ) : view === '3d' ? (
         <GlobeBoundary>
           <React.Suspense
             fallback={<div role="status" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.14em', color: 'var(--text-faint)' }}>LOADING 3D VIEW…</div>}
@@ -313,7 +324,7 @@ export function OperatingPictureScreen() {
         <StatBlock value="1,204" label="TRACKED ENTITIES" size="sm" />
         <StatBlock value="0.4s" label="FUSION LATENCY" size="sm" />
         <StatBlock value="1" label="ANOMALIES" size="sm" accent />
-        <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em', color: 'var(--text-faint)', whiteSpace: 'nowrap' }}>{view === '3d' ? 'SYNTHETIC PICTURE · REFERENCE LAYOUT · NOT REAL POSITIONS' : 'SYNTHETIC PICTURE · REFERENCE LAYOUT ONLY'}</span>
+        <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em', color: 'var(--text-faint)', whiteSpace: 'nowrap' }}>{view !== '2d' ? 'SYNTHETIC PICTURE · REFERENCE LAYOUT · NOT REAL POSITIONS' : 'SYNTHETIC PICTURE · REFERENCE LAYOUT ONLY'}</span>
       </div>
     </ConsolePage>
   );

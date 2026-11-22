@@ -9,7 +9,7 @@ for.
 |---|---|---|---|
 | `terrarium-6-31-19.png` | Mapzen Terrain Tiles on AWS Open Data, terrarium encoding, tile 6/31/19 (the Scottish Highlands) | Open data with attribution (see below) | `dd83aaef7c65edb4a7cf5f99f19af3bff4ef2e9d4d3041a7e0e179e4cfcc44a8` |
 | `s2cloudless-2016-6-31-19.jpg` | EOX Sentinel-2 cloudless 2016 (`s2cloudless_3857`), tile 6/31/19 | CC BY 4.0 | `4d3d85f748ef72e6223e878220f8cb834c45749835d99354791518eea49768dc` |
-| `versatiles-osm-8-125-78.mvt` | VersaTiles OSM vector tiles (Shortbread 1.1), tile 8/125/78 (central Scotland) | ODbL 1.0 (OpenStreetMap data) | `a0678e4749e36838c5b5d9b303d9d95d22ab3cd689606dfd840f3296d809cf9f` |
+| `versatiles-osm-8-125-78.mvt` | VersaTiles OSM vector tiles (Shortbread 1.1), tile 8/125/78 (Tayside and the Cairngorms) | ODbL 1.0 (OpenStreetMap data) | `a0678e4749e36838c5b5d9b303d9d95d22ab3cd689606dfd840f3296d809cf9f` |
 
 ## Credits
 

@@ -1,15 +1,19 @@
 import * as React from 'react';
 
-/* The operating picture's 2D/3D switch, remembered per browser. 2D is the default;
- * the globe is opt-in. [FR-H-1] */
+/* The operating picture's view switch, remembered per browser: 2D (the reference
+ * layout, the default), MAP (the tracks on a real map) and 3D (the globe). MAP exists
+ * only in a build with the map tiles switch on. [FR-H-1] */
 
-export type PictureView = '2d' | '3d';
+export type PictureView = '2d' | 'map' | '3d';
 
 const KEY = 'mg-heimdall-view';
 
+export const PICTURE_VIEWS: readonly PictureView[] = __HEIMDALL_TILES__ ? ['2d', 'map', '3d'] : ['2d', '3d'];
+
 function stored(): PictureView {
   try {
-    return localStorage.getItem(KEY) === '3d' ? '3d' : '2d';
+    const v = localStorage.getItem(KEY);
+    return (PICTURE_VIEWS as readonly string[]).includes(v ?? '') ? (v as PictureView) : '2d';
   } catch {
     return '2d';
   }
@@ -31,7 +35,7 @@ export function usePictureView(): [PictureView, (v: PictureView) => void] {
 export function ViewSwitch({ view, onChange }: { view: PictureView; onChange: (v: PictureView) => void }) {
   return (
     <div role="group" aria-label="Picture view" className="hg-view-switch">
-      {(['2d', '3d'] as const).map((v) => (
+      {PICTURE_VIEWS.map((v) => (
         <button key={v} type="button" aria-pressed={view === v} onClick={() => onChange(v)}>
           {v.toUpperCase()}
         </button>
