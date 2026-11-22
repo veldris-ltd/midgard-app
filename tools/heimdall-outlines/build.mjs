@@ -5,7 +5,7 @@
 //   node tools/heimdall-outlines/build.mjs --from DIR   # uses files already in DIR
 //
 // Natural Earth (naturalearthdata.com) is public domain. The GeoJSON comes from the
-// project's own repository at a fixed tag, and each file must match the SHA-256
+// project's own repository at the commit of a fixed tag, and each file must match the SHA-256
 // pinned below, or nothing is written. The output is deterministic: the same inputs
 // always give byte-identical files, so a rerun on a clean tree shows no diff.
 //
@@ -24,7 +24,8 @@ import { fileURLToPath } from 'node:url';
 
 const VERSION = 'v5.1.2';
 const COMMIT = 'f1890d9f152c896d250a77557a5751a93d494776';
-const BASE = `https://raw.githubusercontent.com/nvkelso/natural-earth-vector/${VERSION}/geojson`;
+// Fetched by the commit the tag names, so a moved tag cannot change what is read.
+const BASE = `https://raw.githubusercontent.com/nvkelso/natural-earth-vector/${COMMIT}/geojson`;
 const SOURCES = {
   ne_110m_coastline: '851f581ff5ffb844deed8ae1a9ce22e3c4bb3d74fa342cadb5d8e39b41ae7c3c',
   ne_110m_admin_0_boundary_lines_land: 'd42479fd79552cca4eec7f85fcdca717a790d29ff06be7676f1af0568c6d3f7c',
@@ -113,7 +114,11 @@ function source(names) {
 async function main() {
   const args = process.argv.slice(2);
   const i = args.indexOf('--from');
-  let from = i >= 0 ? args[i + 1] : null;
+  let from = null;
+  if (i >= 0) {
+    from = args[i + 1];
+    if (!from || from.startsWith('--')) throw new Error('--from needs a directory');
+  }
   let tmp = null;
   if (!from) {
     tmp = mkdtempSync(join(tmpdir(), 'ne-'));
