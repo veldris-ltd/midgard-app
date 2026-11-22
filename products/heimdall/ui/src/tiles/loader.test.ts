@@ -577,3 +577,16 @@ test('a retry time that passes while paused still probes once resumed', async ()
   assert.equal(l.state, 'online');
   l.destroy();
 });
+
+test('a byte budget on decoded tiles: past it the oldest go, whatever the entry count', async () => {
+  const net = recorded();
+  const gone: string[] = [];
+  const l = new TileLoader({ tiles: TILES, fetch: net.fetch, cacheEntries: 100, cacheBytes: 100_000, weigh: (v) => (v as { n: number }).n });
+  for (const u of [TERRAIN, IMAGERY, VECTOR]) {
+    l.request(u, 0, async () => ({ u, n: 40_000 }), (v) => gone.push(v.u));
+    await settle();
+    await settle();
+  }
+  assert.deepEqual(gone, [TERRAIN]);
+  assert.equal(l.status(VECTOR), 'ready');
+});

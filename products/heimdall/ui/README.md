@@ -125,7 +125,8 @@ the console adds them to the globe and a second 2D mode, **MAP**.
   globe's REGION presets and track list work the same way; arrow keys pan and `+`/`-`
   zoom the focused map; zoom 3 to 16. At most 96 tiles are asked for at once, nearest
   the centre first, and the tiles on screen are never evicted, so a very large screen
-  does not keep refetching.
+  does not keep refetching. Decoded tiles are kept to 192 and to 64 MB, whichever
+  comes first (tiles on screen excepted).
 - **ⓘ CREDITS**, in the side panel of the globe and the map, lists every source in
   use with its licence and attribution. `NOTICE` records them all.
 - **Paused after track moves (`public` only)**: a public tile request names the area in
@@ -158,10 +159,13 @@ is a network failure). Tiles are untrusted input, so:
 - **Dimensions.** A raster tile's PNG or JPEG header must say exactly 256 × 256 (or
   512 × 512 for terrain) before it is decoded, and the decoded bitmap is checked again
   before its pixels are read or it becomes a texture.
-- **Complexity.** A vector tile may have at most 50,000 features in a layer, 100,000
-  in all and 1,000,000 points, counted from the encoded commands before any geometry
-  is built (a repeated ClosePath can claim millions of points in a few bytes);
-  otherwise it is refused as too complex.
+- **Complexity.** A vector tile's geometry is validated before any is built: a
+  command integer of 2^31 or more, a ClosePath count other than 1, or more MoveTo or
+  LineTo repeats than parameters left is refused as malformed (a few bytes could
+  otherwise claim hundreds of millions of points). Its points are then counted exactly
+  as they will be built: at most 50,000 features in a layer, 100,000 in all and
+  1,000,000 points, or it is refused as too complex. At most 500 labels are kept from a
+  tile, and at most 400 label candidates are measured a frame.
 - **Worker.** Decoding runs in a same-origin module worker (`src/tiles/decodeWorker.ts`,
   its own file in `dist/`, never a `blob:` URL), about 2 s per tile; a worker that runs
   over is terminated and replaced, and the tile is retried after 30 s.

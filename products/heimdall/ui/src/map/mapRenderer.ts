@@ -21,7 +21,7 @@ import { TILES } from '../tiles/active.ts';
 import { type DecodePool, browserDecodePool } from '../tiles/decodePool.ts';
 import { type LoaderState, TileLoader } from '../tiles/loader.ts';
 import { type Tile, lonToTileX, latToTileY, parent } from '../tiles/tileMath.ts';
-import { type FillClass, type LineClass, type MapTileData, FILL_CLASSES, LINE_CLASSES } from './features.ts';
+import { type FillClass, type LineClass, type MapTileData, FILL_CLASSES, LINE_CLASSES, labelCandidates } from './features.ts';
 import { type MapCamera, clampMapCamera, nearestCopyX, panMap, project, visibleTiles, worldWidthPx, zoomMapAt } from './mapCamera.ts';
 
 const VECTOR_MAX_ZOOM = TILES.sources.vector.maxZoom;
@@ -29,6 +29,8 @@ const VECTOR_MAX_ZOOM = TILES.sources.vector.maxZoom;
 export const MAX_REQUESTED_TILES = 96;
 /** Decoded tiles kept: above the requested tiles and their stand-ins. */
 const CACHE_ENTRIES = 192;
+/** And at most this many bytes of them (tiles on screen excepted). */
+export const CACHE_BYTES = 64 * 1024 * 1024;
 /** How many zooms up a loading tile looks for a stand-in. */
 const ANCESTOR_LEVELS = 5;
 
@@ -204,6 +206,8 @@ export class MapRenderer {
       fetch: (url, init) => fetch(url, init),
       tiles: TILES,
       cacheEntries: CACHE_ENTRIES,
+      cacheBytes: CACHE_BYTES,
+      weigh: (d) => (d as MapTileData).bytes ?? 0,
       online: () => navigator.onLine !== false,
       onChange: () => {
         if (this.loader.state !== this.lastState) {
@@ -460,11 +464,10 @@ export class MapRenderer {
     g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    const all = tiles.flatMap((t) => t.data.labels.map((l) => ({ l, x: t.left + (l.x / t.data.extent) * t.size, y: t.top + (l.y / t.data.extent) * t.size })));
-    all.sort((a, b) => a.l.rank - b.l.rank || b.l.population - a.l.population);
+    // Only the best few hundred near the view are measured, however many tiles show.
+    const all = labelCandidates(tiles, this.width, this.height);
     const placed: { x0: number; y0: number; x1: number; y1: number }[] = [];
     for (const { l, x, y } of all) {
-      if (x < -50 || y < -20 || x > this.width + 50 || y > this.height + 20) continue;
       const size = l.rank === 0 ? 11 : l.rank === 1 ? 10 : 9;
       g.font = `${l.rank === 0 ? 600 : 400} ${size}px ${c.font}`;
       const text = l.rank === 0 ? l.text.toUpperCase() : l.text;

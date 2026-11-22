@@ -63,3 +63,28 @@ test('delete and clear dispose what they remove', () => {
   assert.deepEqual(evicted, ['b', 'a', 'c']);
   assert.equal(c.size, 0);
 });
+
+test('a weight budget: evicts oldest first until the total fits, protected entries kept', () => {
+  const evicted: string[] = [];
+  const c = new LruCache<number>(100, (k) => evicted.push(k), { maxWeight: 10, weigh: (v) => v });
+  c.set('a', 4);
+  c.set('b', 4);
+  assert.equal(c.weight, 8);
+  c.set('c', 4);
+  assert.deepEqual(evicted, ['a']);
+  assert.equal(c.weight, 8);
+  c.protect = (k) => k === 'b';
+  c.set('d', 9);
+  // b is in use, so only c goes; the cache runs over until b is released.
+  assert.deepEqual(evicted, ['a', 'c']);
+  assert.equal(c.weight, 13);
+  c.protect = () => false;
+  c.trim();
+  assert.deepEqual(evicted, ['a', 'c', 'b']);
+  assert.equal(c.weight, 9);
+  // Replacing and deleting keep the total right.
+  c.set('d', 2);
+  assert.equal(c.weight, 2);
+  c.delete('d');
+  assert.equal(c.weight, 0);
+});

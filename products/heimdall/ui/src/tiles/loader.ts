@@ -48,6 +48,10 @@ export interface LoaderOptions {
   maxInFlight?: number;
   /** Decoded tiles kept. */
   cacheEntries?: number;
+  /** The most bytes of decoded tiles kept, by `weigh` (default: no byte limit). */
+  cacheBytes?: number;
+  /** A decoded tile's size in bytes, for `cacheBytes`. */
+  weigh?: (value: unknown) => number;
   /** Network failures in a row that mean offline. */
   offlineAfter?: number;
   /** How long a failed tile, or the offline state, waits before a retry. */
@@ -85,7 +89,7 @@ const TILE_FETCH_INIT: Readonly<RequestInit> = {
 
 export class TileLoader {
   readonly stats = { fetched: 0, cancelled: 0, failed: 0, oversize: 0 };
-  private readonly opts: Required<Omit<LoaderOptions, 'onChange' | 'online'>> & Pick<LoaderOptions, 'onChange' | 'online'>;
+  private readonly opts: Required<Omit<LoaderOptions, 'onChange' | 'online' | 'cacheBytes' | 'weigh'>> & Pick<LoaderOptions, 'onChange' | 'online' | 'cacheBytes' | 'weigh'>;
   private paused = false;
   private readonly cache: LruCache<Cached>;
   private readonly pending = new Map<string, Pending>();
@@ -108,7 +112,11 @@ export class TileLoader {
       now: () => Date.now(),
       ...o,
     };
-    this.cache = new LruCache<Cached>(this.opts.cacheEntries, (_k, c) => c.dispose?.(c.value as never));
+    const weigh = o.weigh;
+    this.cache = new LruCache<Cached>(this.opts.cacheEntries, (_k, c) => c.dispose?.(c.value as never), {
+      maxWeight: o.cacheBytes,
+      weigh: weigh ? (c) => (c.value === null ? 0 : weigh(c.value)) : undefined,
+    });
   }
 
   get state(): LoaderState {

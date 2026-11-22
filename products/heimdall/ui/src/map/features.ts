@@ -27,7 +27,14 @@ export interface MapTileData {
   /** Lines, each a flat [x0, y0, x1, y1, …]. */
   lines: Record<LineClass, number[][]>;
   labels: MapLabel[];
+  /** About how many bytes this holds, for the map's cache budget. */
+  bytes: number;
 }
+
+/** The most place labels kept from one tile, highest ranked first. */
+export const MAX_TILE_LABELS = 500;
+/** The most label candidates measured for placement in one frame. */
+export const MAX_LABEL_CANDIDATES = 400;
 
 /** The decoded tile, as `@mapbox/vector-tile` gives it. */
 export interface VectorTileLike {
@@ -118,5 +125,42 @@ export function extractFeatures(tile: VectorTileLike, z: number): MapTileData {
     }
   }
   labels.sort((a, b) => a.rank - b.rank || b.population - a.population);
-  return { extent, fills, lines, labels };
+  if (labels.length > MAX_TILE_LABELS) labels.length = MAX_TILE_LABELS;
+  // Numbers at 8 bytes, plus a little per array and per label.
+  let bytes = 0;
+  for (const c of FILL_CLASSES) for (const poly of fills[c]) for (const ring of poly) bytes += 8 * ring.length + 32;
+  for (const c of LINE_CLASSES) for (const l of lines[c]) bytes += 8 * l.length + 32;
+  for (const l of labels) bytes += 64 + 2 * l.text.length;
+  return { extent, fills, lines, labels, bytes };
+}
+
+export interface PlacedLabel {
+  l: MapLabel;
+  x: number;
+  y: number;
+}
+
+/**
+ * The labels worth measuring this frame: those near the viewport from the tiles drawn,
+ * best ranked first, at most `max` of them, so a screen of crowded tiles never measures
+ * thousands of strings a frame. Positions in CSS pixels. Pure.
+ */
+export function labelCandidates(
+  tiles: readonly { data: MapTileData; left: number; top: number; size: number }[],
+  width: number,
+  height: number,
+  max = MAX_LABEL_CANDIDATES,
+): PlacedLabel[] {
+  const all: PlacedLabel[] = [];
+  for (const t of tiles) {
+    for (const l of t.data.labels) {
+      const x = t.left + (l.x / t.data.extent) * t.size;
+      const y = t.top + (l.y / t.data.extent) * t.size;
+      if (x < -50 || y < -20 || x > width + 50 || y > height + 20) continue;
+      all.push({ l, x, y });
+    }
+  }
+  all.sort((a, b) => a.l.rank - b.l.rank || b.l.population - a.l.population);
+  if (all.length > max) all.length = max;
+  return all;
 }

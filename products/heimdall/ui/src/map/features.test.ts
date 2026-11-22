@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { VectorTile } from '@mapbox/vector-tile';
 import { PbfReader } from 'pbf';
 
-import { classifyFill, classifyLine, extractFeatures, placeRank } from './features.ts';
+import { MAX_LABEL_CANDIDATES, MAX_TILE_LABELS, classifyFill, classifyLine, extractFeatures, labelCandidates, placeRank } from './features.ts';
 
 const tile = () => new VectorTile(new PbfReader(readFileSync(new URL('../../fixtures/tiles/versatiles-osm-8-125-78.mvt', import.meta.url))));
 
@@ -64,4 +64,42 @@ test('the recorded tile over Tayside: rivers and lochs, roads, rail and towns', 
   assert.deepEqual(d.labels.slice(0, 2).map((l) => l.text), ['Forfar', 'Blairgowrie and Rattray']);
   assert.ok(!d.labels.some((l) => ['Dundee', 'Perth', 'Inverness', 'Montrose'].includes(l.text)));
   assert.ok(d.labels.some((l) => l.text === 'Pitlochry'));
+});
+
+// --- totals: labels per tile, label candidates per frame, bytes per tile ----------
+
+/** A tile whose only layer is `n` towns. */
+function townsTile(n: number) {
+  return {
+    layers: {
+      place_labels: {
+        length: n,
+        extent: 4096,
+        feature: (i: number) => ({ type: 1, properties: { kind: 'town', name: `T${i}`, population: i }, loadGeometry: () => [[{ x: i % 4096, y: (i * 7) % 4096 }]] }),
+      },
+    },
+  };
+}
+
+test('at most 500 labels are kept from one tile, the most important first', () => {
+  const d = extractFeatures(townsTile(5000), 10);
+  assert.equal(MAX_TILE_LABELS, 500);
+  assert.equal(d.labels.length, 500);
+  assert.equal(d.labels[0].population, 4999);
+});
+
+test('at most 400 label candidates are measured a frame, however many tiles show', () => {
+  const data = extractFeatures(townsTile(5000), 10);
+  const tiles = Array.from({ length: 20 }, (_, i) => ({ data, left: (i % 5) * 256, top: Math.floor(i / 5) * 256, size: 256 }));
+  const c = labelCandidates(tiles, 1280, 1024);
+  assert.equal(MAX_LABEL_CANDIDATES, 400);
+  assert.equal(c.length, 400);
+  assert.ok(c.every((p) => p.x >= -50 && p.y >= -20 && p.x <= 1330 && p.y <= 1044));
+  assert.equal(labelCandidates(tiles, 1280, 1024, 10).length, 10);
+});
+
+test('each decoded tile carries its size in bytes, for the map\'s 64 MB cache budget', () => {
+  const d = extractFeatures(tile(), 8);
+  assert.ok(d.bytes > 100_000 && d.bytes < 2_000_000, String(d.bytes));
+  assert.ok(extractFeatures(townsTile(10), 10).bytes < d.bytes);
 });
