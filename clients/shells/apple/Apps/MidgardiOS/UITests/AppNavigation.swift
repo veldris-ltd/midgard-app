@@ -56,7 +56,7 @@ enum AppNavigation {
         // view: its screen, then the list).
         let list = app.navigationBars[name]
         for _ in 0..<3 where !list.waitForExistence(timeout: 3) {
-            let back = app.navigationBars.buttons.element(boundBy: 0)
+            let back = app.navigationBars.buttons["BackButton"]
             if back.exists { back.tap() }
         }
         XCTAssertTrue(list.waitForExistence(timeout: timeout), "\(name)'s screen list did not appear",
@@ -88,13 +88,18 @@ enum AppNavigation {
                       "the 3D view did not open")
     }
 
-    /// Taps a screen row where it shows. At accessibility text sizes a row's centre can be
-    /// under the console bar, where a tap lands on the bar although XCUITest calls the row
-    /// hittable; so the tap goes to the middle of the row's visible part when one shows.
+    /// Taps a screen row where it shows. At accessibility text sizes, and more so under
+    /// an edition banner, only a strip of the list shows between the navigation bar and
+    /// the console bar: the list is swiped up until the row exists (at most four times),
+    /// and the tap goes to the middle of the row's visible part, because a tap on its
+    /// centre can land on the console bar although XCUITest calls the row hittable.
     static func tapClearOfConsoleBar(_ app: XCUIApplication, _ row: XCUIElement) {
+        for _ in 0..<4 where !row.waitForExistence(timeout: 2) {
+            app.scrollViews.firstMatch.swipeUp()
+        }
         let bar = app.buttons["mg.console.tab.midgard"]
         let nav = app.navigationBars.firstMatch
-        guard row.waitForExistence(timeout: timeout), bar.exists else { return row.tap() }
+        guard row.exists, bar.exists else { return row.tap() }
         let top = max(row.frame.minY, nav.exists ? nav.frame.maxY : 0)
         let bottom = min(row.frame.maxY, bar.frame.minY)
         guard bottom - top >= 8 else { return row.tap() }
