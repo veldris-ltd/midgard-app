@@ -17,7 +17,7 @@ import { tileUrl, TILE_SOURCES } from '../tiles/hosts.ts';
 import { type LoaderState, TileLoader } from '../tiles/loader.ts';
 import { type Tile, lonToTileX, latToTileY, parent } from '../tiles/tileMath.ts';
 import { type FillClass, type LineClass, type MapTileData, FILL_CLASSES, LINE_CLASSES, extractFeatures } from './features.ts';
-import { type MapCamera, clampMapCamera, panMap, project, visibleTiles, zoomMapAt } from './mapCamera.ts';
+import { type MapCamera, clampMapCamera, nearestCopyX, panMap, project, visibleTiles, worldWidthPx, zoomMapAt } from './mapCamera.ts';
 
 const VECTOR_MAX_ZOOM = TILE_SOURCES.vector.maxZoom;
 /** How many zooms up a loading tile looks for a stand-in. */
@@ -162,6 +162,7 @@ export class MapRenderer {
   private pinch: number | null = null;
   private settleTimer = 0;
   private lastState: LoaderState = 'online';
+  private tooltip: HTMLElement | null = null;
   private disposed = false;
 
   private readonly host: HTMLElement;
@@ -246,7 +247,7 @@ export class MapRenderer {
   }
 
   /** Where a position is on the map, in CSS pixels from the canvas's corner. */
-  project(lat: number, lon: number): { x: number; y: number } {
+  private project(lat: number, lon: number): { x: number; y: number } {
     return project(lat, lon, this.cam, this.width, this.height);
   }
 
@@ -336,12 +337,17 @@ export class MapRenderer {
     const cx = lonToTileX(this.cam.lon, 0) * 256;
     const cy = latToTileY(this.cam.lat, 0) * 256;
     if (this.landPath) {
-      g.setTransform(dpr * s, 0, 0, dpr * s, dpr * (w / 2 - cx * s), dpr * (h / 2 - cy * s));
-      g.fillStyle = c.land;
-      g.fill(this.landPath);
-      g.strokeStyle = c.coast;
-      g.lineWidth = 0.8 / s;
-      g.stroke(this.landPath);
+      // Each copy of the world the viewport reaches, so the land wraps at the antimeridian.
+      const world = worldWidthPx(this.cam.zoom);
+      const x0 = w / 2 - cx * s;
+      for (let k = Math.floor(-x0 / world); x0 + k * world < w; k++) {
+        g.setTransform(dpr * s, 0, 0, dpr * s, dpr * (x0 + k * world), dpr * (h / 2 - cy * s));
+        g.fillStyle = c.land;
+        g.fill(this.landPath);
+        g.strokeStyle = c.coast;
+        g.lineWidth = 0.8 / s;
+        g.stroke(this.landPath);
+      }
     }
 
     const view = visibleTiles(this.cam, w, h, VECTOR_MAX_ZOOM);
@@ -446,17 +452,38 @@ export class MapRenderer {
     }
   }
 
-  /** Puts each of the view's marker elements (data-lat, data-lon) on its position. */
+  /** The hover tooltip's anchor (data-lat, data-lon), kept beside its track as the map moves. */
+  setTooltip(el: HTMLElement | null): void {
+    this.tooltip = el;
+    this.requestRender();
+  }
+
+  /** Puts each of the view's marker elements (data-lat, data-lon), and the tooltip, on
+   *  its position, at the copy of the world nearest the viewport. */
   private placeMarkers(): void {
     for (const el of Array.from(this.markerLayer.children) as HTMLElement[]) {
-      const lat = Number(el.dataset.lat);
-      const lon = Number(el.dataset.lon);
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
-      const p = this.project(lat, lon);
+      const p = this.place(el);
+      if (!p) continue;
       const off = p.x < -40 || p.y < -40 || p.x > this.width + 40 || p.y > this.height + 40;
       el.style.visibility = off ? 'hidden' : '';
       el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px)`;
     }
+    const t = this.tooltip;
+    const p = t ? this.place(t) : null;
+    if (t && p) {
+      t.style.display = p.x < 0 || p.y < 0 || p.x > this.width || p.y > this.height ? 'none' : '';
+      t.style.left = `${Math.round(Math.min(this.width - 110, Math.max(110, p.x)))}px`;
+      t.style.top = `${Math.round(p.y)}px`;
+      t.style.transform = p.y < 150 ? 'translate(-50%, 22px)' : 'translate(-50%, calc(-100% - 18px))';
+    }
+  }
+
+  private place(el: HTMLElement): { x: number; y: number } | null {
+    const lat = Number(el.dataset.lat);
+    const lon = Number(el.dataset.lon);
+    if (!el.dataset.lat || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    const p = this.project(lat, lon);
+    return { x: nearestCopyX(p.x, this.width, this.cam.zoom), y: p.y };
   }
 
   // --- input ----------------------------------------------------------------------

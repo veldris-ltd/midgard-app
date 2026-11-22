@@ -10,6 +10,7 @@ import {
   panMap,
   project,
   unproject,
+  nearestCopyX,
   visibleTiles,
   zoomForAltitude,
   zoomMapAt,
@@ -88,4 +89,25 @@ test('a globe camera altitude becomes a map zoom showing the same span', () => {
   const far = zoomForAltitude(2000, 56, 800);
   assert.ok(near > far);
   close(near - zoomForAltitude(100, 56, 800), 1, 1e-9);
+});
+
+test('across the antimeridian the tiles wrap round the world', () => {
+  const c = { lat: -17, lon: 179.5, zoom: 5 };
+  const v = visibleTiles(c, W, H, 14);
+  const xs = new Set(v.tiles.map((t) => t.tile.x));
+  assert.ok(xs.has(31) && xs.has(0), [...xs].join(','));
+  assert.ok(v.tiles.every((t) => t.tile.x >= 0 && t.tile.x < 32));
+  // Tile 0 is drawn east of tile 31, not a world away.
+  const t31 = v.tiles.find((t) => t.tile.x === 31 && t.tile.y === v.tiles[0].tile.y)!;
+  const t0 = v.tiles.find((t) => t.tile.x === 0 && t.tile.y === v.tiles[0].tile.y)!;
+  close(t0.left - t31.left, v.size);
+});
+
+test('a position is drawn at the copy of the world nearest the viewport', () => {
+  const c = { lat: -17, lon: 179.5, zoom: 5 };
+  // Fiji's Lau Group, at 178.5° W: just east of the antimeridian, so just right of centre.
+  const p = project(-17, -178.5, c, W, H);
+  const x = nearestCopyX(p.x, W, c.zoom);
+  assert.ok(x > W / 2 && x < W / 2 + 200, `${x}`);
+  close(nearestCopyX(W / 2, W, c.zoom), W / 2);
 });

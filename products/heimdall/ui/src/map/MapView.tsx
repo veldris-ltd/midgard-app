@@ -44,6 +44,7 @@ export default function MapView({ tracks, layerOn, selectedId, onSelect }: MapVi
   const hostRef = React.useRef<HTMLDivElement>(null);
   const markersRef = React.useRef<HTMLDivElement>(null);
   const rendererRef = React.useRef<MapRenderer | null>(null);
+  const tooltipRef = React.useRef<HTMLDivElement>(null);
   const [camera, setCamera] = React.useState<MapCamera | null>(null);
   const [tileState, setTileState] = React.useState<LoaderState>('online');
   const [hover, setHover] = React.useState<string | null>(null);
@@ -86,6 +87,7 @@ export default function MapView({ tracks, layerOn, selectedId, onSelect }: MapVi
   }, []);
 
   React.useEffect(() => { rendererRef.current?.refreshColours(); }, [mode]);
+  React.useEffect(() => { rendererRef.current?.setTooltip(tooltipRef.current); }, [hover]);
   // The markers change: place them before the next frame.
   React.useEffect(() => { rendererRef.current?.requestRender(); }, [placed.length, layerOn, selectedId]);
 
@@ -113,7 +115,7 @@ export default function MapView({ tracks, layerOn, selectedId, onSelect }: MapVi
   const current = camera ? regionAt(camera.lat, camera.lon, regions) : null;
   const summary = camera ? `Map at zoom ${camera.zoom.toFixed(1)}, centred on ${fmt(camera.lat, camera.lon).replace(' · ', ', ')}, over ${current?.label ?? 'open map'}.` : '';
   const hovered = hover ? tracks.find((t) => t.id === hover) : undefined;
-  const hoverAt = hovered && typeof hovered.lat === 'number' && typeof hovered.lon === 'number' ? rendererRef.current?.project(hovered.lat, hovered.lon) : undefined;
+  const hoverPlaced = hovered && typeof hovered.lat === 'number' && typeof hovered.lon === 'number' ? hovered : undefined;
 
   if (failed) {
     return (
@@ -164,12 +166,16 @@ export default function MapView({ tracks, layerOn, selectedId, onSelect }: MapVi
         })}
       </div>
       {tileState === 'offline' && <div className="hg-globe-notice" role="status">MAP TILES NEED A CONNECTION</div>}
-      {hovered && hoverAt && (
-        <TrackTooltip
-          track={hovered}
-          selected={hovered.id === selectedId}
-          style={{ left: Math.max(110, hoverAt.x), top: hoverAt.y, transform: hoverAt.y < 150 ? 'translate(-50%, 22px)' : 'translate(-50%, calc(-100% - 18px))', zIndex: 5 }}
-        />
+      {hoverPlaced && (
+        // The renderer keeps this beside its track each frame, so it follows a pan.
+        <div
+          ref={tooltipRef}
+          data-lat={hoverPlaced.lat}
+          data-lon={hoverPlaced.lon}
+          style={{ position: 'absolute', left: 0, top: 0, zIndex: 5, pointerEvents: 'none', display: 'none' }}
+        >
+          <TrackTooltip track={hoverPlaced} selected={hoverPlaced.id === selectedId} style={{ position: 'relative' }} />
+        </div>
       )}
 
       <nav className="hg-globe-panel hg-globe-nav" aria-label="Map regions and tracks">

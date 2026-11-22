@@ -82,15 +82,26 @@ export function visibleTiles(c: MapCamera, w: number, h: number, maxZoom: number
   const tiles: (VisibleTile & { d: number })[] = [];
   for (let y = y0; y <= y1; y++) {
     for (let x = x0; x <= x1; x++) {
-      if (x < 0 || x >= n) continue;
+      // Round the world: a column past the antimeridian is the tile at the other end.
       const left = w / 2 + (x - cx) * size;
       const top = h / 2 + (y - cy) * size;
       const d = Math.hypot(left + size / 2 - w / 2, top + size / 2 - h / 2);
-      tiles.push({ tile: { z, x, y }, left, top, d });
+      tiles.push({ tile: { z, x: ((x % n) + n) % n, y }, left, top, d });
     }
   }
   tiles.sort((a, b) => a.d - b.d);
   return { z, size, tiles: tiles.map(({ tile, left, top }) => ({ tile, left, top })) };
+}
+
+/** The world's width in pixels at a zoom. */
+export function worldWidthPx(zoom: number): number {
+  return TILE_PX * 2 ** zoom;
+}
+
+/** A projected x moved by whole worlds to the copy nearest the viewport's centre. */
+export function nearestCopyX(x: number, w: number, zoom: number): number {
+  const world = worldWidthPx(zoom);
+  return x - Math.round((x - w / 2) / world) * world;
 }
 
 /** The map zoom that shows what the globe camera at `altKm` shows, `viewportPx` tall. */
