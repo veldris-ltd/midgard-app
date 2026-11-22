@@ -319,6 +319,7 @@ public struct WebHumanGate: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: MGRadius.md).fill(MGWeb.surfaceInset))
         .overlay(RoundedRectangle(cornerRadius: MGRadius.md).strokeBorder(border))
         .accessibilityElement(children: .contain)
@@ -418,11 +419,17 @@ public struct WebSideNavSection: Identifiable {
 }
 
 public struct WebSideNav<Footer: View>: View {
+    let rail: WebSideNavSection?
     let sections: [WebSideNavSection]
     let accent: MGWebAccent
     let footer: Footer
 
-    public init(sections: [WebSideNavSection], accent: MGWebAccent, @ViewBuilder footer: () -> Footer) {
+    /// `rail`, when given, is drawn first as one row of icon tiles (the web's collapsed
+    /// navigation rail, `IconButton`s): the app's console switcher, which the web suite,
+    /// one console per page, does not have.
+    public init(rail: WebSideNavSection? = nil, sections: [WebSideNavSection], accent: MGWebAccent,
+                @ViewBuilder footer: () -> Footer) {
+        self.rail = rail
         self.sections = sections
         self.accent = accent
         self.footer = footer()
@@ -430,15 +437,17 @@ public struct WebSideNav<Footer: View>: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 18) {
+            if let rail {
+                VStack(alignment: .leading, spacing: 2) {
+                    sectionTitle(rail.title)
+                    HStack(spacing: 1) {
+                        ForEach(rail.items) { item in tile(item) }
+                    }
+                }
+            }
             ForEach(sections) { section in
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(section.title)
-                        .font(MGWebFont.mono(11))
-                        .mgTracking(0.14, size: 11)
-                        .foregroundStyle(MGWeb.textFaint)
-                        .padding(.horizontal, 10)
-                        .padding(.bottom, 6)
-                        .accessibilityAddTraits(.isHeader)
+                    sectionTitle(section.title)
                     ForEach(section.items) { item in row(item) }
                 }
             }
@@ -449,6 +458,33 @@ public struct WebSideNav<Footer: View>: View {
         .padding(.vertical, 12)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(MGWeb.bgSunken)
+    }
+
+    private func sectionTitle(_ title: String) -> some View {
+        Text(title)
+            .font(MGWebFont.mono(11))
+            .mgTracking(0.14, size: 11)
+            .foregroundStyle(MGWeb.textFaint)
+            .padding(.horizontal, 10)
+            .padding(.bottom, 6)
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    private func tile(_ item: WebSideNavItem) -> some View {
+        Button(action: item.action) {
+            Image(systemName: item.symbol)
+                .font(MGWebFont.sans(15))
+                .foregroundStyle(item.selected ? accent.text : MGWeb.textMuted)
+                .frame(width: 34, height: 34)
+                .background(RoundedRectangle(cornerRadius: MGRadius.sm).fill(item.selected ? accent.tint : Color.clear))
+                .contentShape(Rectangle())
+                .accessibilityHidden(true)
+        }
+        .buttonStyle(.plain)
+        .help(item.label)
+        .accessibilityLabel(Text(item.label))
+        .accessibilityAddTraits(item.selected ? [.isSelected] : [])
+        .accessibilityIdentifier(item.identifier)
     }
 
     private func row(_ item: WebSideNavItem) -> some View {

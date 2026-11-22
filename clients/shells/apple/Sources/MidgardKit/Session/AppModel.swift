@@ -70,6 +70,9 @@ public final class AppModel: ObservableObject {
 
     public init(idleTimeout: TimeInterval = 300) {
         self.idleTimeout = idleTimeout
+        // The house type (Oxanium, Space Grotesk, JetBrains Mono), bundled in MidgardKit:
+        // without it every `MGFonts` style falls back to the system font.
+        MGFonts.registerAll()
     }
 
     /// Make the environment off the main thread (it probes the keychain), then start.
