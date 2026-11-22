@@ -492,6 +492,9 @@ job_js_build() {
     # The selftest job has no installed workspace, so the mock-bundle test runs here:
     # an http build of the midgard console holds no mock fixture. [AC-25.2]
     bash tools/ci/tests/js-mock-bundle.test.sh
+    # And a Heimdall build with the map tiles switch off holds no tile host or tile
+    # code (VITE_HEIMDALL_TILES). [FR-H-1]
+    pnpm --filter @midgard/console-heimdall test:bundle
     bash tools/ci/js-artefacts.sh build --all --out "${MIDGARD_JS_OUT:-target/js-out}"
 }
 
