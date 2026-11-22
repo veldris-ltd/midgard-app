@@ -50,6 +50,7 @@ public struct HeimdallConsoleFrame<Nav: View, Main: View, Aside: View, Trailing:
 public struct HeimdallOperatingPictureCompact: View {
     @StateObject private var model: HeimdallPictureModel
     @State private var inspecting = false
+    @Environment(\.dynamicTypeSize) private var typeSize
     let personaId: String
 
     public init(app: AppModel, personaId: String) {
@@ -65,6 +66,9 @@ public struct HeimdallOperatingPictureCompact: View {
                 HeimdallPictureCanvas(model: model, showsFooter: false) { _ in inspecting = true }
                     .frame(height: 520)
                 VStack(alignment: .leading, spacing: 14) {
+                    if typeSize.isAccessibilitySize {
+                        HeimdallTrackList(model: model) { _ in inspecting = true }
+                    }
                     HeimdallStatsFooter()
                     if let t = model.selectedTrack {
                         Button {

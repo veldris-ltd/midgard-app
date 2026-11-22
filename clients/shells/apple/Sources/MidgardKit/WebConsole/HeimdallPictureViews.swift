@@ -11,6 +11,7 @@ import SwiftUI
 /// The header under the classification banner (`ConsoleShell`'s top bar): the product
 /// mark, the context line, the seals and whatever the app puts at the end.
 public struct HeimdallHeader<Trailing: View>: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
     let compact: Bool
     let trailing: Trailing
     private let accent = MGWebAccent.heimdall
@@ -21,7 +22,9 @@ public struct HeimdallHeader<Trailing: View>: View {
     }
 
     public var body: some View {
-        HStack(spacing: compact ? 8 : 14) {
+        (typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+            : AnyLayout(HStackLayout(spacing: compact ? 8 : 14))) {
             WebProductMark(name: "Heimdall", accent: accent)
             if !compact {
                 Text(HeimdallChrome.context)
@@ -31,7 +34,7 @@ public struct HeimdallHeader<Trailing: View>: View {
                     .lineLimit(1)
                     .layoutPriority(-1)
             }
-            Spacer(minLength: 8)
+            if !typeSize.isAccessibilitySize { Spacer(minLength: 8) }
             ForEach(Array((compact ? Array(HeimdallChrome.seals.prefix(1)) : HeimdallChrome.seals).enumerated()),
                     id: \.offset) { _, seal in
                 WebStatusPill(seal.0, seal.1)
@@ -40,7 +43,7 @@ public struct HeimdallHeader<Trailing: View>: View {
         }
         .padding(.horizontal, compact ? 10 : 16)
         .padding(.vertical, 6)
-        .frame(minHeight: 52)
+        .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
         .background(MGWeb.bgSunken)
         .overlay(alignment: .bottom) { Rectangle().fill(MGWeb.border).frame(height: 1) }
         .accessibilityElement(children: .contain)
@@ -81,7 +84,13 @@ public struct HeimdallPictureCanvas: View {
     @ObservedObject var model: HeimdallPictureModel
     let showsFooter: Bool
     let onSelect: (String) -> Void
+    @Environment(\.dynamicTypeSize) private var typeSize
     private let accent = MGWebAccent.heimdall
+
+    /// At accessibility text sizes the picture draws no text of its own (it would cover
+    /// the picture and be cut by it): the symbols stay, and the app lists the tracks
+    /// under the picture (`HeimdallTrackList`).
+    private var large: Bool { typeSize.isAccessibilitySize }
 
     public init(model: HeimdallPictureModel, showsFooter: Bool = true, onSelect: @escaping (String) -> Void = { _ in }) {
         self.model = model
@@ -95,8 +104,10 @@ public struct HeimdallPictureCanvas: View {
             ZStack(alignment: .topLeading) {
                 background(size)
                 rings(size)
-                readout
-                if let focus = model.selectedTrack { focusReadout(focus).frame(width: size.width, alignment: .topTrailing) }
+                if !large {
+                    readout
+                    if let focus = model.selectedTrack { focusReadout(focus).frame(width: size.width, alignment: .topTrailing) }
+                }
                 if model.isOn("feeds") { coverage(size) }
                 ForEach(model.visibleTracks, id: \.id) { track in
                     trackButton(track)
@@ -152,6 +163,17 @@ public struct HeimdallPictureCanvas: View {
         .accessibilityHidden(true)
     }
 
+    /// Where a ring's label sits: at its top, as the web draws it; on the iPhone at its
+    /// east side, where no track's label falls on it. A label outside the picture is not
+    /// drawn.
+    private func ringLabelPoint(_ r: CGFloat, in size: CGSize) -> CGPoint {
+        #if os(iOS)
+        return CGPoint(x: size.width / 2 + r, y: size.height / 2)
+        #else
+        return CGPoint(x: size.width / 2, y: size.height / 2 - r)
+        #endif
+    }
+
     private func rings(_ size: CGSize) -> some View {
         ZStack {
             ForEach([(160.0, "20 NM"), (320.0, "40 NM"), (480.0, "60 NM")], id: \.1) { r, label in
@@ -159,22 +181,26 @@ public struct HeimdallPictureCanvas: View {
                     .strokeBorder(MGWeb.divider, lineWidth: 1)
                     .frame(width: r * 2, height: r * 2)
                     .position(x: size.width / 2, y: size.height / 2)
-                Text(label)
-                    .font(MGWebFont.mono(8))
-                    .mgTracking(0.12, size: 8)
-                    .foregroundStyle(MGWeb.textFaint)
-                    .padding(.horizontal, 5)
-                    .background(MGWeb.bgSunken)
-                    .position(x: size.width / 2, y: size.height / 2 - r)
+                    .accessibilityHidden(true)
+                let at = ringLabelPoint(r, in: size)
+                if !large, at.x < size.width - 24, at.y > 12 {
+                    Text(label)
+                        .font(MGWebFont.mono(8))
+                        .mgTracking(0.12, size: 8)
+                        .foregroundStyle(MGWeb.textFaint)
+                        .padding(.horizontal, 5)
+                        .background(MGWeb.bgSunken)
+                        .position(at)
+                        .accessibilityHidden(MGWeb.readoutsDecorative)
+                }
             }
         }
         .frame(width: size.width, height: size.height)
-        .accessibilityHidden(true)
     }
 
     private var readout: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("N ↑").accessibilityHidden(true)
+            Text("N ↑").accessibilityHidden(MGWeb.readoutsDecorative)
                 .font(MGWebFont.mono(11))
                 .mgTracking(0.14, size: 11)
                 .foregroundStyle(MGWeb.textMuted)
@@ -190,13 +216,13 @@ public struct HeimdallPictureCanvas: View {
                     .frame(width: 80)
                 }
                 .accessibilityHidden(true)
-                Text("10 NM").accessibilityHidden(true)
+                Text("10 NM").accessibilityHidden(MGWeb.readoutsDecorative)
                     .font(MGWebFont.mono(8))
                     .mgTracking(0.12, size: 8)
                     .foregroundStyle(MGWeb.textFaint)
                 .readoutPlate()
             }
-            Text("VECTOR · 1 MIN PROJECTION").accessibilityHidden(true)
+            Text("VECTOR · 1 MIN PROJECTION").accessibilityHidden(MGWeb.readoutsDecorative)
                 .font(MGWebFont.mono(8))
                 .mgTracking(0.12, size: 8)
                 .foregroundStyle(MGWeb.textFaint)
@@ -247,7 +273,7 @@ public struct HeimdallPictureCanvas: View {
         .multilineTextAlignment(.trailing)
         .padding(.top, 12)
         .padding(.trailing, 14)
-        .accessibilityHidden(true)
+        .accessibilityHidden(MGWeb.readoutsDecorative)
     }
 
     private func coverage(_ size: CGSize) -> some View {
@@ -269,34 +295,45 @@ public struct HeimdallPictureCanvas: View {
         .frame(width: size.width, height: size.height, alignment: .topLeading)
     }
 
+    /// A track: its symbol is the button (44 pt where it can be hit), and its label a
+    /// separate text under it, so neither the contrast audit nor VoiceOver reads the
+    /// label against the symbol's colours. The label is decorative on the Mac (the button
+    /// speaks it) and readable text on the iPhone.
     private func trackButton(_ t: HeimdallTrack) -> some View {
         let anomalous = t.track == "anomalous"
         let selected = t.id == model.selected
-        return Button {
-            model.select(t.id)
-            onSelect(t.id)
-        } label: {
-            VStack(spacing: 5) {
+        // The symbol's 44 pt frame is 15 pt taller each way than the 14 pt dot: the label
+        // sits where the web puts it, 5 pt under the dot.
+        return VStack(spacing: -10) {
+            Button {
+                model.select(t.id)
+                onSelect(t.id)
+            } label: {
                 TrackGlyph(track: t, selected: selected, accent: accent)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .onHover { inside in
+                if inside { model.hovered = t.id } else if model.hovered == t.id { model.hovered = nil }
+            }
+            .accessibilityLabel(Text("\(t.id) · \(t.cls) · heading \(Int(t.hdg)) degrees\(anomalous ? ", anomalous" : "")"))
+            .accessibilityAddTraits(selected ? [.isSelected] : [])
+            .accessibilityIdentifier("mg.heimdall.track.\(t.id)")
+            if !large {
                 Text("\(t.id)\(anomalous ? " ⚠\u{FE0E}" : "") · \(Int(t.hdg))°")
                     .font(MGWebFont.mono(9))
                     .mgTracking(0.08, size: 9)
                     .foregroundStyle(selected ? MGWeb.grey100 : MGWeb.textFaint)
                     .lineLimit(1)
                     .padding(.horizontal, 2)
-                    .background(MGWeb.bgPage.opacity(0.55))
+                    .background(MGWeb.bgPage)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(MGWeb.readoutsDecorative)
             }
-            .frame(minWidth: 44, minHeight: 44)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .onHover { inside in
-            if inside { model.hovered = t.id } else if model.hovered == t.id { model.hovered = nil }
-        }
-        .accessibilityLabel(Text("\(t.id) · \(t.cls) · heading \(Int(t.hdg)) degrees\(anomalous ? ", anomalous" : "")"))
-        .accessibilityAddTraits(selected ? [.isSelected] : [])
-        .accessibilityIdentifier("mg.heimdall.track.\(t.id)")
     }
+
 
     private func hoverCard(_ t: HeimdallTrack, in size: CGSize) -> some View {
         let rows: [(String, String)] = [
@@ -435,6 +472,7 @@ public struct HeimdallStatsFooter: View {
 /// confidence and state, the ranked options and the human gate, and the provenance.
 public struct HeimdallInspector: View {
     @ObservedObject var model: HeimdallPictureModel
+    @Environment(\.dynamicTypeSize) private var typeSize
     private let accent = MGWebAccent.heimdall
 
     public init(model: HeimdallPictureModel) { self.model = model }
@@ -444,7 +482,9 @@ public struct HeimdallInspector: View {
             if let t = model.selectedTrack {
                 header(t)
                 WebCard {
-                    HStack(alignment: .top, spacing: 12) {
+                    (typeSize.isAccessibilitySize
+                        ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
+                        : AnyLayout(HStackLayout(alignment: .top, spacing: 12))) {
                         WebStatBlock(value: "\(Int((t.conf * 100).rounded()))%", label: "CLASSIFICATION CONF.",
                                      accent: t.conf < 0.7 ? accent : nil)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -466,7 +506,7 @@ public struct HeimdallInspector: View {
                         .accessibilityIdentifier("mg.heimdall.message")
                 }
                 Spacer(minLength: 8)
-                HStack(spacing: 6) {
+                FlowRow(spacing: 6) {
                     WebProvenanceTag("FR-H-4", title: "AI-assisted, explainable, cited ranked options, advisory")
                     WebProvenanceTag("FR-H-5", title: "Human-gated action workflows with full audit lineage")
                     WebProvenanceTag("NFR-AI-1", title: "Every agentic action traceable, reversible or human-gated")
@@ -639,5 +679,42 @@ extension View {
     /// audit.
     func readoutPlate() -> some View {
         padding(.horizontal, 3).background(MGWeb.bgSunken)
+    }
+}
+
+/// The tracks as a list, for accessibility text sizes, where the picture draws no
+/// labels: each opens its inspector, as its symbol does.
+public struct HeimdallTrackList: View {
+    @ObservedObject var model: HeimdallPictureModel
+    let onSelect: (String) -> Void
+
+    public init(model: HeimdallPictureModel, onSelect: @escaping (String) -> Void) {
+        self.model = model
+        self.onSelect = onSelect
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("TRACKS")
+                .font(MGWebFont.mono(11))
+                .mgTracking(0.14, size: 11)
+                .foregroundStyle(MGWeb.textFaint)
+                .accessibilityAddTraits(.isHeader)
+            ForEach(model.visibleTracks, id: \.id) { t in
+                Button {
+                    model.select(t.id)
+                    onSelect(t.id)
+                } label: {
+                    Text("\(t.id) · \(t.cls) · \(Int(t.hdg))°\(t.track == "anomalous" ? " · ANOMALOUS" : "")")
+                        .font(MGWebFont.mono(11))
+                        .foregroundStyle(t.track == "anomalous" ? MGWeb.warnText : MGWeb.textBody)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("mg.heimdall.list.\(t.id)")
+            }
+        }
     }
 }

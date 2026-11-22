@@ -18,13 +18,25 @@ public struct WebClassificationBanner: View {
         self.compact = compact
     }
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+
     public var body: some View {
         let size: CGFloat = compact ? 9 : 10
         let fill = MGToken.markingHex(level)
-        Text(text.uppercased())
-            .font(MGWebFont.mono(size).weight(.semibold))
-            .mgTracking(0.18, size: size)
-            .lineLimit(2)
+        // Untracked at accessibility text sizes; on the iPhone 12 pt bold relative to
+        // caption (caption2 does not scale fully), where 11 pt semibold on the marking
+        // red failed the contrast audit.
+        let large = typeSize.isAccessibilitySize
+        #if os(iOS)
+        let font = MGWebFont.mono(12, .caption).weight(.bold)
+        #else
+        let font = MGWebFont.mono(size).weight(.semibold)
+        #endif
+        // At accessibility text sizes the level alone (the whole line is the spoken
+        // label): the full line was taller than the iPhone's visible screen.
+        Text(large ? (text.components(separatedBy: " · ").first ?? text).uppercased() : text.uppercased())
+            .font(font)
+            .mgTracking(large ? 0 : 0.18, size: size)
             .multilineTextAlignment(.center)
             .foregroundStyle(Color(mgHex: MGContrast.ink(on: fill)))
             .padding(.horizontal, MGSpace.s2)
@@ -53,7 +65,7 @@ public struct WebProductMark: View {
             Text(String(name.prefix(1)))
                 .font(MGWebFont.display(13, .footnote).weight(.black))
                 .foregroundStyle(accent.text)
-                .frame(width: 26, height: 26)
+                .frame(minWidth: 26, minHeight: 26)
                 .background(RoundedRectangle(cornerRadius: 7).fill(accent.tint))
                 .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(MGWeb.borderStrong))
             Text(name.uppercased())
@@ -93,7 +105,6 @@ public struct WebStatusPill: View {
                 .font(MGWebFont.mono(12, .caption).weight(.medium))
                 .mgTracking(0.04, size: 12)
                 .foregroundStyle(MGWeb.textBody)
-                .lineLimit(1)
         }
         .padding(.leading, 8)
         .padding(.trailing, 10)
@@ -157,7 +168,7 @@ public struct WebMarkingChip: View {
             Text(String(levelWord.prefix(1)))
                 .font(MGWebFont.mono(8).weight(.bold))
                 .foregroundStyle(Color(mgHex: MGContrast.ink(on: fill)))
-                .frame(width: 14, height: 14)
+                .frame(minWidth: 14, minHeight: 14)
                 .background(Circle().fill(Color(mgHex: fill)))
             Text(levelWord).foregroundStyle(MGWeb.textBody)
             if let compartments {
@@ -166,7 +177,6 @@ public struct WebMarkingChip: View {
         }
         .font(MGWebFont.mono(11))
         .mgTracking(0.08, size: 11)
-        .lineLimit(1)
         .padding(.leading, 4)
         .padding(.trailing, 8)
         .padding(.vertical, 2)
@@ -275,6 +285,7 @@ public struct WebHumanGate: View {
     let busy: Bool
     let onAuthorise: () -> Void
     let onReject: () -> Void
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     public init(title: String, detail: String, state: State, accent: MGWebAccent, busy: Bool,
                 onAuthorise: @escaping () -> Void, onReject: @escaping () -> Void) {
@@ -342,7 +353,9 @@ public struct WebHumanGate: View {
                         .foregroundStyle(MGWeb.warnText)
                 }
             }
-            HStack(spacing: 8) {
+            (typeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+                : AnyLayout(HStackLayout(spacing: 8))) {
                 Button(action: onAuthorise) {
                     Text("Authorise")
                         .font(MGWebFont.sans(12, .caption).weight(.semibold))

@@ -26,6 +26,14 @@ public enum SourceBanner: Equatable, Sendable {
         }
     }
 
+    /// The banner at accessibility text sizes.
+    public var compactText: String {
+        switch self {
+        case .demo: return "Demonstration data · not connected"
+        case .noSource: return NoSourceBanner.notice
+        }
+    }
+
     public var identifier: String {
         switch self {
         case .demo: return "mg.banner.demo"
