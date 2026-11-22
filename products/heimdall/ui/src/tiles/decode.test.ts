@@ -168,17 +168,17 @@ test('point counting matches the library\'s own geometry, feature by feature', (
   assert.ok(n > 10_000 && n < VECTOR_LIMITS.points, String(n));
 });
 
-test('a decompression bomb, a ClosePath repeated 100 million times in a few bytes, is refused before it is built', () => {
+test('a decompression bomb, a ClosePath repeated 100 million times in a few bytes, is refused before it is built (a ClosePath count must be 1)', () => {
   // MoveTo(0,0), LineTo(1,0), LineTo(0,1), then ClosePath × 2^27 − 1.
   const geometry = [command(1, 1), 0, 0, command(2, 2), 2, 0, 1, 2, command(7, 2 ** 27 - 1)];
   const bomb = vectorTile([{ name: 'land', features: 1, geometry }]);
   assert.ok(bomb.length < 64, `${bomb.length} bytes`);
   const t0 = performance.now();
-  assert.throws(() => decodeVector(bomb, 8), (e: unknown) => e instanceof TileRefused && /too complex/.test(e.message));
+  assert.throws(() => decodeVector(bomb, 8), (e: unknown) => e instanceof TileRefused && /ClosePath count/.test(e.message));
   assert.ok(performance.now() - t0 < 200, 'refused at once, nothing built');
   // Many small ones add up the same way.
   const many = vectorTile([{ name: 'land', features: 200, geometry: [command(1, 1), 0, 0, command(7, 10_000)] }]);
-  assert.throws(() => decodeVector(many, 8), /too complex/);
+  assert.throws(() => decodeVector(many, 8), /malformed: ClosePath count/);
 });
 
 test('too many features in one layer, or in the tile, or too many points, is too complex', () => {
@@ -197,4 +197,53 @@ test('too many features in one layer, or in the tile, or too many points, is too
 test('an unknown geometry command is refused', () => {
   const bad = vectorTile([{ name: 'land', features: 1, geometry: [command(1, 1), 0, 0, command(5, 3)] }]);
   assert.throws(() => decodeVector(bad, 8), TileRefused);
+});
+
+// --- re-audit: command counts the library reads as signed ---------------------------
+
+test('a "negative" ClosePath, then a huge one, and a MoveTo: refused, not counted as 2 points', () => {
+  // loadGeometry takes cmdLen >> 3 as signed: 0x80000007 is a ClosePath of count
+  // -268,435,455 (run once), 0x7fffffff a ClosePath of 268,435,455 (each repeat a
+  // point). The old counter added the two and saw almost nothing.
+  const geometry = [command(1, 1), 0, 0, 0x80000007, 0x7fffffff, command(1, 1), 2, 2];
+  const bomb = vectorTile([{ name: 'land', features: 1, geometry }]);
+  assert.ok(bomb.length < 64, `${bomb.length} bytes`);
+  const t0 = performance.now();
+  assert.throws(() => decodeVector(bomb, 8), (e: unknown) => e instanceof TileRefused && /malformed: command integer/.test(e.message));
+  assert.ok(performance.now() - t0 < 100);
+  // Each half alone is refused too.
+  assert.throws(() => decodeVector(vectorTile([{ name: 'land', features: 1, geometry: [command(1, 1), 0, 0, 0x80000007] }]), 8), /command integer/);
+  assert.throws(() => decodeVector(vectorTile([{ name: 'land', features: 1, geometry: [command(1, 1), 0, 0, 0x7fffffff] }]), 8), /ClosePath count/);
+  // Any command integer of 2^31 or more, whatever the command.
+  for (const c of [0x80000001, 0x80000002, 0xfffffff9, 0xffffffff]) {
+    assert.throws(() => decodeVector(vectorTile([{ name: 'land', features: 1, geometry: [c, 0, 0] }]), 8), /command integer/, c.toString(16));
+  }
+});
+
+test('a ClosePath count other than 1 is refused', () => {
+  for (const n of [2, 3, 1000]) {
+    assert.throws(() => decodeVector(vectorTile([{ name: 'land', features: 1, geometry: [command(1, 1), 0, 0, command(2, 2), 2, 0, 1, 2, command(7, n)] }]), 8), /ClosePath count/, String(n));
+  }
+  // Count 1 is the spec, and passes.
+  assert.doesNotThrow(() => decodeVector(vectorTile([{ name: 'land', features: 1, geometry: [command(1, 1), 0, 0, command(2, 2), 2, 0, 1, 2, command(7, 1)] }]), 8));
+});
+
+test('a huge MoveTo or LineTo count with no parameters left is refused', () => {
+  for (const g of [[command(2, 1_000_000)], [command(1, 1), 0, 0, command(2, 2 ** 28 - 1)], [command(1, 5), 0, 0], [command(1, 1), 0, 0, command(2, 3), 2, 2]]) {
+    assert.throws(() => decodeVector(vectorTile([{ name: 'streets', features: 1, geometry: g, type: 2 }]), 8), /malformed/, JSON.stringify(g));
+  }
+});
+
+test('the count is exactly what loadGeometry builds, LineTo and ClosePath before any MoveTo included', () => {
+  const cases = [
+    [command(1, 1), 0, 0, command(2, 2), 2, 0, 1, 2, command(7, 1)],
+    [command(2, 2), 2, 0, 1, 2, command(1, 1), 0, 0, command(2, 1), 4, 4],
+    [command(7, 1), command(1, 2), 0, 0, 2, 2, command(7, 1), command(7, 1)],
+    [command(1, 0), command(2, 0), command(1, 1), 6, 6],
+  ];
+  for (const geometry of cases) {
+    const tile = new VectorTile(new PbfReader(vectorTile([{ name: 'land', features: 1, geometry }])));
+    const built = tile.layers.land.feature(0).loadGeometry().reduce((n, r) => n + r.length, 0);
+    assert.equal(geometryPoints(tile.layers.land.feature(0), Infinity), built, JSON.stringify(geometry));
+  }
 });

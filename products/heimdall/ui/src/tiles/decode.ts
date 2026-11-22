@@ -145,38 +145,57 @@ interface FeatureInternals {
 }
 
 /**
- * The points a feature's geometry would build, counted from its commands without
- * building any, stopping once past `budget`. Mirrors `loadGeometry`: MoveTo and LineTo
- * add one point per repeat, ClosePath one per repeat too.
+ * The points a feature's geometry will build, counted from its commands without
+ * building any, stopping once past `budget`; a geometry that is not plainly valid is
+ * refused. Only geometry that passes is ever given to `loadGeometry`, and for it this
+ * count is exactly what `loadGeometry` builds: MoveTo adds a point; LineTo and
+ * ClosePath add one once a MoveTo has started a line.
+ *
+ * Refused, because `loadGeometry` would read them differently (it takes the command
+ * integer as signed, `cmdLen >> 3`) or they break the MVT spec: a command integer of
+ * 2^31 or more (a "negative" count), a ClosePath with a count other than 1, a MoveTo
+ * or LineTo with more repeats than parameter integers left, a parameter read past the
+ * geometry's end, a geometry that runs past the tile, and an unknown command.
  */
 export function geometryPoints(feature: unknown, budget: number): number {
   const f = feature as FeatureInternals;
   if (!f || typeof f._geometry !== 'number' || !f._pbf) throw new Error('vector tile: unexpected feature shape');
   if (f._geometry < 0) return 0;
   const pbf = f._pbf;
+  const bad = (why: string): never => {
+    throw new TileRefused(`vector tile malformed: ${why}`);
+  };
   pbf.pos = f._geometry;
   const end = pbf.readVarint() + pbf.pos;
+  if (end > pbf.length) bad('geometry runs past the tile');
   let points = 0;
-  let cmd = 1;
-  let length = 0;
+  let line = false;
   while (pbf.pos < end) {
-    if (length <= 0) {
-      const cmdLen = pbf.readVarint();
-      cmd = cmdLen & 0x7;
-      length = cmdLen >> 3;
-      if (length === 0) continue;
-    }
+    const cmdLen = pbf.readVarint();
+    if (cmdLen < 0 || cmdLen > 0x7fffffff) bad(`command integer ${cmdLen}`);
+    const cmd = cmdLen % 8;
+    const count = Math.floor(cmdLen / 8);
+    if (count === 0) continue; // loadGeometry skips it too
     if (cmd === 7) {
-      // Each repeat adds a point and reads nothing: count them all at once.
-      points += length;
-      length = 0;
+      if (count !== 1) bad(`ClosePath count ${count}`);
+      if (line) points++;
     } else if (cmd === 1 || cmd === 2) {
-      length--;
-      pbf.readSVarint();
-      pbf.readSVarint();
-      points++;
+      // Every parameter is at least one byte: never more repeats than bytes allow.
+      if (2 * count > end - pbf.pos) bad(`${cmd === 1 ? 'MoveTo' : 'LineTo'} count ${count} with ${end - pbf.pos} bytes left`);
+      for (let k = 0; k < count; k++) {
+        pbf.readSVarint();
+        pbf.readSVarint();
+        if (pbf.pos > end) bad('a parameter runs past the geometry');
+        if (cmd === 1) {
+          line = true;
+          points++;
+        } else if (line) {
+          points++;
+        }
+        if (points > budget) return points;
+      }
     } else {
-      throw new TileRefused(`vector tile: unknown geometry command ${cmd}`);
+      bad(`unknown geometry command ${cmd}`);
     }
     if (points > budget) return points;
   }
