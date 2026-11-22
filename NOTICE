@@ -42,7 +42,10 @@ Third-party components:
   @mapbox/vector-tile and pbf (Copyright Mapbox, BSD-3-Clause), which bring
   @mapbox/point-geometry (Copyright Mapbox, ISC), resolve-protobuf-schema and
   protocol-buffers-schema (Copyright Mathias Buus, MIT). The built console ships
-  their licence texts in THIRD-PARTY-LICENSES.md.
+  the licence texts of what it bundles in THIRD-PARTY-LICENSES.md.
+  resolve-protobuf-schema and protocol-buffers-schema serve only pbf's schema
+  compiler (its CLI): they are in the dependency closure and the SBOM, but no
+  console bundle includes them.
 
   With its map tiles switch on (VITE_HEIMDALL_TILES, the default), the Heimdall
   console fetches map tiles at run time from three sources. None of their data is
@@ -78,7 +81,8 @@ Third-party components:
 
   - Satellite imagery: Sentinel-2 cloudless 2016 by EOX, the `s2cloudless_3857`
     layer only, licensed under the Creative Commons Attribution 4.0 International
-    License (CC BY 4.0), as EOX's WMTS capabilities state for that layer:
+    License (CC BY 4.0), as EOX's WMTS capabilities state for that layer (read on
+    22 November 2026, https://tiles.maps.eox.at/wmts/1.0.0/WMTSCapabilities.xml):
       EOxCloudless https://cloudless.eox.at by EOX IT Services GmbH (Contains
       modified Copernicus Sentinel data 2016).
     EOX's later yearly layers carry a non-commercial licence and are not used.

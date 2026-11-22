@@ -96,10 +96,14 @@ at build time) the console adds map tiles to the globe and a second 2D mode, **M
   focused map; zoom 3 to 16.
 - **ⓘ CREDITS**, in the side panel of the globe and the map, lists every source in
   use with its licence and attribution. `NOTICE` records them all.
-- **Offline**: after three network failures in a row, or when the browser says it is
-  offline, the globe falls back to the plain 1a globe and both views say **MAP TILES
-  NEED A CONNECTION**; the map keeps the bundled coastlines. One request probes again
-  every 30 s.
+- **Offline**: when the browser says it is offline, after three network failures in a
+  row, or when nothing has loaded yet and every tile request has failed, the globe
+  falls back to the plain 1a globe and both views say **MAP TILES NEED A
+  CONNECTION**; the map keeps the bundled coastlines and the globe's STYLE buttons are
+  marked unavailable. Thirty seconds later the loader asks the view to try again and
+  lets a single tile request through as a probe; if it answers, tiles return, and if
+  not, the next probe is another 30 s away. A server error (5xx or 429) is not offline:
+  that tile is retried after 30 s.
 
 Every request goes through one loader (`src/tiles/loader.ts`): only URLs on the
 allow-list in `src/tiles/hosts.ts` (HTTPS, the exact host and path, a tile in range,

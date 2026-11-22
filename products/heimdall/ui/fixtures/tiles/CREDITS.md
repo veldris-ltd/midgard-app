@@ -28,5 +28,5 @@ Creative Commons Attribution 4.0 International License.
 
 **Vector tile.** © OpenStreetMap contributors, available under the Open Database
 License (https://www.openstreetmap.org/copyright). Tile produced by VersaTiles
-(https://versatiles.org). This file is a produced work of the OpenStreetMap database
-and stays under the ODbL.
+(https://versatiles.org). This file is a Derivative Database of the OpenStreetMap
+database, in the ODbL's terms, and is redistributed under the ODbL 1.0.

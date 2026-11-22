@@ -119,7 +119,7 @@ host; build the image first with `just ci toolchain`. See [BUILD_ENV.md](BUILD_E
 | `scan` | toolchain | advisory and licence scan of the dependency graph, PR mode |
 | `advisory-refresh` | host | weekly: both advisory snapshots refreshed, every SBOM re-scanned, and a pull or merge request opened with the scan diff when a snapshot moved |
 | `acceptance` | host | the full acceptance suite under a genuine air gap, its log kept in `target/gate` |
-| `js-build` | host | every UI bundle and npm package built twice, bit-identical |
+| `js-build` | host | every UI bundle and npm package built twice, bit-identical; the midgard console's mock-bundle test; the Heimdall console's unit tests (`pnpm --filter @midgard/console-heimdall test`) and its map tiles switch test (`test:bundle`), which the residual-risk register's tile entry relies on |
 | `release-dry-run` | toolchain | the whole release gate, throwaway keys, nothing published |
 | `release-preflight` | host | the signing runner is provisioned |
 | `release` | toolchain | every artefact gated, admitted to Bifrost, and accounted for |
