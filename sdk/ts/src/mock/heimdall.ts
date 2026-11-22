@@ -44,12 +44,15 @@ const OPTIONS: HeimdallOption[] = [
   { rank: 3, title: 'Hold, continue passive fusion', why: 'No kinetic urgency; anomaly may resolve within current track window.', cites: ['Track/E-0871·history'] },
 ];
 
+/* Track positions over northern Britain and the North Sea (SECTOR NORTH). They are
+ * plausible reference positions for the 3D globe, not real ones: the console labels
+ * the picture a reference layout. [AC-25.2] [FR-H-1] */
 const TRACKS: HeimdallTrack[] = [
-  { id: 'E-2214', cls: 'AIRCRAFT', conf: 0.97, x: 22, y: 30, layer: 'air', track: 'stable', hdg: 78, spd: 460, alt: 'FL340', feeds: 4 },
-  { id: 'E-2231', cls: 'AIRCRAFT', conf: 0.91, x: 38, y: 18, layer: 'air', track: 'stable', hdg: 132, spd: 430, alt: 'FL360', feeds: 3 },
-  { id: 'E-0442', cls: 'VESSEL', conf: 0.88, x: 62, y: 66, layer: 'maritime', track: 'stable', hdg: 221, spd: 14, alt: 'SURFACE', feeds: 2 },
-  { id: 'E-0871', cls: 'UNKNOWN', conf: 0.54, x: 74, y: 34, layer: 'air', track: 'anomalous', hdg: 197, spd: 388, alt: 'FL212 ↓', feeds: 2, options: OPTIONS },
-  { id: 'E-1108', cls: 'GROUND UNIT', conf: 0.93, x: 45, y: 74, layer: 'ground', track: 'stable', hdg: 12, spd: 3, alt: 'GND', feeds: 3 },
+  { id: 'E-2214', cls: 'AIRCRAFT', conf: 0.97, x: 22, y: 30, lat: 57.35, lon: -4.2, layer: 'air', track: 'stable', hdg: 78, spd: 460, alt: 'FL340', feeds: 4 },
+  { id: 'E-2231', cls: 'AIRCRAFT', conf: 0.91, x: 38, y: 18, lat: 58.25, lon: -2.3, layer: 'air', track: 'stable', hdg: 132, spd: 430, alt: 'FL360', feeds: 3 },
+  { id: 'E-0442', cls: 'VESSEL', conf: 0.88, x: 62, y: 66, lat: 56.05, lon: 0.45, layer: 'maritime', track: 'stable', hdg: 221, spd: 14, alt: 'SURFACE', feeds: 2 },
+  { id: 'E-0871', cls: 'UNKNOWN', conf: 0.54, x: 74, y: 34, lat: 57.55, lon: 1.35, layer: 'air', track: 'anomalous', hdg: 197, spd: 388, alt: 'FL212 ↓', feeds: 2, options: OPTIONS },
+  { id: 'E-1108', cls: 'GROUND UNIT', conf: 0.93, x: 45, y: 74, lat: 55.75, lon: -3.05, layer: 'ground', track: 'stable', hdg: 12, spd: 3, alt: 'GND', feeds: 3 },
 ];
 
 const LAYERS: HeimdallLayer[] = [

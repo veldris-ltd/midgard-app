@@ -91,6 +91,12 @@ export interface HeimdallTrack {
   x: number;
   /** Vertical position, 0–100 (% of picture region). */
   y: number;
+  /** Latitude in degrees (WGS 84), when the track has a geographic position. Optional
+   *  and additive: the 2D reference layout uses `x`/`y`; the 3D globe places only
+   *  tracks that carry both `lat` and `lon`. [FR-H-1] */
+  lat?: number;
+  /** Longitude in degrees (WGS 84, east positive), paired with `lat`. [FR-H-1] */
+  lon?: number;
   layer: HeimdallLayerId;
   track: HeimdallTrackState;
   /** Heading in degrees (0 = north). */
