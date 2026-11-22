@@ -192,19 +192,21 @@ public struct WebStatBlock: View {
     }
 
     public var body: some View {
+        // Two elements, each only its own text (one element over both measured the
+        // readout's colour against the label's in the contrast audit): the value speaks
+        // the label too, and the label is not read twice.
         VStack(alignment: .leading, spacing: 4) {
             Text(value)
                 .font(MGWebFont.display(24, .title).weight(.black))
                 .mgTracking(-0.02, size: 24)
                 .foregroundStyle(accent?.text ?? MGWeb.textHeading)
+                .accessibilityLabel(Text("\(label.capitalized): \(value)"))
             Text(label)
                 .font(MGWebFont.mono(11))
                 .mgTracking(0.14, size: 11)
                 .foregroundStyle(MGWeb.textFaint)
+                .accessibilityHidden(true)
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text("\(label.capitalized): \(value)"))
-        .accessibilityAddTraits(.isStaticText)
     }
 }
 
