@@ -502,3 +502,31 @@ test('a request sent before going offline that fails later does not push the nex
   assert.equal(l.state, 'online');
   l.destroy();
 });
+
+test('a retry timer that fires before the clock reaches the retry time re-arms, so the probe still goes', async () => {
+  let now = 0;
+  let fail = true;
+  const calls: string[] = [];
+  const fetch: FetchLike = (url) => {
+    calls.push(url);
+    return fail ? Promise.reject(new TypeError('Failed to fetch')) : Promise.resolve(new Response(new Uint8Array(RECORDED[url])));
+  };
+  // Like the map: it asks for tiles only when told something changed.
+  const l: TileLoader = new TileLoader({ tiles: TILES, fetch, offlineAfter: 1, retryAfterMs: 20, now: () => now, onChange: () => l.request(TERRAIN, 0, bytes) });
+  l.request(TERRAIN, 0, bytes);
+  await settle();
+  await settle();
+  assert.equal(l.state, 'offline');
+  const before = calls.length;
+  fail = false;
+  // The timer fires, but the loader's clock says only 10 of the 20 ms have passed.
+  now = 10;
+  await new Promise((r) => setTimeout(r, 40));
+  assert.equal(calls.length, before, 'too early: no probe yet');
+  now = 25;
+  await new Promise((r) => setTimeout(r, 40));
+  assert.ok(calls.length > before, 'the re-armed timer lets the probe through');
+  await settle();
+  assert.equal(l.state, 'online');
+  l.destroy();
+});

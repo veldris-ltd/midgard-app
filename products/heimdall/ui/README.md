@@ -142,7 +142,8 @@ the console adds them to the globe and a second 2D mode, **MAP**.
   CONNECTION**; the map keeps the bundled coastlines and the globe's STYLE buttons are
   marked unavailable. Thirty seconds later the loader asks the view to try again and
   lets a single tile request through as a probe; if it answers, tiles return, and if
-  not, the next probe is another 30 s away. A server error (5xx or 429) is not offline:
+  not, the next probe is another 30 s away (a request sent before the network went,
+  failing only later, does not push the probe back). A server error (5xx or 429) is not offline:
   that tile is retried after 30 s.
 
 Every request goes through one loader (`src/tiles/loader.ts`): only URLs on the

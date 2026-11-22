@@ -212,7 +212,14 @@ export class TileLoader {
     let slots = this.opts.maxInFlight - this.inFlight;
     if (this.stateNow === 'offline') {
       if (this.opts.online && !this.opts.online()) return;
-      if (this.opts.now() - this.offlineSince < this.opts.retryAfterMs) return;
+      const wait = this.opts.retryAfterMs - (this.opts.now() - this.offlineSince);
+      if (wait > 0) {
+        // Too early for a probe. A timer may fire a moment before the clock says the
+        // retry time has come: keep one armed for the rest, or a view that renders
+        // only on demand (the map) would never probe again.
+        if (!this.retryTimer) this.armRetry(wait);
+        return;
+      }
       // One probe at a time until the network answers.
       slots = Math.min(slots, 1 - this.inFlight);
     }
@@ -313,7 +320,7 @@ export class TileLoader {
   }
 
   /** After the retry time, tells the view to ask again, which lets a probe through. */
-  private armRetry(): void {
+  private armRetry(delayMs = this.opts.retryAfterMs): void {
     if (this.retryTimer) clearTimeout(this.retryTimer);
     if (this.destroyed) return;
     const t = setTimeout(() => {
@@ -321,7 +328,7 @@ export class TileLoader {
       if (this.destroyed) return;
       this.opts.onChange?.();
       this.schedule();
-    }, this.opts.retryAfterMs);
+    }, Math.max(1, delayMs));
     (t as { unref?: () => void }).unref?.();
     this.retryTimer = t;
   }
