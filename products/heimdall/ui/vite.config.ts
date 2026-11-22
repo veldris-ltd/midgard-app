@@ -22,6 +22,7 @@ export default defineConfig(({ mode }) => {
     mirror: pick('VITE_HEIMDALL_TILE_MIRROR'),
     legacy: pick('VITE_HEIMDALL_TILES'),
   });
+  for (const w of tiles.warnings) console.warn(`\n  warning: ${w}\n`);
   return {
     base: './',
     plugins: [react()],

@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { TileConfigError, parseTileMirror, parseTileSource, tileConfig } from './tileSource.ts';
+import { TileConfigError, isPublicIpLiteral, parseTileMirror, parseTileSource, tileConfig } from './tileSource.ts';
 
 test('unset is none; none, mirror and public are taken as written', () => {
   assert.equal(parseTileSource(undefined), 'none');
@@ -55,9 +55,9 @@ test('a mirror that is missing, not https, carries credentials, a query or a fra
 });
 
 test('the whole setting: mirror needs a mirror, the others refuse one, and the retired switch fails', () => {
-  assert.deepEqual(tileConfig({}), { mode: 'none', mirror: '' });
-  assert.deepEqual(tileConfig({ source: 'public' }), { mode: 'public', mirror: '' });
-  assert.deepEqual(tileConfig({ source: 'mirror', mirror: 'https://m.internal/t/' }), { mode: 'mirror', mirror: 'https://m.internal/t' });
+  assert.deepEqual(tileConfig({}), { mode: 'none', mirror: '', warnings: [] });
+  assert.deepEqual(tileConfig({ source: 'public' }), { mode: 'public', mirror: '', warnings: [] });
+  assert.deepEqual(tileConfig({ source: 'mirror', mirror: 'https://m.internal/t/' }), { mode: 'mirror', mirror: 'https://m.internal/t', warnings: [] });
   assert.throws(() => tileConfig({ source: 'mirror' }), /required/);
   assert.throws(() => tileConfig({ source: 'none', mirror: 'https://m.internal' }), /not mirror/);
   assert.throws(() => tileConfig({ mirror: 'https://m.internal' }), /not mirror/);
@@ -65,4 +65,31 @@ test('the whole setting: mirror needs a mirror, the others refuse one, and the r
   assert.throws(() => tileConfig({ source: '' }), TileConfigError);
   for (const legacy of ['off', 'on', '']) assert.throws(() => tileConfig({ legacy }), /retired/);
   assert.throws(() => tileConfig({ source: 'public', legacy: 'on' }), /retired/);
+});
+
+test('a mirror on a public tile host, or anywhere under its domain, stops the build', () => {
+  for (const v of [
+    'https://s3.amazonaws.com', 'https://s3.amazonaws.com/elevation-tiles-prod', 'https://amazonaws.com',
+    'https://elevation-tiles-prod.s3.amazonaws.com', 'https://my-bucket.s3.eu-west-2.amazonaws.com/tiles',
+    'https://tiles.maps.eox.at', 'https://maps.eox.at', 'https://eox.at', 'https://a.eox.at/x',
+    'https://tiles.versatiles.org', 'https://versatiles.org/tiles', 'https://download.versatiles.org',
+  ]) {
+    assert.throws(() => parseTileMirror(v), (e: unknown) => e instanceof TileConfigError && /public tile host/.test(e.message), v);
+  }
+  // Look-alikes that are not those domains are not refused for it.
+  for (const v of ['https://notamazonaws.com', 'https://eox.at.enclosure.internal', 'https://versatiles.internal']) {
+    assert.equal(parseTileMirror(v), v);
+  }
+});
+
+test('a mirror on a public IP address builds with a warning; a private or loopback one without', () => {
+  for (const host of ['8.8.8.8', '203.0.113.7', '172.32.0.1', '[2001:db8::1]']) {
+    const c = tileConfig({ source: 'mirror', mirror: `https://${host}/m` });
+    assert.equal(c.warnings.length, 1, host);
+    assert.match(c.warnings[0], /public IP address/);
+  }
+  for (const host of ['10.1.2.3', '172.16.0.1', '172.31.255.255', '192.168.1.10', '127.0.0.1', '169.254.1.1', '100.64.0.1', '[::1]', '[fd00::1]', '[fe80::1]', 'tiles.enclosure.internal']) {
+    assert.deepEqual(tileConfig({ source: 'mirror', mirror: `https://${host}/m` }).warnings, [], host);
+  }
+  assert.equal(isPublicIpLiteral('tiles.example'), false);
 });

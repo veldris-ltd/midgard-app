@@ -12,7 +12,7 @@
 /** What moved the camera. */
 export type CameraMove = 'track' | 'user';
 
-export const TILES_PAUSED_NOTICE = 'MAP TILES PAUSED · MOVE THE VIEW TO LOAD';
+export const TILES_PAUSED_NOTICE = 'MAP TILES PAUSED · PAN AWAY OR CHOOSE A REGION';
 
 /** Whether tile loading is paused after `move`, when the build pauses on track moves. */
 export function pausedAfter(move: CameraMove, pauseOnTrackMoves: boolean): boolean {

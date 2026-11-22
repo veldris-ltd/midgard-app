@@ -4,7 +4,9 @@
  * - `none` (the default, when unset): no tile code and no tile host in the bundle. The
  *   console makes no outbound connection; the signed artefact is built this way.
  * - `mirror`: tiles only from `VITE_HEIMDALL_TILE_MIRROR`, an `https://` origin with an
- *   optional base path, inside the enclosure, in the fixed layout of `mirrorSources`.
+ *   optional base path, inside the enclosure, in the fixed layout of `mirrorSources`;
+ *   a mirror naming a public tile host or its domain stops the build, and one on a
+ *   public IP address draws a warning.
  * - `public`: the three public tile hosts. A demo build only, outside the enclosure.
  * Any other value, an empty one included, is an error, and so is a mirror given
  * without `mirror`, or the retired `VITE_HEIMDALL_TILES`. vite.config.ts turns the
@@ -16,6 +18,37 @@ export interface TileConfig {
   mode: TileSourceMode;
   /** The mirror's origin and base path, with no trailing slash; '' unless `mirror`. */
   mirror: string;
+  /** Things the build should print but not stop for (a mirror on a public IP address). */
+  warnings: string[];
+}
+
+/** The public tile hosts' domains: a mirror on one of them, or under one, is not inside an enclosure. */
+export const PUBLIC_TILE_DOMAINS: readonly string[] = [
+  's3.amazonaws.com', 'amazonaws.com',
+  'tiles.maps.eox.at', 'maps.eox.at', 'eox.at',
+  'tiles.versatiles.org', 'versatiles.org',
+];
+
+/** The hostname is one of the public tile hosts or their domains, or under one. */
+export function isPublicTileHost(hostname: string): boolean {
+  const h = hostname.toLowerCase().replace(/\.$/, '');
+  return PUBLIC_TILE_DOMAINS.some((d) => h === d || h.endsWith(`.${d}`));
+}
+
+/** An IP literal (as `URL.hostname` writes it) that is a public address, not a private, loopback or link-local one. */
+export function isPublicIpLiteral(hostname: string): boolean {
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(hostname);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    const internal = a === 10 || a === 127 || a === 0 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254) || (a === 100 && b >= 64 && b <= 127);
+    return !internal;
+  }
+  if (hostname.startsWith('[') && hostname.endsWith(']')) {
+    const v6 = hostname.slice(1, -1).toLowerCase();
+    const internal = v6 === '::1' || /^f[cd][0-9a-f]{0,2}:/.test(v6) || /^fe[89ab][0-9a-f]?:/.test(v6) || v6.startsWith('::ffff:10.') || v6.startsWith('::ffff:192.168.') || v6.startsWith('::ffff:127.');
+    return !internal;
+  }
+  return false;
 }
 
 export class TileConfigError extends Error {
@@ -66,6 +99,8 @@ export function parseTileMirror(value: string | undefined): string {
   if (path !== '' && !path.slice(1).split('/').every((s) => SEGMENT.test(s))) fail('has a base path segment that is not plain');
   const mirror = `${u.origin}${path}`;
   if (value !== mirror && value !== `${mirror}/`) fail(`is not in its canonical form, ${mirror}`);
+  // A mirror is the enclosure's own copy: never one of the public tile hosts.
+  if (isPublicTileHost(u.hostname)) fail(`names a public tile host (${u.hostname}); a mirror must be inside the enclosure`);
   return mirror;
 }
 
@@ -84,9 +119,16 @@ export function tileConfig(env: TileEnv): TileConfig {
     );
   }
   const mode = parseTileSource(env.source);
-  if (mode === 'mirror') return { mode, mirror: parseTileMirror(env.mirror) };
+  if (mode === 'mirror') {
+    const mirror = parseTileMirror(env.mirror);
+    const host = new URL(mirror).hostname;
+    const warnings = isPublicIpLiteral(host)
+      ? [`VITE_HEIMDALL_TILE_MIRROR is on a public IP address (${host}); a mirror must be inside the enclosure`]
+      : [];
+    return { mode, mirror, warnings };
+  }
   if (env.mirror !== undefined) {
     throw new TileConfigError(`VITE_HEIMDALL_TILE_MIRROR is set, but VITE_HEIMDALL_TILE_SOURCE is ${mode}, not mirror`);
   }
-  return { mode, mirror: '' };
+  return { mode, mirror: '', warnings: [] };
 }

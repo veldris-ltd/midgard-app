@@ -120,6 +120,8 @@ test('any other setting fails the build with a clear error', () => {
     [{ VITE_HEIMDALL_TILE_SOURCE: 'mirror', VITE_HEIMDALL_TILE_MIRROR: 'http://tiles.internal' }, /https/],
     [{ VITE_HEIMDALL_TILE_MIRROR: MIRROR }, /not mirror/],
     [{ VITE_HEIMDALL_TILES: 'off' }, /retired/],
+    [{ VITE_HEIMDALL_TILE_SOURCE: 'mirror', VITE_HEIMDALL_TILE_MIRROR: 'https://tiles.versatiles.org' }, /public tile host/],
+    [{ VITE_HEIMDALL_TILE_SOURCE: 'mirror', VITE_HEIMDALL_TILE_MIRROR: 'https://bucket.s3.amazonaws.com/t' }, /public tile host/],
   ];
   for (const [vars, why] of bad) {
     const { out, r } = run(vars);
@@ -129,5 +131,15 @@ test('any other setting fails the build with a clear error', () => {
     } finally {
       rmSync(out, { recursive: true, force: true });
     }
+  }
+});
+
+test('a mirror on a public IP address builds, with a warning', () => {
+  const { out, r } = run({ VITE_HEIMDALL_TILE_SOURCE: 'mirror', VITE_HEIMDALL_TILE_MIRROR: 'https://203.0.113.7/m' });
+  try {
+    assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+    assert.match(`${r.stdout}\n${r.stderr}`, /warning: .*public IP address/);
+  } finally {
+    rmSync(out, { recursive: true, force: true });
   }
 });

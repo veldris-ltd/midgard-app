@@ -99,8 +99,11 @@ The tile source is fixed at build time by `VITE_HEIMDALL_TILE_SOURCE`
 | `public` | the three public hosts below | a demo outside the enclosure only |
 
 Any other value, an empty one included, stops the build with an error, and so does a
-mirror that is missing, not `https://`, carries credentials, a query or a fragment, or
-is not written in its canonical form; so does `VITE_HEIMDALL_TILE_MIRROR` without
+mirror that is missing, not `https://`, carries credentials, a query or a fragment, is
+not written in its canonical form, or names one of the public tile hosts or their
+domains (`amazonaws.com`, `eox.at`, `versatiles.org`); a mirror on a public IP
+address builds with a warning. **The mirror must be inside the enclosure:** a mirror
+outside it is egress like the public hosts; so does `VITE_HEIMDALL_TILE_MIRROR` without
 `mirror`, and the retired `VITE_HEIMDALL_TILES`. With map tiles (`mirror` or `public`)
 the console adds them to the globe and a second 2D mode, **MAP**.
 
@@ -133,10 +136,12 @@ the console adds them to the globe and a second 2D mode, **MAP**.
   view, so a view the tracks decide would tell the tile hosts where the tracks are. In
   a `public` build the first view (SECTOR NORTH, fitted to the tracks), flying to a
   track, and any preset fitted to track positions pause tile loading, and both views
-  say **MAP TILES PAUSED · MOVE THE VIEW TO LOAD**; tiles already loaded still show.
-  Loading resumes only on the user's own move that is not centred on a track: a drag,
-  a zoom, a tilt or turn, the arrow keys, or a geographic preset such as UK & IRELAND
-  or SNOWDONIA (`src/tilePause.ts`). A `mirror` build never pauses.
+  say **MAP TILES PAUSED · PAN AWAY OR CHOOSE A REGION**; tiles already loaded still show.
+  Loading resumes on the user's next own move: a drag, a zoom, a tilt or turn, the
+  arrow keys, or a geographic preset such as UK & IRELAND or SNOWDONIA
+  (`src/tilePause.ts`). The pause defers requests, it does not prevent them: a zoom,
+  tilt or short drag where the view was left on a track loads the area round that
+  track. A `mirror` build never pauses.
 - **Offline**: when the browser says it is offline, after three network failures in a
   row, or when nothing has loaded yet and every tile request has failed, the globe
   falls back to the plain 1a globe and both views say **MAP TILES NEED A
