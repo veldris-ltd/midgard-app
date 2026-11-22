@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  CLOSE_UP_ALTITUDE_KM,
   MAX_ALTITUDE_KM,
   MIN_ALTITUDE_KM,
   clampAltitude,
@@ -14,20 +15,21 @@ import {
   zoomCamera,
 } from './camera.ts';
 
-test('altitude stays between 50 km and 40,000 km', () => {
+test('altitude stays between the 1.5 km close-up and 40,000 km; 50 km is the floor without tiles', () => {
   assert.equal(MIN_ALTITUDE_KM, 50);
+  assert.equal(CLOSE_UP_ALTITUDE_KM, 1.5);
   assert.equal(MAX_ALTITUDE_KM, 40000);
-  assert.equal(clampAltitude(1), 50);
+  assert.equal(clampAltitude(1), 1.5);
   assert.equal(clampAltitude(1e9), 40000);
   assert.equal(clampAltitude(1234), 1234);
   assert.equal(clampAltitude(Number.NaN), MAX_ALTITUDE_KM);
 });
 
 test('normaliseCamera wraps longitude and keeps clear of the poles', () => {
-  const c = normaliseCamera({ lat: 95, lon: 190, altKm: 10 });
+  const c = normaliseCamera({ lat: 95, lon: 190, altKm: 1 });
   assert.equal(c.lat, 89);
   assert.equal(c.lon, -170);
-  assert.equal(c.altKm, 50);
+  assert.equal(c.altKm, 1.5);
   assert.equal(normaliseCamera({ lat: -100, lon: -540, altKm: 100 }).lat, -89);
   assert.equal(normaliseCamera({ lat: 0, lon: -540, altKm: 100 }).lon, 180);
 });
@@ -35,7 +37,7 @@ test('normaliseCamera wraps longitude and keeps clear of the poles', () => {
 test('zoom multiplies altitude within the limits', () => {
   const c = { lat: 0, lon: 0, altKm: 1000 };
   assert.equal(zoomCamera(c, 0.5).altKm, 500);
-  assert.equal(zoomCamera(c, 1e-6).altKm, 50);
+  assert.equal(zoomCamera(c, 1e-6).altKm, 1.5);
   assert.equal(zoomCamera(c, 1e6).altKm, 40000);
 });
 
@@ -125,4 +127,26 @@ test('the floor is the 50 km limit until markers stand higher', async () => {
   assert.ok(cameraFloorKm(274) > 274);
   assert.ok(cameraFloorKm(1e9) <= MAX_ALTITUDE_KM);
   assert.equal(cameraFloorKm(Number.NaN), MIN_ALTITUDE_KM);
+});
+
+test('close in over terrain: 1.5 km at the least, and always 150 m above the ground below', async () => {
+  const { terrainFloorKm, TERRAIN_CLEARANCE_KM } = await import('./camera.ts');
+  assert.equal(TERRAIN_CLEARANCE_KM, 0.15);
+  assert.equal(terrainFloorKm(0), 1.5);
+  assert.equal(terrainFloorKm(1.2), 1.5);
+  // Ben Nevis at ×4: 5.38 km of rendered ground.
+  assert.ok(Math.abs(terrainFloorKm(5.38) - 5.53) < 1e-9);
+  assert.equal(terrainFloorKm(Number.NaN), 1.5);
+  assert.equal(terrainFloorKm(-3), 1.5);
+});
+
+test('the near plane stays inside the 150 m clearance at every close-up altitude', async () => {
+  const { clipPlanes, terrainFloorKm } = await import('./camera.ts');
+  const { EARTH_RADIUS_KM } = await import('./projection.ts');
+  // Up to Everest at the highest HEIGHTS, ×20.
+  for (const ground of [0, 0.5, 1.3, 5.4, 26.9, 177]) {
+    const alt = terrainFloorKm(ground);
+    const { near } = clipPlanes(alt, alt - ground);
+    assert.ok(near * EARTH_RADIUS_KM < alt - ground, `ground ${ground}: near ${near * EARTH_RADIUS_KM} km`);
+  }
 });

@@ -9,6 +9,7 @@ import { DEFAULT_EXAGGERATION, MAX_EXAGGERATION, MIN_EXAGGERATION, clampExaggera
 import { loadOutlines } from './outlineAssets.ts';
 import { type Region, buildRegions, describeCamera, regionAt } from './presets.ts';
 import { type GlobeOutlines, GlobeRenderer, webglAvailable } from './renderer.ts';
+import type { GlobeTileLayer } from './tileLayer.ts';
 import './globe.css';
 
 /* The operating picture as a 3D globe. Loaded lazily, with three.js and the bundled
@@ -40,6 +41,9 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
   const [hover, setHover] = React.useState<string | null>(null);
   const [heights, setHeights] = React.useState(DEFAULT_EXAGGERATION);
   const [camera, setCamera] = React.useState<CameraState | null>(null);
+  // Map tiles: the layer, once its module has loaded, and whether the network answers.
+  const layerRef = React.useRef<GlobeTileLayer | null>(null);
+  const [tileState, setTileState] = React.useState<'online' | 'offline' | null>(null);
   const mode = useResolvedMode();
   const summaryId = React.useId();
 
@@ -79,7 +83,24 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
     }
     rendererRef.current = r;
     r.flyTo(sector.camera, true);
+    // The tile layer is its own chunk, behind the tiles switch: with the switch off
+    // the build has neither the layer nor any tile host. [FR-H-1]
+    let live = true;
+    if (__HEIMDALL_TILES__) {
+      import('../tiles/globeTiles.ts').then(
+        ({ GlobeTiles }) => {
+          if (!live) return;
+          const layer = new GlobeTiles(r.tileHost, { onState: (s) => { if (live) setTileState(s); } });
+          layerRef.current = layer;
+          r.setTileLayer(layer);
+          setTileState(layer.state);
+        },
+        () => { if (live) setTileState('offline'); },
+      );
+    }
     return () => {
+      live = false;
+      layerRef.current = null;
       rendererRef.current = null;
       r.dispose();
     };
@@ -89,6 +110,7 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
   React.useEffect(() => {
     const r = rendererRef.current;
     if (!r) return;
+    r.setHeights(clampExaggeration(heights));
     r.setItems(items);
     const byId = new Map(tracks.map((t) => [t.id, t]));
     r.setLabelText((id) => {
@@ -172,6 +194,9 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
       />
       <div ref={labelsRef} className="hg-globe-labels" aria-hidden="true" />
       {!outlines && <div className="hg-globe-loading" role="status">LOADING 3D VIEW…</div>}
+      {tileState === 'offline' && (
+        <div className="hg-globe-notice" role="status">MAP TILES NEED A CONNECTION</div>
+      )}
       {hovered && (
         <div ref={tooltipRef} style={{ position: 'absolute', left: 0, top: 0, zIndex: 5, pointerEvents: 'none', display: 'none' }}>
           <TrackTooltip track={hovered} selected={hovered.id === selectedId} style={{ position: 'relative' }} />
@@ -231,7 +256,7 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
           <div className="hg-globe-readout" aria-hidden="true">
             {camera ? (
               <>
-                <div>ALT {Math.round(camera.altKm).toLocaleString('en-GB')} KM</div>
+                <div>ALT {camera.altKm < 10 ? camera.altKm.toFixed(1) : Math.round(camera.altKm).toLocaleString('en-GB')} KM</div>
                 <div>{Math.abs(camera.lat).toFixed(2)}° {camera.lat < 0 ? 'S' : 'N'} · {Math.abs(camera.lon).toFixed(2)}° {camera.lon < 0 ? 'W' : 'E'}</div>
                 <div>OVER {current?.label ?? 'OPEN GLOBE'}</div>
               </>

@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { fileURLToPath, URL } from 'node:url';
 
@@ -7,9 +7,21 @@ import { fileURLToPath, URL } from 'node:url';
 // separate lib build step; a future HTTP gateway swaps in behind @midgard/sdk only.
 const r = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 
-export default defineConfig({
+/** The map tiles switch, `VITE_HEIMDALL_TILES`: on unless set to off, false, 0 or no.
+ *  It becomes the build-time constant `__HEIMDALL_TILES__`, so with it off every tile
+ *  module, and every tile host name, is left out of the bundle. [FR-H-1] */
+export function tilesEnabled(value: string | undefined): boolean {
+  return !['off', 'false', '0', 'no'].includes((value ?? '').trim().toLowerCase());
+}
+
+export default defineConfig(({ mode }) => ({
   base: './',
   plugins: [react()],
+  define: {
+    __HEIMDALL_TILES__: JSON.stringify(
+      tilesEnabled(process.env.VITE_HEIMDALL_TILES ?? loadEnv(mode, process.cwd(), 'VITE_').VITE_HEIMDALL_TILES),
+    ),
+  },
   resolve: {
     alias: {
       '@midgard/design-system/tokens.css': r('../../../ui/design-system/src/tokens/styles.css'),
@@ -31,4 +43,4 @@ export default defineConfig({
     // just above it; the main chunk stays far below. [FR-H-1]
     chunkSizeWarningLimit: 600,
   },
-});
+}));

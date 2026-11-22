@@ -7,7 +7,13 @@
  * and the track markers. The camera, the markers' placement and the picking are the
  * pure modules beside this file; this one only draws and listens. Nothing here makes
  * a network request: the bundled outlines are handed in by the view, which fetches
- * them from the console's own files. */
+ * them from the console's own files.
+ *
+ * With the map tiles on, a tile layer (`setTileLayer`) draws terrain patches over the
+ * sphere, which then sits just below sea level; the camera may come down to the
+ * 1.5 km close-up, kept 150 m above the terrain under it, and tracks on the surface
+ * stand on the terrain. While the layer is inactive (tiles off, or offline) all of
+ * this is as before. */
 import * as THREE from 'three';
 
 import {
@@ -15,6 +21,7 @@ import {
   type CameraState,
   MIN_ALTITUDE_KM,
   clipPlanes,
+  terrainFloorKm,
   flyDurationMs,
   interpolateCamera,
   normaliseCamera,
@@ -27,6 +34,7 @@ import type { GlobeItem } from './items.ts';
 import { type OutlineFile, coastFromLand, decodeLine } from './outlines.ts';
 import { isOccluded, toXyz } from './projection.ts';
 import { subsolarPoint } from './sun.ts';
+import type { GlobeTileLayer, TileLayerHost } from './tileLayer.ts';
 
 /** Below this altitude the 1:50m outlines replace the 1:110m ones. */
 const DETAIL_BELOW_KM = 3000;
@@ -35,6 +43,11 @@ const LABELS_BELOW_KM = 6000;
 const MARKER_PX = 13;
 const PICK_PX = 14;
 const TEXTURE_WIDTH = 4096;
+/** With tiles drawn, the sphere sits this far under sea level (radii; about 640 m). */
+const SPHERE_UNDER_TILES = 0.9999;
+/** With tiles drawn, the outline lines are hidden below this altitude: they sit a few
+ *  km up for the far view and would float over the terrain close in. */
+const LINES_HIDDEN_BELOW_KM = 150;
 
 export interface GlobeCallbacks {
   /** The track under the pointer, or null. */
@@ -160,6 +173,10 @@ interface Marker {
   sprite: THREE.Sprite;
   drop: THREE.Line | null;
   label: HTMLDivElement;
+  /** Where the marker is drawn: `item.position`, or on the terrain when that is higher. */
+  pos: THREE.Vector3;
+  /** The ground it stands on, km times HEIGHTS (0 = sea level). */
+  groundKm: number;
 }
 
 export class GlobeRenderer {
@@ -170,6 +187,12 @@ export class GlobeRenderer {
   private readonly atmosphereMat: THREE.ShaderMaterial;
   private readonly landTexture: THREE.CanvasTexture;
   private readonly landCanvas: HTMLCanvasElement;
+  private readonly globeMesh: THREE.Mesh;
+  private readonly sunDir = new THREE.Vector3(1, 0, 0);
+  private readonly night = { value: 0.5 };
+  private tiles: GlobeTileLayer | null = null;
+  private tilesShown = false;
+  private heights = 4;
   private readonly lines: { mat: THREE.LineBasicMaterial; obj: THREE.LineSegments; kind: 'graticule' | 'coast' | 'border'; detail: 'far' | 'near' | 'all' }[] = [];
   private readonly textures: Record<Shape, THREE.CanvasTexture>;
   private readonly markerGroup = new THREE.Group();
@@ -223,11 +246,12 @@ export class GlobeRenderer {
     this.paintLand();
 
     this.globeMat = new THREE.ShaderMaterial({
-      uniforms: { map: { value: this.landTexture }, sunDir: { value: new THREE.Vector3(1, 0, 0) }, night: { value: 0.5 } },
+      uniforms: { map: { value: this.landTexture }, sunDir: { value: this.sunDir }, night: this.night },
       vertexShader: GLOBE_VERTEX,
       fragmentShader: GLOBE_FRAGMENT,
     });
-    this.scene.add(new THREE.Mesh(new THREE.SphereGeometry(1, 160, 80), this.globeMat));
+    this.globeMesh = new THREE.Mesh(new THREE.SphereGeometry(1, 160, 80), this.globeMat);
+    this.scene.add(this.globeMesh);
 
     this.atmosphereMat = new THREE.ShaderMaterial({
       uniforms: { glow: { value: toColor(colours.atmosphere) }, strength: { value: 0.5 } },
@@ -271,6 +295,32 @@ export class GlobeRenderer {
     return this.cam;
   }
 
+  /** What a tile layer shares with the globe: the sun, the night and the clean style. */
+  get tileHost(): TileLayerHost {
+    return { sunDir: this.sunDir, night: this.night, landTexture: this.landTexture, requestRender: () => this.requestRender() };
+  }
+
+  /** Draws map tiles with this layer, or none. The renderer disposes of it. */
+  setTileLayer(layer: GlobeTileLayer | null): void {
+    if (this.tiles) {
+      this.scene.remove(this.tiles.object);
+      this.tiles.dispose();
+    }
+    this.tiles = layer;
+    if (layer) {
+      layer.setExaggeration(this.heights);
+      this.scene.add(layer.object);
+    }
+    this.applyCamera();
+  }
+
+  /** The HEIGHTS setting, for the terrain. Markers carry their own exaggerated heights. */
+  setHeights(k: number): void {
+    this.heights = k;
+    this.tiles?.setExaggeration(k);
+    this.requestRender();
+  }
+
   setColours(colours: GlobeColours): void {
     this.colours = colours;
     this.paintLand();
@@ -310,11 +360,13 @@ export class GlobeRenderer {
       label.className = 'hg-globe-label';
       label.textContent = item.id;
       this.labelLayer.appendChild(label);
-      const m: Marker = { item, sprite, drop, label };
+      const pos = new THREE.Vector3(item.position.x, item.position.y, item.position.z);
+      const m: Marker = { item, sprite, drop, label, pos, groundKm: 0 };
       this.styleMarker(m);
       return m;
     });
     if (this.hovered && !this.markers.some((m) => m.item.id === this.hovered)) this.setHovered(null);
+    this.standOnTerrain();
     this.styleSelection();
     this.requestRender();
   }
@@ -380,6 +432,8 @@ export class GlobeRenderer {
       else mat?.dispose();
     });
     for (const t of Object.values(this.textures)) t.dispose();
+    this.tiles?.dispose();
+    this.tiles = null;
     this.landTexture.dispose();
     this.renderer.dispose();
     this.renderer.forceContextLoss();
@@ -443,7 +497,7 @@ export class GlobeRenderer {
     const m = this.markers.find((x) => x.item.id === this.selected);
     this.selectRing.visible = Boolean(m);
     if (m) {
-      this.selectRing.position.copy(m.sprite.position);
+      this.selectRing.position.copy(m.pos);
       (this.selectRing.material as THREE.SpriteMaterial).color = toColor(m.item.tone === 'warn' ? this.colours.warn : this.colours.accent);
     }
     for (const x of this.markers) x.label.dataset.selected = String(x.item.id === this.selected);
@@ -452,7 +506,7 @@ export class GlobeRenderer {
   private updateSun(): void {
     const s = subsolarPoint(new Date());
     const p = toXyz(s.lat, s.lon);
-    (this.globeMat.uniforms.sunDir.value as THREE.Vector3).set(p.x, p.y, p.z).normalize();
+    this.sunDir.set(p.x, p.y, p.z).normalize();
   }
 
   private onResize(): void {
@@ -464,9 +518,21 @@ export class GlobeRenderer {
     this.requestRender();
   }
 
+  /** The ground under the camera, when tiles are drawn and it is known; else 0. */
+  private groundUnderCamera(): number {
+    return this.tilesShown ? (this.tiles?.groundKm(this.cam.lat, this.cam.lon) ?? 0) : 0;
+  }
+
+  /** The lowest the camera may go now: over terrain with tiles, else the 1a floor. */
+  private currentFloor(): number {
+    return this.tilesShown ? terrainFloorKm(this.groundUnderCamera()) : this.floorKm;
+  }
+
   private applyCamera(): void {
-    if (this.cam.altKm < this.floorKm) this.cam = { ...this.cam, altKm: this.floorKm };
-    const { near, far } = clipPlanes(this.cam.altKm);
+    const floor = this.currentFloor();
+    if (this.cam.altKm < floor) this.cam = { ...this.cam, altKm: floor };
+    const clearance = this.tilesShown ? this.cam.altKm - this.groundUnderCamera() : Infinity;
+    const { near, far } = clipPlanes(this.cam.altKm, clearance);
     const p = toXyz(this.cam.lat, this.cam.lon, this.cam.altKm);
     this.camera3.position.set(p.x, p.y, p.z);
     this.camera3.up.set(0, 1, 0);
@@ -477,7 +543,8 @@ export class GlobeRenderer {
     // Labels and picking project with this camera before the next render updates it.
     this.camera3.updateMatrixWorld();
     const closeIn = this.cam.altKm < DETAIL_BELOW_KM;
-    for (const l of this.lines) l.obj.visible = l.detail === 'all' || (l.detail === 'near') === closeIn;
+    const linesOff = this.tilesShown && this.cam.altKm < LINES_HIDDEN_BELOW_KM;
+    for (const l of this.lines) l.obj.visible = !linesOff && (l.detail === 'all' || (l.detail === 'near') === closeIn);
     // The atmosphere fades out as the camera comes down into it.
     this.atmosphereMat.uniforms.strength.value = Math.min(0.55, Math.max(0, (this.cam.altKm - 250) / 1500));
     this.cb.onCamera(this.cam, false);
@@ -505,8 +572,50 @@ export class GlobeRenderer {
         this.applyCamera();
       }
     }
+    this.updateTiles();
     this.placeOverlays();
     this.renderer.render(this.scene, this.camera3);
+  }
+
+  /** Lets the tile layer pick and fetch for this frame, then follows what it shows. */
+  private updateTiles(): void {
+    const t = this.tiles;
+    if (!t) return;
+    t.update(this.cam, this.height, this.width / this.height);
+    const shown = t.active;
+    if (shown !== this.tilesShown) {
+      this.tilesShown = shown;
+      this.globeMesh.scale.setScalar(shown ? SPHERE_UNDER_TILES : 1);
+      this.applyCamera();
+      this.cb.onCamera(this.cam, true);
+    } else if (shown && this.cam.altKm < this.currentFloor()) {
+      // Terrain arrived under the camera: stay above it.
+      this.applyCamera();
+      this.cb.onCamera(this.cam, true);
+    }
+    this.standOnTerrain();
+  }
+
+  /** Puts surface tracks on the terrain, and back on the sphere when tiles go. */
+  private standOnTerrain(): void {
+    for (const m of this.markers) {
+      const ground = this.tilesShown ? (this.tiles?.groundKm(m.item.lat, m.item.lon) ?? 0) : 0;
+      if (Math.abs(ground - m.groundKm) < 1e-3) continue;
+      m.groundKm = ground;
+      const own = m.item.altitudeKm * this.heights;
+      const p = own > ground ? m.item.position : toXyz(m.item.lat, m.item.lon, ground);
+      m.pos.set(p.x, p.y, p.z);
+      m.sprite.position.copy(m.pos);
+      if (m.drop) {
+        const g = toXyz(m.item.lat, m.item.lon, ground);
+        const attr = m.drop.geometry.getAttribute('position') as THREE.BufferAttribute;
+        attr.setXYZ(0, g.x, g.y, g.z);
+        attr.setXYZ(1, m.pos.x, m.pos.y, m.pos.z);
+        attr.needsUpdate = true;
+        m.drop.geometry.computeBoundingSphere();
+      }
+    }
+    this.styleSelection();
   }
 
   /** Marker size, visibility and the HTML labels and tooltip, for this frame. */
@@ -515,12 +624,12 @@ export class GlobeRenderer {
     const camPos = this.camera3.position;
     const v = new THREE.Vector3();
     for (const m of this.markers) {
-      const hidden = isOccluded(camPos, m.item.position);
+      const hidden = isOccluded(camPos, m.pos);
       const big = m.item.id === this.hovered ? 1.35 : 1;
       m.sprite.scale.set(scale * big, scale * big, 1);
       m.sprite.visible = !hidden;
       if (m.drop) m.drop.visible = !hidden;
-      v.set(m.item.position.x, m.item.position.y, m.item.position.z).project(this.camera3);
+      v.copy(m.pos).project(this.camera3);
       const x = ((v.x + 1) / 2) * this.width;
       const y = ((1 - v.y) / 2) * this.height;
       const onScreen = !hidden && v.z > -1 && v.z < 1 && x > -40 && x < this.width + 40 && y > -40 && y < this.height + 40;
@@ -635,8 +744,8 @@ export class GlobeRenderer {
     let best: string | null = null;
     let bestD = PICK_PX;
     for (const m of this.markers) {
-      if (isOccluded(this.camera3.position, m.item.position)) continue;
-      v.set(m.item.position.x, m.item.position.y, m.item.position.z).project(this.camera3);
+      if (isOccluded(this.camera3.position, m.pos)) continue;
+      v.copy(m.pos).project(this.camera3);
       if (v.z <= -1 || v.z >= 1) continue;
       const d = Math.hypot(((v.x + 1) / 2) * this.width - px, ((1 - v.y) / 2) * this.height - py);
       if (d <= bestD) {

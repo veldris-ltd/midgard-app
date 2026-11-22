@@ -12,8 +12,12 @@ export interface CameraState {
   altKm: number;
 }
 
-/** Closest and farthest the camera may be from the surface. */
+/** The floor without map tiles: no closer than this to the surface. */
 export const MIN_ALTITUDE_KM = 50;
+/** With terrain tiles the camera may come down to this, over the sea or low ground. */
+export const CLOSE_UP_ALTITUDE_KM = 1.5;
+/** ...and stays at least this far above the terrain under it. */
+export const TERRAIN_CLEARANCE_KM = 0.15;
 export const MAX_ALTITUDE_KM = 40000;
 /** Vertical field of view of the globe camera, in degrees. */
 export const CAMERA_FOV_DEG = 45;
@@ -23,9 +27,20 @@ const MAX_CAMERA_LAT = 89;
 const RAD = Math.PI / 180;
 const KM_PER_DEG = (Math.PI * EARTH_RADIUS_KM) / 180;
 
+/** Altitude within the absolute limits. The renderer applies the floor in force on top
+ *  (`cameraFloorKm` without tiles, `terrainFloorKm` with them). */
 export function clampAltitude(altKm: number): number {
   if (Number.isNaN(altKm)) return MAX_ALTITUDE_KM;
-  return Math.min(MAX_ALTITUDE_KM, Math.max(MIN_ALTITUDE_KM, altKm));
+  return Math.min(MAX_ALTITUDE_KM, Math.max(CLOSE_UP_ALTITUDE_KM, altKm));
+}
+
+/**
+ * The floor over terrain: the 1.5 km close-up, or 150 m above the ground under the
+ * camera (`groundKm`, already multiplied by HEIGHTS), whichever is higher.
+ */
+export function terrainFloorKm(groundKm: number): number {
+  const g = Number.isFinite(groundKm) ? Math.max(0, groundKm) : 0;
+  return clampAltitude(Math.max(CLOSE_UP_ALTITUDE_KM, g + TERRAIN_CLEARANCE_KM));
 }
 
 export function normaliseCamera(c: CameraState): CameraState {
@@ -103,10 +118,13 @@ export function cameraFloorKm(highestMarkerKm: number): number {
 
 /**
  * Near and far clip planes, in globe radii, for a camera `altKm` up. The near plane
- * is 2% of the altitude, so a marker 25 km under the lowest camera is still drawn;
- * the far plane reaches past the horizon.
+ * is 2% of the altitude, so a marker 25 km under the lowest camera is still drawn,
+ * and never more than half the camera's clearance over the terrain (`clearanceKm`),
+ * so the ground under a close-up is never clipped; the far plane reaches past the
+ * horizon.
  */
-export function clipPlanes(altKm: number): { near: number; far: number } {
-  const altUnits = clampAltitude(altKm) / EARTH_RADIUS_KM;
-  return { near: Math.max(1e-5, altUnits * 0.02), far: altUnits + 2.5 };
+export function clipPlanes(altKm: number, clearanceKm = Infinity): { near: number; far: number } {
+  const alt = clampAltitude(altKm);
+  const nearKm = Math.min(alt * 0.02, Math.max(0, clearanceKm) / 2);
+  return { near: Math.max(1e-6, nearKm / EARTH_RADIUS_KM), far: alt / EARTH_RADIUS_KM + 2.5 };
 }

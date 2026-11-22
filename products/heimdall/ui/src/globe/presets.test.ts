@@ -62,4 +62,9 @@ test('describeCamera reads well aloud', () => {
     describeCamera({ lat: -30, lon: 140, altKm: 20000 }, regions),
     'Camera 20,000 km above 30.00° S, 140.00° E, over open globe.',
   );
+  // Close in, the altitude keeps a decimal.
+  assert.equal(
+    describeCamera({ lat: 56.8, lon: -5, altKm: 1.54 }, regions),
+    'Camera 1.5 km above 56.80° N, 5.00° W, over SECTOR NORTH.',
+  );
 });

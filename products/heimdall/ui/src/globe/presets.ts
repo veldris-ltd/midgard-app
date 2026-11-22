@@ -104,5 +104,6 @@ export function describeCamera(c: CameraState, regions: readonly Region[]): stri
   const ns = c.lat < 0 ? 'S' : 'N';
   const ew = c.lon < 0 ? 'W' : 'E';
   const over = regionAt(c.lat, c.lon, regions)?.label ?? 'open globe';
-  return `Camera ${grouped(c.altKm)} km above ${Math.abs(c.lat).toFixed(2)}° ${ns}, ${Math.abs(c.lon).toFixed(2)}° ${ew}, over ${over}.`;
+  const alt = c.altKm < 10 ? c.altKm.toFixed(1) : grouped(c.altKm);
+  return `Camera ${alt} km above ${Math.abs(c.lat).toFixed(2)}° ${ns}, ${Math.abs(c.lon).toFixed(2)}° ${ew}, over ${over}.`;
 }
