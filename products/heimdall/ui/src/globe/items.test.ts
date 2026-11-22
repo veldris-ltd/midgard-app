@@ -76,3 +76,37 @@ test('items carry their layer for the marker shape', () => {
   const items = tracksToGlobeItems(TRACKS, allOn, 4);
   assert.deepEqual(items.map((i) => i.layer), ['air', 'maritime', 'air', 'ground', 'air']);
 });
+
+test('airborne tracks get a stem from the marker down to the ground; surface tracks none', async () => {
+  const items = tracksToGlobeItems(TRACKS, allOn, 4);
+  const a = items.find((i) => i.id === 'A')!;
+  assert.ok(a.stem);
+  const [top, bottom] = a.stem!;
+  assert.deepEqual(top, a.position);
+  assert.deepEqual(bottom, a.ground);
+  const km = (34000 * FEET_TO_METRES) / 1000;
+  assert.ok(Math.abs(fromXyz(top).altKm - km * 4) < 1e-6);
+  assert.ok(Math.abs(fromXyz(bottom).altKm) < 1e-9);
+  const lt = fromXyz(top), lb = fromXyz(bottom);
+  assert.ok(Math.abs(lt.lat - lb.lat) < 1e-9 && Math.abs(lt.lon - lb.lon) < 1e-9, 'the stem is vertical');
+  assert.equal(items.find((i) => i.id === 'V')!.stem, null);
+  assert.equal(items.find((i) => i.id === 'G')!.stem, null);
+  // An unreadable altitude is drawn on the surface, so it has no stem either.
+  assert.equal(items.find((i) => i.id === 'Q')!.stem, null);
+});
+
+test('aircraft and vessels point along their heading; ground units do not', async () => {
+  const items = tracksToGlobeItems(
+    TRACKS.map((t) => ({ ...t, hdg: 90 })),
+    allOn,
+    4,
+  );
+  assert.equal(items.find((i) => i.id === 'A')!.heading, 90);
+  assert.equal(items.find((i) => i.id === 'V')!.heading, 90);
+  assert.equal(items.find((i) => i.id === 'G')!.heading, null);
+  const { headingTangent } = await import('./projection.ts');
+  const east = headingTangent(0, 0, 90);
+  assert.ok(Math.abs(east.z + 1) < 1e-12 && Math.abs(east.x) < 1e-12 && Math.abs(east.y) < 1e-12);
+  const north = headingTangent(0, 0, 0);
+  assert.ok(Math.abs(north.y - 1) < 1e-12);
+});

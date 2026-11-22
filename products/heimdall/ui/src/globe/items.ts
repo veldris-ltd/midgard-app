@@ -28,8 +28,13 @@ export interface GlobeItem {
   trend: AltitudeTrend;
   /** Marker position on the unit globe, at the exaggerated altitude. */
   position: Vec3;
-  /** The point on the surface below it, for the drop line. */
+  /** The point on the surface below it. */
   ground: Vec3;
+  /** The vertical stem from the marker down to the ground, so its height reads at any
+   *  tilt; null for a track drawn on the surface. */
+  stem: [Vec3, Vec3] | null;
+  /** Bearing the marker points along (aircraft and vessels with a heading), or null. */
+  heading: number | null;
 }
 
 export function clampExaggeration(x: number): number {
@@ -56,6 +61,9 @@ export function tracksToGlobeItems(
     if (!positioned(t) || !layerOn(t.layer)) continue;
     const alt = parseAltitude(t.alt);
     const altitudeKm = alt ? alt.metres / 1000 : 0;
+    const position = toXyz(t.lat, t.lon, altitudeKm * k);
+    const ground = toXyz(t.lat, t.lon, 0);
+    const pointed = (t.layer === 'air' || t.layer === 'maritime') && Number.isFinite(t.hdg);
     items.push({
       id: t.id,
       layer: t.layer,
@@ -65,8 +73,10 @@ export function tracksToGlobeItems(
       altitudeKm,
       altitudeKnown: alt !== null,
       trend: alt?.trend ?? 'level',
-      position: toXyz(t.lat, t.lon, altitudeKm * k),
-      ground: toXyz(t.lat, t.lon, 0),
+      position,
+      ground,
+      stem: altitudeKm > 0 ? [position, ground] : null,
+      heading: pointed ? ((t.hdg % 360) + 360) % 360 : null,
     });
   }
   return items;
