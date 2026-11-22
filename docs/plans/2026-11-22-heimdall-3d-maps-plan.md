@@ -134,3 +134,23 @@ apart from the Stage 1b map tiles.
   `dev` as a single pull request. `heimdall_3d` and `heimdall_maps` stay local.
 - **Security audit.** A full security audit of this core build runs before the pull
   request.
+
+## After the security audit (22 Nov 2026)
+
+`VITE_HEIMDALL_TILES` above is superseded by `VITE_HEIMDALL_TILE_SOURCE`:
+
+| Value | Behaviour |
+|---|---|
+| `none` | The default and the signed artefact: no tile code and no egress, so THREAT_MODEL "no egress" and NFR-PRV-1 hold. |
+| `mirror` | Tiles only from `VITE_HEIMDALL_TILE_MIRROR`, an internal HTTPS mirror. |
+| `public` | Demo only: the three public hosts. Tile loading pauses after any camera move driven by the tracks. |
+
+Any other value fails the build.
+
+Untrusted tiles are decoded in a same-origin worker, with byte, dimension, feature and
+time limits.
+
+The audit found no Critical or High issues. Its Medium findings are fixed, and the
+residual-risk entry is rewritten. The dev signing key is **not** added to
+`deploy/trust/allowed_signers`, because that file is also the release-tag signer list;
+commits are verified through GitHub.
