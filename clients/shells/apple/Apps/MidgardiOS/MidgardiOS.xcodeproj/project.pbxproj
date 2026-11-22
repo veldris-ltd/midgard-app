@@ -14,11 +14,13 @@
 		2BCF3AED59747988FC7DD14E /* MidgardGlobeKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4F1560A8F53E3761A484D3E7 /* MidgardGlobeKit */; };
 		37549767AF849D7B48163655 /* MidgardKit in Frameworks */ = {isa = PBXBuildFile; productRef = E92ECC69BDBB66C2316FE0C8 /* MidgardKit */; };
 		3CD7B12CA0498CE4CE44D602 /* AccessibilityAudit.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC2A3D5A6F5594F93A07AFF4 /* AccessibilityAudit.swift */; };
+		40BC10DD225D6FC6CDF25E6F /* HeimdallPictureFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0921C9C2A4C059101F8C3936 /* HeimdallPictureFlowTests.swift */; };
 		48278A085C2A9AACB165A68A /* Edition.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9DC218D77D2F0213CB2FDFB /* Edition.swift */; };
 		53342883EB4C607FC511A5E8 /* MidgardGlobeKit in Frameworks */ = {isa = PBXBuildFile; productRef = 290CCCAC18CE3AB897F70F8C /* MidgardGlobeKit */; };
 		53750B22B3FA8FC1104CDBCA /* Edition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79CFE133F31B048E9BAE2C47 /* Edition.swift */; };
 		590023073AC207A06265843C /* MidgardiOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEAD789E2E1859BD0DD1CC83 /* MidgardiOSApp.swift */; };
 		70292BA195407A262FC6FF7E /* MidgardAuditKit in Frameworks */ = {isa = PBXBuildFile; productRef = 51BCBF8140BD2029C24C25AE /* MidgardAuditKit */; };
+		7EC27D779D3823254D627F51 /* HeimdallPictureFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0921C9C2A4C059101F8C3936 /* HeimdallPictureFlowTests.swift */; };
 		8435284787E9A50C343037E9 /* MidgardAuditKit in Frameworks */ = {isa = PBXBuildFile; productRef = B74B1683299E9FDA4F81656A /* MidgardAuditKit */; };
 		887541FFB7FD765609CDB790 /* AccessibilityAudit.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC2A3D5A6F5594F93A07AFF4 /* AccessibilityAudit.swift */; };
 		93BDD0D21C96DEA5F8424484 /* Edition.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDA680AC8C5741514BEDB7FE /* Edition.swift */; };
@@ -35,6 +37,7 @@
 		DB65AB6B35EE63F075BA06AF /* EditionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57336E7E400D5D3788353F2B /* EditionTests.swift */; };
 		E72FA0FF5999CD0731FC2065 /* AppNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C7C5AB080B324A94894BFF /* AppNavigation.swift */; };
 		F351A1731D3A36D19E569195 /* MidgardiOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEAD789E2E1859BD0DD1CC83 /* MidgardiOSApp.swift */; };
+		F5E24701278B954D5866E416 /* HeimdallPictureFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0921C9C2A4C059101F8C3936 /* HeimdallPictureFlowTests.swift */; };
 		F634EC179EDC270D1F74C498 /* EditionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57336E7E400D5D3788353F2B /* EditionTests.swift */; };
 /* End PBXBuildFile section */
 
@@ -63,6 +66,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		0921C9C2A4C059101F8C3936 /* HeimdallPictureFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeimdallPictureFlowTests.swift; sourceTree = "<group>"; };
 		1CCFC88D9118CC9B89E68171 /* MidgardiOSUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = MidgardiOSUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		34824E36E0A06B2673FF4D6A /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 		49D6B35EFADEBFE6B5B92AA7 /* MidgardiOSMapsUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = MidgardiOSMapsUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -180,6 +184,7 @@
 				BC2A3D5A6F5594F93A07AFF4 /* AccessibilityAudit.swift */,
 				C7C7C5AB080B324A94894BFF /* AppNavigation.swift */,
 				57336E7E400D5D3788353F2B /* EditionTests.swift */,
+				0921C9C2A4C059101F8C3936 /* HeimdallPictureFlowTests.swift */,
 				BF02CDCC2435DDB79E9FBD42 /* SessionFlowTests.swift */,
 			);
 			path = UITests;
@@ -542,6 +547,7 @@
 				C6D5B64CDD9ED4B6495BBD51 /* AppNavigation.swift in Sources */,
 				53750B22B3FA8FC1104CDBCA /* Edition.swift in Sources */,
 				DB65AB6B35EE63F075BA06AF /* EditionTests.swift in Sources */,
+				7EC27D779D3823254D627F51 /* HeimdallPictureFlowTests.swift in Sources */,
 				1F27535C99E29CF6849780C0 /* SessionFlowTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -554,6 +560,7 @@
 				E72FA0FF5999CD0731FC2065 /* AppNavigation.swift in Sources */,
 				93BDD0D21C96DEA5F8424484 /* Edition.swift in Sources */,
 				F634EC179EDC270D1F74C498 /* EditionTests.swift in Sources */,
+				40BC10DD225D6FC6CDF25E6F /* HeimdallPictureFlowTests.swift in Sources */,
 				A6CA25FADB86F5188BE750EE /* SessionFlowTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -566,6 +573,7 @@
 				B360CBB104D01D28004C3B0A /* AppNavigation.swift in Sources */,
 				48278A085C2A9AACB165A68A /* Edition.swift in Sources */,
 				A06E18AA328632DC9CC53F16 /* EditionTests.swift in Sources */,
+				F5E24701278B954D5866E416 /* HeimdallPictureFlowTests.swift in Sources */,
 				0E5488ACDE2B35A170F5D00C /* SessionFlowTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

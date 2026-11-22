@@ -9,7 +9,13 @@ enum AppNavigation {
     static let consoles = ["Midgard", "Admin", "Heimdall", "Forge", "Mimir", "Bifrost"]
 
     static func enrolButton(_ app: XCUIApplication) -> XCUIElement { app.buttons["mg.0.enrol"] }
-    static func localPersona(_ app: XCUIApplication) -> XCUIElement { app.buttons["mg.0.persona.local"] }
+    /// The persona the tests sign in as: K. Osei, the web Heimdall console's own subject
+    /// (confidential, OPS-N), who sees the whole sample picture.
+    static let persona = "k.osei"
+    static func personaButton(_ app: XCUIApplication, _ id: String = persona) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "identifier MATCHES %@",
+                                         "mg\\.[0-9]+\\.persona\\.\(id.replacingOccurrences(of: ".", with: "\\."))")).firstMatch
+    }
     static func unlockButton(_ app: XCUIApplication) -> XCUIElement { app.buttons["mg.0.unlock"] }
     static func consoleMarker(_ app: XCUIApplication) -> XCUIElement {
         app.descendants(matching: .any)["mg.console.selected"]
@@ -30,16 +36,16 @@ enum AppNavigation {
 
     /// The sign-in screen: enrols this (fresh) device first if it asks.
     static func toSignIn(_ app: XCUIApplication) {
-        if first(of: [enrolButton(app), localPersona(app)])?.identifier == "mg.0.enrol" {
+        if first(of: [enrolButton(app), personaButton(app)])?.identifier == "mg.0.enrol" {
             enrolButton(app).tap()
         }
-        XCTAssertTrue(localPersona(app).waitForExistence(timeout: timeout), "the sign-in screen did not appear")
+        XCTAssertTrue(personaButton(app).waitForExistence(timeout: timeout), "the sign-in screen did not appear")
     }
 
-    /// Signed in as `local` (enrolling or unlocking as needed), inside a console.
+    /// Signed in as `persona` (enrolling or unlocking as needed), inside a console.
     static func signIn(_ app: XCUIApplication) {
         for _ in 0..<3 {
-            guard let found = first(of: [consoleMarker(app), enrolButton(app), localPersona(app), unlockButton(app)])
+            guard let found = first(of: [consoleMarker(app), enrolButton(app), personaButton(app), unlockButton(app)])
             else { return }
             if found.identifier == "mg.console.selected" { return }
             found.tap()
@@ -79,7 +85,7 @@ enum AppNavigation {
         signIn(app)
         selectConsole(app, 3)
         tapClearOfConsoleBar(app, app.buttons["mg.1.heimdall.operating-picture"])
-        XCTAssertTrue(app.descendants(matching: .any)["mg.placeholder.heimdall.operating-picture"]
+        XCTAssertTrue(app.descendants(matching: .any)["mg.content.heimdall.operating-picture"]
             .waitForExistence(timeout: timeout), "the Operating Picture did not open")
         let entry = app.buttons["mg.heimdall.3d"]
         XCTAssertTrue(entry.waitForExistence(timeout: timeout), "no 3D entry in Heimdall")
@@ -104,6 +110,15 @@ enum AppNavigation {
         let bottom = min(row.frame.maxY, bar.frame.minY)
         guard bottom - top >= 8 else { return row.tap() }
         app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: row.frame.midX, dy: (top + bottom) / 2)).tap()
+    }
+
+    /// Heimdall's Operating Picture, opened.
+    static func openPicture(_ app: XCUIApplication) {
+        signIn(app)
+        selectConsole(app, 3)
+        tapClearOfConsoleBar(app, app.buttons["mg.1.heimdall.operating-picture"])
+        XCTAssertTrue(app.descendants(matching: .any)["mg.heimdall.track.E-0871"].waitForExistence(timeout: timeout),
+                      "the Operating Picture did not open")
     }
 
     /// Runs one of the session menu's commands.

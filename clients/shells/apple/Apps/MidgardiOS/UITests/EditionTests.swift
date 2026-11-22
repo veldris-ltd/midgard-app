@@ -22,7 +22,7 @@ final class EditionTests: XCTestCase {
 
     func testTheBannersSayWhichEditionThisIs() {
         AppNavigation.signIn(app)
-        XCTAssertTrue(element("mg.banner.nosource").waitForExistence(timeout: AppNavigation.timeout))
+        XCTAssertTrue(element("mg.banner.demo").waitForExistence(timeout: AppNavigation.timeout))
         for id in ["mg.banner.edition3d", "mg.banner.editionmaps"] where id != Edition.banner?.id {
             XCTAssertFalse(element(id).exists, "\(id) is not this edition's banner")
         }
@@ -46,7 +46,7 @@ final class EditionTests: XCTestCase {
             XCTAssertFalse(app.buttons["mg.heimdall.3d"].exists, "the entry is on the Operating Picture only")
         } else {
             app.buttons["mg.1.heimdall.operating-picture"].tap()
-            XCTAssertTrue(element("mg.placeholder.heimdall.operating-picture").waitForExistence(timeout: AppNavigation.timeout))
+            XCTAssertTrue(element("mg.content.heimdall.operating-picture").waitForExistence(timeout: AppNavigation.timeout))
             XCTAssertFalse(app.buttons["mg.heimdall.3d"].exists, "the release edition has no 3D entry")
             XCTAssertFalse(element("mg.heimdall.3d.view").exists)
         }

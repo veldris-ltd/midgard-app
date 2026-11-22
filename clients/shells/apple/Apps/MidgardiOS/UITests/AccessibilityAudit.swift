@@ -3,7 +3,8 @@ import XCTest
 
 /// The seven affordances (clients/shells/apple/accessibility.toml), measured on the
 /// iPhone apps, both editions, by clients/shells/apple/audit.sh: the sign-in screen, each
-/// console's list of screens, one screen, and the screens only this edition has
+/// console's list of screens, one screen, Heimdall's Operating Picture (the screen
+/// matched to the web suite), and the screens only this edition has
 /// (`Edition.auditedScreens`: the 3D view in Midgard 3D). [RC-49] [AC-C-11]
 final class AccessibilityAudit: AccessibilityAuditBase {
     override var screens: [(XCUIApplication) -> Void] {
@@ -15,6 +16,7 @@ final class AccessibilityAudit: AccessibilityAuditBase {
             }
         }
         list.append(AppNavigation.openDetail)
+        list.append(AppNavigation.openPicture)
         return list + Edition.auditedScreens
     }
 }

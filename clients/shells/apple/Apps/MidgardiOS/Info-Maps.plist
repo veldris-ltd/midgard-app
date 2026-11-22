@@ -23,7 +23,7 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>MidgardDataSource</key>
-	<string>none</string>
+	<string>sample</string>
 	<key>MidgardEdition</key>
 	<string>maps</string>
 	<key>NSFaceIDUsageDescription</key>

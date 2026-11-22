@@ -360,10 +360,12 @@ struct ScreenSearchField: View {
     }
 }
 
-/// A screen until its phase: what it is and when it arrives. In the 3D and maps
-/// editions, Heimdall's Operating Picture also offers the edition library's "3D view"
-/// entry (`AppModel.threeDEntry`, from the link-time edition provider); a release app has
-/// no provider, and the screen is exactly its placeholder. [FR-C-1]
+/// A screen until its phase: what it is and when it arrives; Heimdall's Operating
+/// Picture, matched to the web console (owner decision 22 Nov 2026), is built: the
+/// picture first and the inspector as a sheet (`HeimdallOperatingPictureCompact`). In the
+/// 3D and maps editions the Operating Picture also offers the edition library's "3D
+/// view" entry (`AppModel.threeDEntry`, from the link-time edition provider); a release
+/// app has no provider. [FR-C-1] [FR-H-4] [FR-H-5]
 struct ScreenPlaceholder: View {
     @ObservedObject var model: AppModel
     let console: Console
@@ -371,34 +373,41 @@ struct ScreenPlaceholder: View {
     let persona: PersonaInfo
     @State private var showingThreeD = false
 
+    private var isOperatingPicture: Bool { console.id == "heimdall" && screen == console.screens.first }
+
     /// The 3D entry, on Heimdall's first screen only, when this app has one.
-    private var threeD: HeimdallThreeDProvider? {
-        guard console.id == "heimdall", screen == console.screens.first else { return nil }
-        return model.threeDEntry
-    }
+    private var threeD: HeimdallThreeDProvider? { isOperatingPicture ? model.threeDEntry : nil }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: MGSpace.s3) {
-                Image(systemName: console.symbol).font(.largeTitle).accessibilityHidden(true)
-                Text(screen).font(MGFonts.display(.title2)).accessibilityAddTraits(.isHeader)
-                Text("This \(console.name) screen arrives in Phase \(console.phase). With no data source connected it will show its empty state.")
-                    .font(MGFonts.sans(.body))
-                    .fixedSize(horizontal: false, vertical: true)
+        content
+            .navigationTitle(screen)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) { SessionMenu(model: model, persona: persona) }
             }
-            .multilineTextAlignment(.center)
-            .foregroundStyle(Color.primary)
-            .padding(MGSpace.s5)
-            .frame(maxWidth: .infinity)
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("mg.placeholder.\(console.slug).\(ConsoleCatalog.slug(screen))")
+            .modifier(ThreeDEntry(entry: threeD, showing: $showingThreeD))
+    }
+
+    @ViewBuilder private var content: some View {
+        if isOperatingPicture {
+            HeimdallOperatingPictureCompact(app: model, personaId: persona.id)
+        } else {
+            ScrollView {
+                VStack(spacing: MGSpace.s3) {
+                    Image(systemName: console.symbol).font(.largeTitle).accessibilityHidden(true)
+                    Text(screen).font(MGFonts.display(.title2)).accessibilityAddTraits(.isHeader)
+                    Text("This \(console.name) screen arrives in Phase \(console.phase), matched to its web console.")
+                        .font(MGFonts.sans(.body))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .multilineTextAlignment(.center)
+                .foregroundStyle(Color.primary)
+                .padding(MGSpace.s5)
+                .frame(maxWidth: .infinity)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("mg.placeholder.\(console.slug).\(ConsoleCatalog.slug(screen))")
+            }
         }
-        .navigationTitle(screen)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) { SessionMenu(model: model, persona: persona) }
-        }
-        .modifier(ThreeDEntry(entry: threeD, showing: $showingThreeD))
     }
 }
 
