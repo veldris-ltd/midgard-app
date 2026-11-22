@@ -150,9 +150,10 @@ struct WindowSetup: NSViewRepresentable {
 /// Signed in: the persona menu above a three-column split view. The sidebar lists the
 /// six consoles (⌘1…⌘6) and, under the selected one, its screens; the content and
 /// detail columns show the screen's placeholder until its phase builds it. In the 3D
-/// edition, Heimdall's Operating Picture also offers the "3D view" entry, which the 3D
-/// library registered at link time (MidgardKit's `HeimdallThreeD`); it opens in the
-/// detail column. [FR-C-1]
+/// and maps editions, Heimdall's Operating Picture also offers the edition library's
+/// "3D view" entry (`AppModel.threeDEntry`, from the link-time edition provider), which
+/// opens in the detail column; in a release app there is no provider and the columns are
+/// exactly the screen's. [FR-C-1]
 struct ConsoleShell: View {
     @ObservedObject var model: AppModel
     let persona: PersonaInfo
@@ -160,7 +161,7 @@ struct ConsoleShell: View {
     @State private var showingThreeD = false
 
     /// The 3D entry, on Heimdall's first screen only, when this app has one.
-    private var threeD: HeimdallThreeDView? {
+    private var threeD: HeimdallThreeDProvider? {
         let r = route.clamped
         guard ConsoleCatalog.console(r).id == "heimdall", r.screen == 0 else { return nil }
         return model.threeDEntry
@@ -181,24 +182,14 @@ struct ConsoleShell: View {
                     .accessibilityElement(children: .contain)
                     .accessibilityLabel(Text("Consoles"))
             } content: {
-                VStack(alignment: .leading, spacing: 0) {
-                    if let threeD {
-                        ThreeDEntryButton(title: threeD.title, showing: $showingThreeD)
-                            .padding([.horizontal, .top], MGSpace.s5)
-                    }
-                    ScreenContent(route: route.clamped)
-                }
-                .navigationSplitViewColumnWidth(min: 280, ideal: 360)
+                ScreenContent(route: route.clamped)
+                    .modifier(ThreeDEntryInset(entry: threeD, showing: $showingThreeD, route: route))
+                    .navigationSplitViewColumnWidth(min: 280, ideal: 360)
             } detail: {
-                Group {
-                    if showingThreeD, let threeD {
-                        threeD.makeView()
-                    } else {
-                        ScreenDetail(route: route.clamped)
-                    }
-                }
-                .accessibilityElement(children: .contain)
-                .accessibilityLabel(Text("Details"))
+                ScreenDetail(route: route.clamped)
+                    .modifier(ThreeDDetail(entry: threeD, showing: showingThreeD))
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel(Text("Details"))
             }
             .accessibilityElement(children: .contain)
             .accessibilityLabel(Text("Console"))
@@ -208,21 +199,44 @@ struct ConsoleShell: View {
         // contrast audit, and the sidebar and the screen heading already say where the
         // window is.
         .navigationTitle(ConsoleCatalog.console(route).name)
-        .onChange(of: route) { showingThreeD = false }
     }
 }
 
-/// Heimdall's "3D view" entry (3D edition only): opens the 3D view in the detail column,
-/// and closes it again.
-struct ThreeDEntryButton: View {
-    let title: String
+/// With an edition provider's 3D entry: the entry above the screen's content (a top
+/// inset); the 3D view closes again when the route changes, and when the entry goes (the
+/// route left Heimdall's Operating Picture). Without one (every release app): the content
+/// as it is.
+struct ThreeDEntryInset: ViewModifier {
+    let entry: HeimdallThreeDProvider?
     @Binding var showing: Bool
+    let route: ConsoleRoute
 
-    var body: some View {
-        Button(showing ? "Close \(title)" : "Open \(title)") { showing.toggle() }
-            .font(MGFonts.sans(.body))
-            .frame(minHeight: 44)
-            .accessibilityIdentifier("mg.heimdall.3d")
+    func body(content: Content) -> some View {
+        if let entry {
+            content
+                .safeAreaInset(edge: .top, alignment: .leading, spacing: 0) {
+                    entry.makeEntry(showing: $showing).padding([.horizontal, .top], MGSpace.s5)
+                        .onDisappear { showing = false }
+                }
+                .onChange(of: route) { showing = false }
+        } else {
+            content
+        }
+    }
+}
+
+/// While the 3D entry is open: its view in place of the screen's detail. Otherwise (and
+/// always in a release app): the detail as it is.
+struct ThreeDDetail: ViewModifier {
+    let entry: HeimdallThreeDProvider?
+    let showing: Bool
+
+    func body(content: Content) -> some View {
+        if showing, let entry {
+            entry.makeView()
+        } else {
+            content
+        }
     }
 }
 
