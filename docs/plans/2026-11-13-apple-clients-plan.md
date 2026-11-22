@@ -6771,3 +6771,40 @@ least-recently-used eviction. A "Clear map cache" control goes under About.
 **Checks for Phase I:** the review steps are the same as for every other task (spec
 review, then quality review). Once I2 is done, `check-edition.sh` must still show that
 the release apps carry no globe code and no network entitlement.
+
+### Publishing on completion (owner decision, 22 Nov 2026)
+
+When both editions are complete and reviewed, the work goes to branches of the main
+repository, `veldris-ltd/midgard-app`. This replaces the "do not push" line above for
+that final step only; until then, nothing is pushed.
+
+**Branches**, with the names this plan uses:
+
+| Branch | Holds |
+|---|---|
+| `clients_shared` | The core, the FFI and the shared Swift packages, including `MidgardGlobeKit` |
+| `clients_mac` | The Mac apps, `MidgardMac` and `MidgardMac3D` |
+| `clients_iphone` | The iPhone apps, `MidgardiOS` and `MidgardiOS3D` |
+
+**Signed tags**, annotated, on the final reviewed commits:
+
+| Tag | Message names |
+|---|---|
+| `apple-midgard-v0.1.0-rc.3` | Midgard, the release edition; macOS and iOS; built from the signed `v0.1.0-rc.3` (`ea5899ab`); no data source |
+| `apple-midgard3d-v0.1.0-rc.3` | Midgard 3D; macOS and iOS; the same release plus the Heimdall globe ported from `md_mixedfeeds_3d`; online tiles |
+
+Each tag points at the commit where both platforms of that edition pass `audit.sh`
+and `check-edition.sh`.
+
+**How the push is done:**
+- The checkout's push URL stays blocked. The push names the repository URL and the
+  three branches and two tags explicitly, so no other branch can go with it.
+- Before pushing:
+  - verify every commit's signature with `git log --format=%G?`, and both tags with
+    `git verify-tag`;
+  - confirm that no commit message mentions an AI tool;
+  - run gitleaks over the range;
+  - ask the owner for a final go-ahead.
+
+**Public by choice:** the repository is public. The 3D edition puts a port of the globe
+work, which was taken off it on 27 Oct, back in public. The owner chose this.
