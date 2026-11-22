@@ -49,6 +49,8 @@
 @jridgewell/resolve-uri
 @jridgewell/sourcemap-codec
 @jridgewell/trace-mapping
+@mapbox/point-geometry
+@mapbox/vector-tile
 @rolldown/pluginutils
 @rollup/rollup-android-arm-eabi
 @rollup/rollup-android-arm64
@@ -81,6 +83,7 @@
 @types/babel__template
 @types/babel__traverse
 @types/estree
+@types/geojson
 @types/node
 @types/prop-types
 @types/react
@@ -112,13 +115,16 @@ meshoptimizer
 ms
 nanoid
 node-releases
+pbf
 picocolors
 picomatch
 postcss
+protocol-buffers-schema
 react
 react-dom
 react-refresh
 react-router
+resolve-protobuf-schema
 rollup
 scheduler
 semver
