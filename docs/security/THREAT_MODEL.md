@@ -135,7 +135,8 @@ the trust boundaries, with each threat mapped to the implemented, tested control
   raster tiles exactly 256 × 256 (512 × 512 terrain) by header before decoding and
   again after; vector geometry validated and its points counted, exactly as it will be
   built, before any is built, with features and points capped; at most 500 labels a
-  tile; the map's decoded tiles held to 64 MB; decoding in a same-origin module worker
+  tile, each cut to 200 characters; the map's decoded tiles held to 64 MB off screen
+  and 128 MB on screen; decoding in a same-origin module worker
   with about 2 s per tile; 15 s per request. Fuzz-style tests cover each. [FR-H-1]
 
 ### Elevation of privilege

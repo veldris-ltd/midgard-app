@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { VectorTile } from '@mapbox/vector-tile';
 import { PbfReader } from 'pbf';
 
-import { MAX_LABEL_CANDIDATES, MAX_TILE_LABELS, classifyFill, classifyLine, extractFeatures, labelCandidates, placeRank } from './features.ts';
+import { MAX_LABEL_CANDIDATES, MAX_LABEL_CHARS, MAX_TILE_LABELS, labelText, classifyFill, classifyLine, extractFeatures, labelCandidates, placeRank } from './features.ts';
 
 const tile = () => new VectorTile(new PbfReader(readFileSync(new URL('../../fixtures/tiles/versatiles-osm-8-125-78.mvt', import.meta.url))));
 
@@ -102,4 +102,26 @@ test('each decoded tile carries its size in bytes, for the map\'s 64 MB cache bu
   const d = extractFeatures(tile(), 8);
   assert.ok(d.bytes > 100_000 && d.bytes < 2_000_000, String(d.bytes));
   assert.ok(extractFeatures(townsTile(10), 10).bytes < d.bytes);
+});
+
+test('label text is cut to 200 characters when the tile is decoded, never mid-pair', () => {
+  assert.equal(MAX_LABEL_CHARS, 200);
+  const long = {
+    layers: {
+      place_labels: {
+        length: 1,
+        extent: 4096,
+        feature: () => ({ type: 1, properties: { kind: 'city', name: 'x'.repeat(1_000_000) }, loadGeometry: () => [[{ x: 10, y: 10 }]] }),
+      },
+    },
+  };
+  const d = extractFeatures(long, 8);
+  assert.equal(d.labels[0].text.length, 200);
+  assert.equal(labelText('Aberdeen'), 'Aberdeen');
+  // A pair straddling the cut is dropped whole.
+  const pairs = 'a' + '😀'.repeat(150);
+  const cut = labelText(pairs);
+  assert.equal(cut.length, 199);
+  assert.ok(!/[\ud800-\udbff]$/.test(cut));
+  assert.equal(labelText('b'.repeat(200)).length, 200);
 });

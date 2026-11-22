@@ -33,6 +33,18 @@ export interface MapTileData {
 
 /** The most place labels kept from one tile, highest ranked first. */
 export const MAX_TILE_LABELS = 500;
+/** The most characters of a label's text kept (UTF-16 units, never half a pair). */
+export const MAX_LABEL_CHARS = 200;
+
+/** A label's text cut to `MAX_LABEL_CHARS`, without splitting a surrogate pair. */
+export function labelText(text: string): string {
+  if (text.length <= MAX_LABEL_CHARS) return text;
+  let cut = MAX_LABEL_CHARS;
+  const last = text.charCodeAt(cut - 1);
+  if (last >= 0xd800 && last <= 0xdbff) cut--;
+  return text.slice(0, cut);
+}
+
 /** The most label candidates measured for placement in one frame. */
 export const MAX_LABEL_CANDIDATES = 400;
 
@@ -116,7 +128,8 @@ export function extractFeatures(tile: VectorTileLike, z: number): MapTileData {
         if (c) for (const l of f.loadGeometry()) lines[c].push(flat(l));
       } else if (f.type === 1 && name === 'place_labels') {
         const rank = placeRank(String(f.properties.kind ?? ''), z);
-        const text = String(f.properties.name_en ?? f.properties.name ?? '');
+        // Cut here, in the worker, so no long name ever reaches measureText.
+        const text = labelText(String(f.properties.name_en ?? f.properties.name ?? ''));
         if (rank === null || !text) continue;
         const pt = f.loadGeometry()[0]?.[0];
         if (!pt || pt.x < 0 || pt.y < 0 || pt.x >= layer.extent || pt.y >= layer.extent) continue;
