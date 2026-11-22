@@ -6885,3 +6885,30 @@ appear only in the 3D apps.
 
 Signing changes nothing inside the apps. The release edition still contains only the
 rc.3 screens.
+
+**Distribution approved (owner, 22 Nov 2026):**
+
+- **Mac:** notarisation of the Developer ID builds.
+- **iPhone and Mac:** uploads to TestFlight.
+- **When:** each edition is notarised and uploaded at its tag, once it is complete and
+  reviewed:
+  - the release edition after Phase H;
+  - the 3D edition after I1;
+  - the 3D-with-tiles edition after I2.
+- **Bundle IDs:** the 3D and 3D-with-tiles stages share one bundle ID per platform, so
+  they appear as successive builds of the same apps.
+- **App Store review:** submitting a build for review publishes the app to the public
+  once it is approved, so that one step is confirmed with the owner when it comes.
+
+**Prerequisites (owner):**
+- **Notary credential:** an App Store Connect API key, stored in the login keychain with
+  `xcrun notarytool store-credentials midgard-notary`. Scripts refer to the profile name
+  only, and never read or print the key.
+- **Developer ID Application certificate:** created by the Account Holder (or an Admin
+  allowed to).
+- **App Store Connect records:** one per bundle ID: `io.veldris.midgard.mac`,
+  `io.veldris.midgard.ios`, `io.veldris.midgard3d.mac` and `io.veldris.midgard3d.ios`.
+- **Agreements:** the current agreements accepted.
+- **Export compliance:** the apps use encryption (keys stored at rest, PQ mTLS code in
+  the core). `ITSAppUsesNonExemptEncryption` is set only after the owner decides
+  whether an exemption applies.
