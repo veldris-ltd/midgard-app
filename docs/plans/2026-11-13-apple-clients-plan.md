@@ -6636,3 +6636,138 @@ the banner view, tests), regenerated bindings, `ContractTests.swift`.
 - **Heimdall map:** MapKit with no tracks; the offline coastline is deferred with the data.
 - **After Phase H:** H1 (accessibility) and H4 (records) stay; H2 (offline and conflict)
   waits for data; H3 (release builds) waits for the team ID.
+
+## Owner decision (22 Nov 2026): two editions, Midgard and Midgard 3D
+
+The owner asked for two clients on each platform, four apps in all:
+
+1. **Midgard** (the release edition): only the signed official release, tag
+   `v0.1.0-rc.3`. All six consoles and 45 screens, exactly as Phases B to H build them.
+2. **Midgard 3D:** the same release plus a 3D globe in Heimdall.
+
+The owner chose two separate apps over one app with a switch. They also chose online
+tiles for the globe, fetched only while the 3D view is open, and asked for the globe to
+land in two separate commits: the globe first, then the tiles. Everything else in the
+19 Nov decision still holds for both editions: no dataset, the `local` user and empty
+collections.
+
+| | Midgard | Midgard 3D |
+|---|---|---|
+| Content | `v0.1.0-rc.3`, 45 screens | The same, plus a Heimdall globe view |
+| Bundle IDs | `io.veldris.midgard.mac`, `.ios` | `io.veldris.midgard3d.mac`, `.ios` |
+| `MidgardEdition` | `release` | `3d` |
+| Network | None (sandbox with no network entitlement) | Client network entitlement, used only by the globe's tile loader (Task I2) |
+| Banner | "No data source connected" | The same, plus "3D edition, not in the signed release" |
+
+**Where the globe comes from.** The release tag has no globe. The 3D view ports the
+behaviour of the three.js globe on the unsigned branch `md_mixedfeeds_3d`
+(`products/heimdall/ui/src/app/globe/`, about 2,300 lines in `GlobeView.ts` and its
+helpers). That code is not in the signed release, which is why it ships only in the
+3D edition. If it later lands in a signed release, the editions can merge back into
+one app.
+
+**Renderer.** MetalKit (`MTKView` in an `NSViewRepresentable` or
+`UIViewRepresentable`), because SAD_06 requires native rendering rather than a web view.
+
+- RealityKit's `RealityView` would need macOS 15 and iOS 18, above the deployment
+  targets.
+- SceneKit is deprecated.
+- Metal also matches the web globe's own vertex and index buffer model most directly.
+
+### Task B7 (on `clients_shared`, then both app branches): the 3D edition targets
+
+**Package:** a new `MidgardGlobeKit` library in `Package.swift`, depending on
+`MidgardKit`. Until Phase I it holds only a placeholder view that says "3D view".
+
+**Apps:** each `project.yml` gains a second app target, `MidgardMac3D` and `MidgardiOS3D`.
+
+- These targets link `MidgardGlobeKit`; the release targets do not.
+- Each target has its own `Info.plist` with `MidgardEdition`, its own entitlements and
+  its own scheme, with UI tests that subclass the same audit base class.
+
+**Swift:**
+- `AppEnvironment` reads `MidgardEdition`. A missing or unknown value is the "app
+  misconfigured" failed state, as with `MidgardDataSource`.
+- The About screen names the edition, and for `release` the signed tag and its commit.
+- Heimdall shows a "3D" entry only when the edition is `3d` and the globe library
+  registered itself. The registration is a link-time hook, never a runtime switch.
+
+**Release-binary check:** `clients/shells/apple/tools/check-edition.sh` builds both
+release apps and fails if their binaries or bundles contain any `MidgardGlobeKit` symbol,
+any `Globe` type, or any network entitlement. `tools/ci/tests/apple-edition.test.sh`
+tests the script against a seeded failure.
+
+**Acceptance:**
+- All four schemes build and their UI tests pass.
+- `apple-projects.test.sh` covers both targets in each project.
+- `check-edition.sh` passes, and `audit.sh` runs all four apps.
+
+### Phase I (after Phase E, Heimdall): the globe, in two commits
+
+#### Task I1: 3D globe, no tiles (its own signed commit)
+
+The 3D view with nothing fetched:
+
+- **Globe:** a lit sphere with a graticule, and a land and sea outline from Natural
+  Earth 1:110m land. That file is public domain, about 100 KB, and bundled in
+  `MidgardGlobeKit`'s resources.
+- **Camera:** behaves like `GlobeCamera.ts`, with drag to orbit, pinch or scroll to zoom,
+  and the same easing. It has the same presets and REGION menu as `presets.ts`, ported
+  as a pure Swift module with tests that compare against the web values.
+- **Style and layers:** only the CLEAN style, because TOPOGRAPHIC needs terrain. With no
+  feeds the globe shows an empty picture and the same empty-state wording as the 2D
+  map. Layers are listed and disabled with the core's reason.
+- **Network:** none. The 3D app's network entitlement is present but unused until I2,
+  and a test asserts that no URL session is created.
+- **Tests:**
+  - unit tests for projection, the camera limits and the presets;
+  - snapshot tests of three camera presets, so the outline lands on the right places;
+  - a UI test that opens Heimdall, switches to 3D, moves the camera and uses each preset;
+  - the accessibility audit, where the globe has a text summary of the camera position
+    and region.
+
+#### Task I2: online globe tiles (a separate signed commit on top of I1)
+
+**Sources:** the same as the web globe. Each source's attribution is shown in a readable
+credits strip.
+
+| Source | Use | Licence |
+|---|---|---|
+| EOX Sentinel‑2 cloudless | Imagery | CC BY‑NC‑SA 4.0 |
+| Mapzen Terrain Tiles (AWS Open Data) | World terrain | Attribution |
+| Environment Agency | UK close-up terrain | OGL v3.0 |
+| VersaTiles | Vector tiles: coast, roads, labels | OpenStreetMap, ODbL |
+
+These licences fit the owner's demo scope, which allows non-commercial use. Commercial
+use needs a different imagery source.
+
+**Loader:**
+- A list of the four host names. Any other host is refused.
+- HTTPS only, and no cookies.
+- A generic User-Agent with no user or machine detail.
+- Requests are made only while the 3D view is on screen, and are cancelled when it
+  closes.
+
+**Cache:** in `~/Library/Caches/<bundle id>/tiles`, capped at 500 MB with
+least-recently-used eviction. A "Clear map cache" control goes under About.
+
+**Adds:**
+- terrain on the globe;
+- TOPOGRAPHIC: tint, hillshade and contours;
+- the satellite imagery style;
+- zoom to 1.5 km above the ground, with the camera kept 150 m above the terrain;
+- the UK close-up patch, as on `md_mixedfeeds_3d`.
+
+**Offline:** the OFFLINE chip, or no network, falls back to the I1 globe with
+"Map tiles need a connection", never an error.
+
+**Tests:**
+- the loader refuses other hosts, HTTP and redirects to other hosts;
+- cache eviction stays under the cap;
+- terrain sampling matches the web globe's bilinear sampler on fixed tiles;
+- tiles come from recorded fixtures in tests, with no live network in CI;
+- the UI test from I1 is extended to show the credits strip.
+
+**Checks for Phase I:** the review steps are the same as for every other task (spec
+review, then quality review). Once I2 is done, `check-edition.sh` must still show that
+the release apps carry no globe code and no network entitlement.
