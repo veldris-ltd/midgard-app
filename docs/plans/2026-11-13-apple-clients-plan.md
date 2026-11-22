@@ -6867,3 +6867,21 @@ appear only in the 3D apps.
 - `dev` and `main` work;
 - the defensive cyber option (`md_cyber_dco`);
 - every other project.
+
+**Signing resumed (owner, 22 Nov 2026):** all six apps are signed under team
+`64JX2CTLJR`. That means the release, 3D and 3D-with-tiles editions, on Mac and iPhone.
+
+- **Development signing:** set up as soon as B7 has finished.
+  - The Team ID goes in each app's gitignored `Config/Signing.local.xcconfig`.
+  - Each app gets one Debug build with `-allowProvisioningUpdates`.
+  - Then the Secure Enclave enrol and unlock check runs.
+- **Release signing:** B4/B5 build each edition's signed Release app.
+  - Mac apps: signed with Developer ID and Hardened Runtime.
+  - iPhone apps: an Ad Hoc or Development export for test devices.
+- **Still needs a go-ahead each time:**
+  - notarisation (an upload to Apple);
+  - TestFlight;
+  - any App Store submission.
+
+Signing changes nothing inside the apps. The release edition still contains only the
+rc.3 screens.
