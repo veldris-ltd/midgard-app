@@ -7,6 +7,7 @@
  * at different zooms never show a crack. Positions are relative to the patch's centre,
  * which the mesh is moved to, so float32 stays precise at a 1.5 km close-up. Pure. */
 import { EARTH_RADIUS_KM, type Vec3, toXyz } from '../globe/projection.ts';
+import { type HeightGrid, type Rect, heightAt } from './terrarium.ts';
 import { EQUATOR_KM, type Tile, tileXToLon, tileYToLat } from './tileMath.ts';
 
 export interface Patch {
@@ -111,4 +112,28 @@ export function buildPatch(t: Tile, heights: Float32Array | null, n: number, exa
   }
   const indices = count > 65535 ? new Uint32Array(tris) : new Uint16Array(tris);
   return { center: centre, positions, normals, uv, geoUv, indices, maxKm };
+}
+
+/**
+ * The ground, in metres, at (u, v) of a drawn patch (fractions of its tile from the
+ * north-west): at least the surface the patch draws there, which runs straight between
+ * its n × n vertices, and at least the terrain itself. The higher of the terrain at the
+ * point and the four corners of its mesh cell bounds both. Below sea level is the sea
+ * surface, as on the patch; a patch drawn flat (`grid` null) is at sea level.
+ */
+export function drawnGroundM(grid: HeightGrid | null, rect: Rect, n: number, u: number, v: number): number {
+  if (!grid) return 0;
+  const cu = Math.min(1, Math.max(0, u));
+  const cv = Math.min(1, Math.max(0, v));
+  const i = Math.min(n - 1, Math.floor(cu * n));
+  const j = Math.min(n - 1, Math.floor(cv * n));
+  const at = (a: number, b: number) => heightAt(grid, rect.ox + rect.size * a, rect.oy + rect.size * b);
+  return Math.max(
+    0,
+    at(cu, cv),
+    at(i / n, j / n),
+    at((i + 1) / n, j / n),
+    at(i / n, (j + 1) / n),
+    at((i + 1) / n, (j + 1) / n),
+  );
 }

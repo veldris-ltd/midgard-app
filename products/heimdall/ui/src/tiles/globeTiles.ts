@@ -23,9 +23,9 @@ import { tileUrl } from './hosts.ts';
 import { type LoaderState, TileLoader } from './loader.ts';
 import { TOPO_DARK, TOPO_LIGHT, contourIntervalM, shadeZFactor, topoPixels } from './topo.ts';
 import { LruCache } from './cache.ts';
-import { buildPatch } from './mesh.ts';
+import { buildPatch, drawnGroundM } from './mesh.ts';
 import { selectGlobeTiles } from './select.ts';
-import { type HeightGrid, decodeTerrarium, heightAt, resampleGrid } from './terrarium.ts';
+import { type HeightGrid, decodeTerrarium, resampleGrid } from './terrarium.ts';
 import { type Tile, ancestorAt, lonToTileX, latToTileY, metresPerPixel, subRect, tileAt, tileKey, tileYToLat } from './tileMath.ts';
 
 /** Terrain heights are fetched to this zoom; finer patches sample their ancestor. */
@@ -114,6 +114,11 @@ export class GlobeTiles implements GlobeTileLayer {
   private style: GlobeStyle = 'clean';
   private exaggeration = 4;
   private drawn = new Set<string>();
+  /** The tiles drawn this frame, for the ground under a point. */
+  private drawnTiles: Tile[] = [];
+  /** Live textures per imagery bitmap, and bitmaps the cache dropped while in use. */
+  private readonly bitmapUsers = new Map<ImageBitmap, number>();
+  private readonly closeWhenUnused = new Set<ImageBitmap>();
   private lastState: LoaderState = 'online';
   private dark = true;
   private buildUntil = 0;
@@ -163,14 +168,21 @@ export class GlobeTiles implements GlobeTileLayer {
     this.rebuild();
   }
 
+  /**
+   * The ground under a point as drawn: from the patch actually drawn there, at least
+   * the surface it draws between its vertices (`drawnGroundM`). Null where no patch
+   * is drawn.
+   */
   groundKm(lat: number, lon: number): number | null {
-    for (let z = TERRAIN_MAX_ZOOM; z >= TERRAIN_MIN_ZOOM; z--) {
-      const t = tileAt(lat, lon, z);
-      const grid = this.terrain(t);
-      if (grid === undefined) continue;
-      if (grid === null) return 0;
-      const h = heightAt(grid, lonToTileX(lon, z) - t.x, latToTileY(lat, z) - t.y);
-      return (Math.max(0, h) / 1000) * this.exaggeration;
+    for (const t of this.drawnTiles) {
+      const u = lonToTileX(lon, t.z) - t.x;
+      const v = latToTileY(lat, t.z) - t.y;
+      if (u < 0 || u > 1 || v < 0 || v > 1) continue;
+      if (t.z < TERRAIN_MIN_ZOOM) return 0;
+      const tt = this.terrainTile(t);
+      const grid = this.terrain(tt);
+      if (grid === undefined) return null;
+      return (drawnGroundM(grid, subRect(t, tt.z), SEGMENTS, u, v) / 1000) * this.exaggeration;
     }
     return null;
   }
@@ -186,7 +198,10 @@ export class GlobeTiles implements GlobeTileLayer {
       // network coming back; draw nothing until it does.
       this.object.visible = false;
       this.drawn = new Set();
-      this.requestData(tileAt(cam.lat, cam.lon, TERRAIN_MIN_ZOOM), 0);
+      this.drawnTiles = [];
+      this.inUse = new Set();
+      // Only the probe stays queued; whatever the last online frame wanted is dropped.
+      this.loader.retain(new Set(this.requestData(tileAt(cam.lat, cam.lon, TERRAIN_MIN_ZOOM), 0)));
       return;
     }
     const memo = new Map<string, boolean>();
@@ -209,6 +224,7 @@ export class GlobeTiles implements GlobeTileLayer {
     }
     this.object.visible = true;
     this.drawn = drawn;
+    this.drawnTiles = sel.draw;
 
     const keep = new Set<string>();
     this.inUse = new Set();
@@ -266,7 +282,7 @@ export class GlobeTiles implements GlobeTileLayer {
       const st = this.loader.status(u);
       if (st !== 'none' && st !== 'failed') continue;
       if (u === tileUrl('terrain', this.terrainTile(t))) this.loader.request(u, priority, decodeTerrainPng);
-      else this.loader.request(u, priority, decodeImage);
+      else this.loader.request(u, priority, decodeImage, (b) => this.releaseBitmap(b, true));
     }
     return urls;
   }
@@ -332,6 +348,7 @@ export class GlobeTiles implements GlobeTileLayer {
 
   private imageTexture(image: ImageBitmap): THREE.Texture {
     const tex = new THREE.Texture(image);
+    this.bitmapUsers.set(image, (this.bitmapUsers.get(image) ?? 0) + 1);
     this.finishTexture(tex);
     return tex;
   }
@@ -382,13 +399,36 @@ export class GlobeTiles implements GlobeTileLayer {
     m.geometry.dispose();
     const mat = m.material as THREE.ShaderMaterial;
     const map = mat.uniforms.map.value as THREE.Texture;
-    if (map !== this.blank) map.dispose();
+    if (map !== this.blank) {
+      map.dispose();
+      if (typeof ImageBitmap !== 'undefined' && map.image instanceof ImageBitmap) this.releaseBitmap(map.image, false);
+    }
     mat.dispose();
+  }
+
+  /**
+   * Closes an imagery bitmap once nothing needs it: the loader's cache has dropped it
+   * (`evicted`) and no live texture is built from it.
+   */
+  private releaseBitmap(b: ImageBitmap, evicted: boolean): void {
+    if (!evicted) {
+      const n = (this.bitmapUsers.get(b) ?? 1) - 1;
+      if (n > 0) {
+        this.bitmapUsers.set(b, n);
+        return;
+      }
+      this.bitmapUsers.delete(b);
+      if (this.closeWhenUnused.delete(b)) b.close();
+      return;
+    }
+    if (this.bitmapUsers.has(b)) this.closeWhenUnused.add(b);
+    else b.close();
   }
 
   private rebuild(): void {
     this.object.clear();
     this.drawn = new Set();
+    this.drawnTiles = [];
     this.meshes.protect = () => false;
     this.meshes.clear();
     this.meshes.protect = (k) => this.drawn.has(k);

@@ -15,11 +15,13 @@ import {
   zoomCamera,
 } from './camera.ts';
 
-test('altitude stays between the 1.5 km close-up and 40,000 km; 50 km is the floor without tiles', () => {
+test('altitude stays between 50 km and 40,000 km; with map tiles drawn, down to the 1.5 km close-up', () => {
   assert.equal(MIN_ALTITUDE_KM, 50);
   assert.equal(CLOSE_UP_ALTITUDE_KM, 1.5);
   assert.equal(MAX_ALTITUDE_KM, 40000);
-  assert.equal(clampAltitude(1), 1.5);
+  assert.equal(clampAltitude(1), 50);
+  assert.equal(clampAltitude(1, CLOSE_UP_ALTITUDE_KM), 1.5);
+  assert.equal(clampAltitude(20, CLOSE_UP_ALTITUDE_KM), 20);
   assert.equal(clampAltitude(1e9), 40000);
   assert.equal(clampAltitude(1234), 1234);
   assert.equal(clampAltitude(Number.NaN), MAX_ALTITUDE_KM);
@@ -29,7 +31,8 @@ test('normaliseCamera wraps longitude and keeps clear of the poles', () => {
   const c = normaliseCamera({ lat: 95, lon: 190, altKm: 1 });
   assert.equal(c.lat, 89);
   assert.equal(c.lon, -170);
-  assert.equal(c.altKm, 1.5);
+  assert.equal(c.altKm, 50);
+  assert.equal(normaliseCamera({ lat: 0, lon: 0, altKm: 1 }, CLOSE_UP_ALTITUDE_KM).altKm, 1.5);
   assert.equal(normaliseCamera({ lat: -100, lon: -540, altKm: 100 }).lat, -89);
   assert.equal(normaliseCamera({ lat: 0, lon: -540, altKm: 100 }).lon, 180);
 });
@@ -37,7 +40,11 @@ test('normaliseCamera wraps longitude and keeps clear of the poles', () => {
 test('zoom multiplies altitude within the limits', () => {
   const c = { lat: 0, lon: 0, altKm: 1000 };
   assert.equal(zoomCamera(c, 0.5).altKm, 500);
-  assert.equal(zoomCamera(c, 1e-6).altKm, 1.5);
+  assert.equal(zoomCamera(c, 1e-6).altKm, 50);
+  assert.equal(zoomCamera(c, 1e-6, CLOSE_UP_ALTITUDE_KM).altKm, 1.5);
+  // Dragging close in keeps the close-up altitude.
+  assert.equal(panCamera({ lat: 56, lon: -4, altKm: 2 }, 10, 10, 800, 45, CLOSE_UP_ALTITUDE_KM).altKm, 2);
+  assert.equal(interpolateCamera({ lat: 56, lon: -4, altKm: 2 }, { lat: 56, lon: -4, altKm: 1.5 }, 0.5, CLOSE_UP_ALTITUDE_KM).altKm < 2, true);
   assert.equal(zoomCamera(c, 1e6).altKm, 40000);
 });
 
@@ -149,4 +156,38 @@ test('the near plane stays inside the 150 m clearance at every close-up altitude
     const { near } = clipPlanes(alt, alt - ground);
     assert.ok(near * EARTH_RADIUS_KM < alt - ground, `ground ${ground}: near ${near * EARTH_RADIUS_KM} km`);
   }
+});
+
+test('the near plane stays inside half the distance to the nearest visible marker', async () => {
+  const { clipPlanes } = await import('./camera.ts');
+  const { EARTH_RADIUS_KM } = await import('./projection.ts');
+  const far = clipPlanes(2, Infinity);
+  const near = clipPlanes(2, Infinity, 0.03);
+  assert.ok(near.near * EARTH_RADIUS_KM <= 0.015 + 1e-9, `${near.near * EARTH_RADIUS_KM}`);
+  assert.ok(near.near < far.near);
+});
+
+test('fly-to a track never puts the camera below its drawn marker, at ×4, ×8 and ×20', async () => {
+  const { cameraFloorKm, clipPlanes, trackFlyAltitudeKm } = await import('./camera.ts');
+  const { EARTH_RADIUS_KM } = await import('./projection.ts');
+  const { FEET_TO_METRES } = await import('./altitude.ts');
+  // E-2231 is at FL360.
+  const e2231Km = (36000 * FEET_TO_METRES) / 1000;
+  for (const k of [4, 8, 20]) {
+    const marker = e2231Km * k;
+    for (const current of [1.5, 20, 800, 20000]) {
+      const alt = trackFlyAltitudeKm(e2231Km, k, current);
+      assert.ok(alt >= cameraFloorKm(marker), `x${k} from ${current}: ${alt}`);
+      assert.ok(alt > marker, `x${k}: camera ${alt} under marker ${marker}`);
+      // Straight above it, the marker is outside the near plane.
+      const { near } = clipPlanes(alt, alt, alt - marker);
+      assert.ok((alt - marker) / EARTH_RADIUS_KM > near, `x${k}: marker inside near plane`);
+    }
+  }
+  // At ×20, FL360 stands 219 km up: the fly-to stops above it.
+  assert.ok(trackFlyAltitudeKm(e2231Km, 20, 1.5) > 219);
+  // A surface track: the 50 km floor, or the current altitude up to 800 km.
+  assert.equal(trackFlyAltitudeKm(0, 4, 300), 300);
+  assert.equal(trackFlyAltitudeKm(0, 4, 5000), 800);
+  assert.equal(trackFlyAltitudeKm(0, 4, 2), 50);
 });

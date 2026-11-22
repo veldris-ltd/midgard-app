@@ -84,3 +84,36 @@ test('normals point straight out from the globe\'s centre', () => {
 test('the wrong number of heights is refused', () => {
   assert.throws(() => buildPatch(T, new Float32Array(3), 1, 1), /heights/);
 });
+
+test('the ground under a point is never below the drawn surface, between its vertices too', async () => {
+  const { drawnGroundM } = await import('./mesh.ts');
+  const { resampleGrid } = await import('./terrarium.ts');
+  // A rough 16 × 16 tile of heights, repeatable.
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const grid = { width: 16, height: 16, data: new Float32Array(256).map(() => rnd() * 1200 - 100) };
+  const n = 4;
+  for (const rect of [{ ox: 0, oy: 0, size: 1 }, { ox: 0.25, oy: 0.5, size: 0.25 }]) {
+    const vertices = resampleGrid(grid, rect, n);
+    const h = (i: number, j: number) => Math.max(0, vertices[j * (n + 1) + i]);
+    for (let k = 0; k < 400; k++) {
+      const u = rnd();
+      const v = rnd();
+      const g = drawnGroundM(grid, rect, n, u, v);
+      // Within the mesh cell, the two triangles' surface is a mix of its corners.
+      const i = Math.min(n - 1, Math.floor(u * n));
+      const j = Math.min(n - 1, Math.floor(v * n));
+      const fu = u * n - i;
+      const fv = v * n - j;
+      const surface = fu + fv <= 1
+        ? h(i, j) + (h(i + 1, j) - h(i, j)) * fu + (h(i, j + 1) - h(i, j)) * fv
+        : h(i + 1, j + 1) + (h(i, j + 1) - h(i + 1, j + 1)) * (1 - fu) + (h(i + 1, j) - h(i + 1, j + 1)) * (1 - fv);
+      assert.ok(g >= surface - 1e-3, `(${u.toFixed(3)}, ${v.toFixed(3)}): ground ${g} under surface ${surface}`);
+      assert.ok(g >= 0);
+    }
+    // On a vertex it is that vertex's height.
+    assert.ok(drawnGroundM(grid, rect, n, 0.5, 0.5) >= h(2, 2) - 1e-3);
+  }
+  // A flat patch (no heights) is at sea level.
+  assert.equal(drawnGroundM(null, { ox: 0, oy: 0, size: 1 }, n, 0.3, 0.3), 0);
+});

@@ -6,7 +6,8 @@ import { Credits } from '../app/Credits';
 import { type Credit, NATURAL_EARTH } from '../app/dataSources.ts';
 import { IMAGERY_CREDIT, TERRAIN_CREDIT } from '../tiles/credits.ts';
 import { TrackTooltip } from '../app/TrackTooltip';
-import { type CameraState, MIN_ALTITUDE_KM, cameraFloorKm } from './camera.ts';
+import { type CameraState, cameraFloorKm, trackFlyAltitudeKm } from './camera.ts';
+import { parseAltitude } from './altitude.ts';
 import { readGlobeColours } from './colours.ts';
 import { DEFAULT_EXAGGERATION, MAX_EXAGGERATION, MIN_EXAGGERATION, clampExaggeration, tracksToGlobeItems } from './items.ts';
 import { loadOutlines } from './outlineAssets.ts';
@@ -164,8 +165,10 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
   const flyTo = (c: CameraState) => rendererRef.current?.flyTo(c, reducedMotion());
   const flyToTrack = (t: HeimdallTrack) => {
     if (typeof t.lat !== 'number' || typeof t.lon !== 'number') return;
-    const alt = Math.min(rendererRef.current?.cameraState.altKm ?? 800, 800);
-    flyTo({ lat: t.lat, lon: t.lon, altKm: Math.max(MIN_ALTITUDE_KM, alt) });
+    // Never below the track's own drawn marker (its altitude times HEIGHTS). [FR-H-1]
+    const alt = parseAltitude(t.alt);
+    const km = alt ? alt.metres / 1000 : 0;
+    flyTo({ lat: t.lat, lon: t.lon, altKm: trackFlyAltitudeKm(km, clampExaggeration(heights), rendererRef.current?.cameraState.altKm ?? 800) });
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -309,11 +312,22 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
             <div className="hg-globe-heading" id={`${summaryId}-style`}>STYLE</div>
             <div role="group" aria-labelledby={`${summaryId}-style`} className="hg-globe-styles">
               {GLOBE_STYLES.map((s) => (
-                <button key={s} type="button" aria-pressed={style === s} onClick={() => chooseStyle(s)}>
+                <button
+                  key={s}
+                  type="button"
+                  aria-pressed={style === s}
+                  // Offline the styles cannot load: say so, and keep them in the tab order.
+                  aria-disabled={tileState === 'offline' ? 'true' : undefined}
+                  aria-describedby={tileState === 'offline' ? `${summaryId}-style-hint` : undefined}
+                  onClick={() => { if (tileState !== 'offline') chooseStyle(s); }}
+                >
                   {STYLE_LABEL[s]}
                 </button>
               ))}
             </div>
+            {tileState === 'offline' && (
+              <p id={`${summaryId}-style-hint`} className="hg-globe-hint">STYLES NEED MAP TILES · OFFLINE</p>
+            )}
           </div>
         )}
         <label className="hg-globe-section hg-globe-heights">

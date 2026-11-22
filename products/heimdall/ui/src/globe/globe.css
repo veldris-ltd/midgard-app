@@ -73,3 +73,5 @@
 }
 .hg-globe-styles { display: flex; flex-direction: column; gap: 2px; }
 .hg-globe-styles button[aria-pressed='true'] { border-color: var(--accent); color: var(--accent-hover); background: var(--accent-tint); }
+.hg-globe-styles button[aria-disabled='true'] { cursor: not-allowed; color: var(--text-muted); }
+.hg-globe-hint { margin: 0; font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.1em; color: var(--text-muted); }

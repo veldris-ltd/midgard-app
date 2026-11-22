@@ -18,6 +18,7 @@ import * as THREE from 'three';
 
 import {
   CAMERA_FOV_DEG,
+  CLOSE_UP_ALTITUDE_KM,
   type CameraState,
   MIN_ALTITUDE_KM,
   clipPlanes,
@@ -32,7 +33,7 @@ import { type GlobeColours, type Rgba, cssRgba } from './colours.ts';
 import { graticule, lineSegments } from './geometry.ts';
 import type { GlobeItem } from './items.ts';
 import { type OutlineFile, coastFromLand, decodeLine } from './outlines.ts';
-import { isOccluded, toXyz } from './projection.ts';
+import { EARTH_RADIUS_KM, isOccluded, toXyz } from './projection.ts';
 import { subsolarPoint } from './sun.ts';
 import type { GlobeTileLayer, TileLayerHost } from './tileLayer.ts';
 
@@ -403,7 +404,7 @@ export class GlobeRenderer {
   }
 
   flyTo(target: CameraState, reducedMotion: boolean): void {
-    const to = normaliseCamera(target);
+    const to = normaliseCamera(target, this.minKm);
     const ms = flyDurationMs(this.cam, to, reducedMotion);
     if (ms === 0) {
       this.flight = null;
@@ -419,7 +420,7 @@ export class GlobeRenderer {
   /** Keyboard orbit and zoom, for the focusable globe surface. */
   nudge(dxPx: number, dyPx: number, zoom = 1): void {
     this.flight = null;
-    this.cam = zoomCamera(panCamera(this.cam, dxPx, dyPx, this.height), zoom);
+    this.cam = zoomCamera(panCamera(this.cam, dxPx, dyPx, this.height, CAMERA_FOV_DEG, this.minKm), zoom, this.minKm);
     this.applyCamera();
     this.settleSoon();
   }
@@ -526,6 +527,22 @@ export class GlobeRenderer {
     this.requestRender();
   }
 
+  /** The absolute minimum altitude: the close-up while tiles are drawn, else 50 km. */
+  private get minKm(): number {
+    return this.tilesShown ? CLOSE_UP_ALTITUDE_KM : MIN_ALTITUDE_KM;
+  }
+
+  /** Distance from the camera to the nearest marker the globe does not hide, in km. */
+  private nearestMarkerKm(): number {
+    const cam = toXyz(this.cam.lat, this.cam.lon, this.cam.altKm);
+    let best = Infinity;
+    for (const m of this.markers) {
+      if (isOccluded(cam, m.pos)) continue;
+      best = Math.min(best, Math.hypot(m.pos.x - cam.x, m.pos.y - cam.y, m.pos.z - cam.z));
+    }
+    return best * EARTH_RADIUS_KM;
+  }
+
   /** The ground under the camera, when tiles are drawn and it is known; else 0. */
   private groundUnderCamera(): number {
     return this.tilesShown ? (this.tiles?.groundKm(this.cam.lat, this.cam.lon) ?? 0) : 0;
@@ -540,7 +557,7 @@ export class GlobeRenderer {
     const floor = this.currentFloor();
     if (this.cam.altKm < floor) this.cam = { ...this.cam, altKm: floor };
     const clearance = this.tilesShown ? this.cam.altKm - this.groundUnderCamera() : Infinity;
-    const { near, far } = clipPlanes(this.cam.altKm, clearance);
+    const { near, far } = clipPlanes(this.cam.altKm, clearance, this.nearestMarkerKm());
     const p = toXyz(this.cam.lat, this.cam.lon, this.cam.altKm);
     this.camera3.position.set(p.x, p.y, p.z);
     this.camera3.up.set(0, 1, 0);
@@ -571,7 +588,7 @@ export class GlobeRenderer {
     if (this.flight) {
       const f = this.flight;
       const t = Math.min(1, (now - f.start) / f.ms);
-      this.cam = interpolateCamera(f.from, f.to, t);
+      this.cam = interpolateCamera(f.from, f.to, t, this.minKm);
       if (t >= 1) {
         this.flight = null;
         this.applyCamera();
@@ -683,7 +700,7 @@ export class GlobeRenderer {
       this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (this.pointers.size >= 2 && this.pinch) {
         const d = this.pinchDistance();
-        if (d > 0) this.cam = zoomCamera(this.cam, this.pinch / d);
+        if (d > 0) this.cam = zoomCamera(this.cam, this.pinch / d, this.minKm);
         this.pinch = d;
         this.applyCamera();
         return;
@@ -693,7 +710,7 @@ export class GlobeRenderer {
         const dy = e.clientY - prev.y;
         if (Math.abs(e.clientX - this.drag.x) + Math.abs(e.clientY - this.drag.y) > 4) this.drag.moved = true;
         if (this.drag.moved) {
-          this.cam = panCamera(this.cam, dx, dy, this.height);
+          this.cam = panCamera(this.cam, dx, dy, this.height, CAMERA_FOV_DEG, this.minKm);
           this.applyCamera();
         }
       }
@@ -727,7 +744,7 @@ export class GlobeRenderer {
       e.preventDefault();
       this.flight = null;
       const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? this.height : 1;
-      this.cam = zoomCamera(this.cam, Math.exp(e.deltaY * unit * 0.0015));
+      this.cam = zoomCamera(this.cam, Math.exp(e.deltaY * unit * 0.0015), this.minKm);
       this.applyCamera();
       this.settleSoon();
     }, { passive: false });
