@@ -6955,3 +6955,17 @@ above.
 - **What the Midgard 3D app has.** It matches `heimdall_3d`: the globe with bundled data
   only, and no network.
 - **Shared defaults:** height ×4, and the REGION menu without the feed regions.
+
+## Owner's stages (22 Nov 2026): this replaces every earlier source note for the globe and maps
+
+1. **Stage 1 (core repo):** a Heimdall 3D globe (`heimdall_3d`), and then maps
+   (`heimdall_maps`), written fresh on `main`. Pushed, with pull requests into `dev`. No
+   work branch is read or ported, and there are no feeds.
+2. **Stage 2 (these clients):** the signed release plus the 3D function. Phase I1 ports
+   the behaviour of Stage 1's `heimdall_3d`, and nothing else. Pushed to the `clients_*`
+   branches, tag `apple-midgard3d-v0.1.0-rc.3`.
+3. **Stage 3 (these clients):** Stage 2 plus maps. Phase I2 follows `heimdall_maps`,
+   including the 2D geographic map. Pushed to the same branches as an update, tag
+   `apple-midgard3dmaps-v0.1.0-rc.3`.
+
+**Superseded:** any earlier mention in this plan of porting from a work branch.
