@@ -530,3 +530,50 @@ test('a retry timer that fires before the clock reaches the retry time re-arms, 
   assert.equal(l.state, 'online');
   l.destroy();
 });
+
+test('offline with the browser saying so, it keeps looking, so it recovers without an online event', async () => {
+  let browserOnline = false;
+  const calls: string[] = [];
+  const fetch: FetchLike = (url) => {
+    calls.push(url);
+    return Promise.resolve(new Response(new Uint8Array(RECORDED[url])));
+  };
+  // Like the map: it asks for tiles only when told something changed.
+  const l: TileLoader = new TileLoader({ tiles: TILES, fetch, retryAfterMs: 20, online: () => browserOnline, onChange: () => l.request(TERRAIN, 0, bytes) });
+  l.request(TERRAIN, 0, bytes);
+  assert.equal(l.state, 'offline');
+  // The retry time passes with the browser still offline, and again once it is back.
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(calls.length, 0);
+  browserOnline = true;
+  await new Promise((r) => setTimeout(r, 60));
+  assert.ok(calls.length >= 1, 'probed without any online event');
+  await settle();
+  assert.equal(l.state, 'online');
+  l.destroy();
+});
+
+test('a retry time that passes while paused still probes once resumed', async () => {
+  let now = 0;
+  let fail = true;
+  const calls: string[] = [];
+  const fetch: FetchLike = (url) => {
+    calls.push(url);
+    return fail ? Promise.reject(new TypeError('Failed to fetch')) : Promise.resolve(new Response(new Uint8Array(RECORDED[url])));
+  };
+  const l: TileLoader = new TileLoader({ tiles: TILES, fetch, offlineAfter: 1, retryAfterMs: 20, now: () => now });
+  l.request(TERRAIN, 0, bytes);
+  await settle();
+  await settle();
+  assert.equal(l.state, 'offline');
+  l.setPaused(true);
+  fail = false;
+  now = 100;
+  await new Promise((r) => setTimeout(r, 40));
+  l.setPaused(false);
+  l.request(TERRAIN, 0, bytes);
+  await settle();
+  await settle();
+  assert.equal(l.state, 'online');
+  l.destroy();
+});

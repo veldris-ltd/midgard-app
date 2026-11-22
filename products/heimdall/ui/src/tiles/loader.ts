@@ -143,8 +143,12 @@ export class TileLoader {
   setPaused(paused: boolean): void {
     if (paused === this.paused) return;
     this.paused = paused;
-    if (paused) this.retain(new Set());
-    else this.opts.onChange?.();
+    if (paused) {
+      this.retain(new Set());
+    } else {
+      this.opts.onChange?.();
+      this.schedule();
+    }
   }
 
   /** Failures still remembered (a test diagnostic: they are pruned at their retry time). */
@@ -211,7 +215,11 @@ export class TileLoader {
     if (this.destroyed || this.paused) return;
     let slots = this.opts.maxInFlight - this.inFlight;
     if (this.stateNow === 'offline') {
-      if (this.opts.online && !this.opts.online()) return;
+      if (this.opts.online && !this.opts.online()) {
+        // Look again later: the browser's `online` event is not always sent.
+        if (!this.retryTimer) this.armRetry();
+        return;
+      }
       const wait = this.opts.retryAfterMs - (this.opts.now() - this.offlineSince);
       if (wait > 0) {
         // Too early for a probe. A timer may fire a moment before the clock says the
