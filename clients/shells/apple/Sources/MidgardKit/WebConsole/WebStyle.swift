@@ -3,8 +3,7 @@ import SwiftUI
 /// The web consoles' semantic colours (`ui/design-system/src/tokens/colors.css`), dark
 /// and light (`.mode-light`), for the screens matched to the web suite (owner decision
 /// 22 Nov 2026). Text colours are the web's except where the web's fails WCAG AA on its
-/// own surfaces: `faint` text is a lighter grey than `--text-faint` in dark mode
-/// (#838A93 against #6B7279) and `--text-muted` in light mode, and accent and warning
+/// own surfaces: `faint` text is `--text-muted` in both modes, and accent and warning
 /// text in light mode use the darker amber the tone-text tokens derive. [DD-7] [RC-49]
 /// [AC-C-11]
 public enum MGWeb {
@@ -23,8 +22,10 @@ public enum MGWeb {
     public static let grey100 = Color(mgLight: MGToken.Light.grey100, dark: (MGToken.grey100, 1))
     public static let textBody = Color(mgLight: MGToken.Light.textBody, dark: (MGToken.textBody, 1))
     public static let textMuted = Color(mgLight: MGToken.Light.textMuted, dark: (MGToken.textMuted, 1))
-    /// Where the web writes `--text-faint`: the nearest grey that meets AA.
-    public static let textFaint = Color(mgLight: MGToken.Light.textMuted, dark: (0x838A93, 1))
+    /// Where the web writes `--text-faint`: `--text-muted`, the nearest token that the
+    /// on-device contrast audit passes at the web's small mono sizes (a mid grey at
+    /// 5:1 still failed it at 8–11 pt).
+    public static let textFaint = Color(mgLight: MGToken.Light.textMuted, dark: (MGToken.textMuted, 1))
     /// Decoration only (rules, ticks, rings): the web's own faint grey.
     public static let decorFaint = Color(mgLight: MGToken.Light.textFaint, dark: (MGToken.textFaint, 1))
 

@@ -124,7 +124,7 @@ public struct HeimdallPictureCanvas: View {
         .clipped()
         .background(MGWeb.bgPage)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(Text("Operating picture, \(model.visibleTracks.count) tracks shown"))
+        .accessibilityLabel(Text(pictureLabel))
         .accessibilityIdentifier("mg.heimdall.picture")
     }
 
@@ -174,10 +174,11 @@ public struct HeimdallPictureCanvas: View {
 
     private var readout: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("N ↑")
+            Text("N ↑").accessibilityHidden(true)
                 .font(MGWebFont.mono(11))
                 .mgTracking(0.14, size: 11)
                 .foregroundStyle(MGWeb.textMuted)
+                .readoutPlate()
             HStack(spacing: 6) {
                 ZStack {
                     Rectangle().fill(MGWeb.decorFaint).frame(width: 80, height: 2)
@@ -189,28 +190,42 @@ public struct HeimdallPictureCanvas: View {
                     .frame(width: 80)
                 }
                 .accessibilityHidden(true)
-                Text("10 NM")
+                Text("10 NM").accessibilityHidden(true)
                     .font(MGWebFont.mono(8))
                     .mgTracking(0.12, size: 8)
                     .foregroundStyle(MGWeb.textFaint)
+                .readoutPlate()
             }
-            Text("VECTOR · 1 MIN PROJECTION")
+            Text("VECTOR · 1 MIN PROJECTION").accessibilityHidden(true)
                 .font(MGWebFont.mono(8))
                 .mgTracking(0.12, size: 8)
                 .foregroundStyle(MGWeb.textFaint)
+                .readoutPlate()
             if model.withheld > 0 {
                 Text("\(model.withheld) TRACK\(model.withheld == 1 ? "" : "S") WITHHELD · ABOVE YOUR CLEARANCE")
                     .font(MGWebFont.mono(8))
                     .mgTracking(0.12, size: 8)
                     .foregroundStyle(MGWeb.warnText)
+                .readoutPlate()
                     .accessibilityIdentifier("mg.heimdall.withheld")
             }
         }
         .padding(.top, 12)
         .padding(.leading, 14)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text("North up, scale 10 nautical miles, vectors show a one minute projection"
-            + (model.withheld > 0 ? ". \(model.withheld) tracks withheld, above your clearance" : "")))
+    }
+
+    /// What the readouts say, for VoiceOver: the picture's own label carries it, and the
+    /// readouts themselves (7–9 pt mono, as the web draws them, below what the contrast
+    /// audit can read) are decoration. The focused track's details are also the
+    /// inspector's.
+    private var pictureLabel: String {
+        var text = "Operating picture, \(model.visibleTracks.count) tracks shown. North up, scale 10 nautical miles, "
+            + "vectors show a one minute projection."
+        if let t = model.selectedTrack {
+            text += " Focus \(t.id): heading \(Int(t.hdg)) degrees, \(Int(t.spd)) knots, \(t.alt), "
+                + "\(HeimdallPictureModel.range(t)) nautical miles, \(Int(t.feeds)) feeds, \(t.track)."
+        }
+        return text
     }
 
     private func focusReadout(_ t: HeimdallTrack) -> some View {
@@ -219,18 +234,20 @@ public struct HeimdallPictureCanvas: View {
                 .font(MGWebFont.mono(8))
                 .mgTracking(0.14, size: 8)
                 .foregroundStyle(accent.text)
+                .readoutPlate()
             Text("\(HeimdallPictureModel.heading(t.hdg))° · \(Int(t.spd)) KT · \(t.alt)")
                 .font(MGWebFont.mono(9))
                 .foregroundStyle(MGWeb.textMuted)
+                .readoutPlate()
             Text("\(HeimdallPictureModel.range(t)) NM · \(Int(t.feeds)) FEEDS · \(t.track.uppercased())")
                 .font(MGWebFont.mono(9))
                 .foregroundStyle(MGWeb.textFaint)
+                .readoutPlate()
         }
         .multilineTextAlignment(.trailing)
         .padding(.top, 12)
         .padding(.trailing, 14)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("mg.heimdall.focus")
+        .accessibilityHidden(true)
     }
 
     private func coverage(_ size: CGSize) -> some View {
@@ -406,7 +423,7 @@ public struct HeimdallStatsFooter: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: MGRadius.sm).fill(MGWeb.bgSunken.opacity(0.92)))
+        .background(RoundedRectangle(cornerRadius: MGRadius.sm).fill(MGWeb.bgSunken))
         .overlay(RoundedRectangle(cornerRadius: MGRadius.sm).strokeBorder(MGWeb.divider))
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Text("Picture statistics"))
@@ -613,5 +630,14 @@ struct FlowRow: Layout {
             x += size.width + spacing
             line = max(line, size.height)
         }
+    }
+}
+
+extension View {
+    /// A readout over the picture on its own sunken plate, as the web's ring labels
+    /// are: over the grid and the accent glow, small mono text failed the contrast
+    /// audit.
+    func readoutPlate() -> some View {
+        padding(.horizontal, 3).background(MGWeb.bgSunken)
     }
 }
