@@ -2,6 +2,9 @@ import * as React from 'react';
 import type { HeimdallLayerId, HeimdallTrack } from '@midgard/sdk';
 import { useResolvedMode } from '@midgard/ui-shared';
 
+import { Credits } from '../app/Credits';
+import { type Credit, NATURAL_EARTH } from '../app/dataSources.ts';
+import { IMAGERY_CREDIT, TERRAIN_CREDIT } from '../tiles/credits.ts';
 import { TrackTooltip } from '../app/TrackTooltip';
 import { type CameraState, MIN_ALTITUDE_KM, cameraFloorKm } from './camera.ts';
 import { readGlobeColours } from './colours.ts';
@@ -180,6 +183,13 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
     r.nudge(m[0], m[1], m[2]);
   };
 
+  // The sources in use: the bundled outlines always; the tiles while they are drawn.
+  const credits: Credit[] = [NATURAL_EARTH];
+  if (__HEIMDALL_TILES__ && tileState === 'online') {
+    credits.push(TERRAIN_CREDIT);
+    if (style === 'satellite') credits.push(IMAGERY_CREDIT);
+  }
+
   const current: Region | null = camera ? regionAt(camera.lat, camera.lon, regions) : null;
   const summary = camera ? describeCamera(camera, regions) : '';
   const hovered = hover ? tracks.find((t) => t.id === hover) : undefined;
@@ -318,6 +328,7 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
             onChange={(e) => setHeights(Number(e.target.value))}
           />
         </label>
+        <Credits credits={credits} />
       </div>
     </div>
   );

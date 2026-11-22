@@ -2,6 +2,9 @@ import * as React from 'react';
 import type { HeimdallLayerId, HeimdallTrack } from '@midgard/sdk';
 import { useResolvedMode } from '@midgard/ui-shared';
 
+import { Credits } from '../app/Credits';
+import { NATURAL_EARTH } from '../app/dataSources.ts';
+import { VECTOR_CREDIT } from '../tiles/credits.ts';
 import { TrackTooltip } from '../app/TrackTooltip';
 import { loadOutlines } from '../globe/outlineAssets.ts';
 import { type Region, buildRegions, regionAt } from '../globe/presets.ts';
@@ -238,6 +241,7 @@ export default function MapView({ tracks, layerOn, selectedId, onSelect }: MapVi
             <button type="button" aria-label="Zoom out" onClick={() => rendererRef.current?.nudge(0, 0, -1)}>−</button>
           </div>
         </div>
+        <Credits credits={tileState === 'online' ? [VECTOR_CREDIT, NATURAL_EARTH] : [NATURAL_EARTH]} />
       </div>
     </div>
   );
