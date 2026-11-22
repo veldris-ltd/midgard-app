@@ -18,7 +18,9 @@ struct MidgardMacApp: App {
         } defaultValue: {
             ConsoleRoute()
         }
-        .defaultSize(width: 1100, height: 820)
+        // The web console's reference width (Heimdall's frame needs it), and the height
+        // its inspector needs under the app's banners and status line.
+        .defaultSize(width: 1400, height: 1000)
         .commands { MidgardCommands(model: delegate.model) }
 
         Settings {

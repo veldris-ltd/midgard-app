@@ -58,9 +58,14 @@ struct StatusLine: View {
                 .accessibilityValue(Text(reduced ? "reduced" : "full"))
                 .accessibilityIdentifier("mg.motion")
         }
-        .font(MGFonts.sans(.footnote))
+        // The heading token on the console's own sunken surface: over the window's
+        // background, which macOS tints with the desktop picture, the house sans failed
+        // the contrast audit at random once the bundled fonts were registered.
+        .font(MGFonts.sans(.footnote).weight(.medium))
+        .foregroundStyle(MGStyle.text)
         .padding(.horizontal, MGSpace.s3)
         .padding(.vertical, MGSpace.s1)
+        .background(MGWeb.bgSunken)
     }
 }
 
@@ -147,25 +152,119 @@ struct WindowSetup: NSViewRepresentable {
     }
 }
 
-/// Signed in: the persona menu above a three-column split view. The sidebar lists the
+/// Signed in: Heimdall in the web console's own frame (`HeimdallConsole`, matched to
+/// the web suite, owner decision 22 Nov 2026); every other console, until its phase
+/// matches it, the persona menu above a three-column split view. The sidebar lists the
 /// six consoles (⌘1…⌘6) and, under the selected one, its screens; the content and
-/// detail columns show the screen's placeholder until its phase builds it. In the 3D
-/// and maps editions, Heimdall's Operating Picture also offers the edition library's
-/// "3D view" entry (`AppModel.threeDEntry`, from the link-time edition provider), which
-/// opens in the detail column; in a release app there is no provider and the columns are
-/// exactly the screen's. [FR-C-1]
+/// detail columns show the screen's placeholder until its phase builds it. [FR-C-1]
 struct ConsoleShell: View {
     @ObservedObject var model: AppModel
     let persona: PersonaInfo
     @Binding var route: ConsoleRoute
+
+    var body: some View {
+        if ConsoleCatalog.console(route).id == "heimdall" {
+            HeimdallConsole(model: model, persona: persona, route: $route)
+                .navigationTitle(ConsoleCatalog.console(route).name)
+        } else {
+            SplitConsoleShell(model: model, persona: persona, route: $route)
+        }
+    }
+}
+
+/// Heimdall as the web console draws it (`ConsoleShell` with `OperatingPictureScreen`):
+/// the classification banner, the header (mark, context, seals, the persona menu), the
+/// navigation (the six consoles, then Heimdall's PICTURE and DECIDE sections with their
+/// counts, and on the Operating Picture its LAYERS switches), the picture and the
+/// inspector. Heimdall's other screens keep their placeholder inside the same frame. In
+/// the 3D and maps editions the header also carries the edition library's "3D view"
+/// entry (`AppModel.threeDEntry`), whose view replaces the picture while open; a release
+/// app has no provider. [FR-C-1] [FR-H-4] [FR-H-5] [DD-7]
+struct HeimdallConsole: View {
+    @ObservedObject var model: AppModel
+    let persona: PersonaInfo
+    @Binding var route: ConsoleRoute
+    @StateObject private var picture: HeimdallPictureModel
     @State private var showingThreeD = false
 
-    /// The 3D entry, on Heimdall's first screen only, when this app has one.
-    private var threeD: HeimdallThreeDProvider? {
-        let r = route.clamped
-        guard ConsoleCatalog.console(r).id == "heimdall", r.screen == 0 else { return nil }
-        return model.threeDEntry
+    init(model: AppModel, persona: PersonaInfo, route: Binding<ConsoleRoute>) {
+        self.model = model
+        self.persona = persona
+        self._route = route
+        self._picture = StateObject(wrappedValue: HeimdallPictureModel(app: model))
     }
+
+    private var isPicture: Bool { route.clamped.screen == 0 }
+    private var threeD: HeimdallThreeDProvider? { isPicture ? model.threeDEntry : nil }
+    private var heimdall: Console { ConsoleCatalog.console(route) }
+
+    var body: some View {
+        HeimdallConsoleFrame(nav: { nav }, main: { main }, aside: { aside }, trailing: { trailing })
+            .task(id: persona.id) { await picture.load() }
+            .onChange(of: route) { showingThreeD = false }
+    }
+
+    /// The navigation: the consoles first, as a row of tiles (numbered from 1; the
+    /// persona menu is 0), then Heimdall's sections in the web's order.
+    private var sections: (WebSideNavSection, [WebSideNavSection]) {
+        var number = 0
+        func next() -> Int { number += 1; return number }
+        let consoles = ConsoleCatalog.consoles.enumerated().map { index, console in
+            WebSideNavItem(id: "console.\(console.slug)", label: "\(console.name) console", symbol: console.symbol, badge: nil,
+                           identifier: "mg.\(next()).console.\(console.slug)", selected: console.id == "heimdall",
+                           action: { route.select(console: index) })
+        }
+        let consoleIndex = route.clamped.console
+        let screens = HeimdallChrome.sections.map { section in
+            WebSideNavSection(title: section.title, items: section.items.map { item in
+                let index = heimdall.screens.firstIndex(of: item.screen) ?? 0
+                return WebSideNavItem(id: item.id, label: item.label, symbol: item.symbol, badge: item.badge,
+                                      identifier: "mg.\(next()).screen.\(ConsoleCatalog.slug(item.screen))",
+                                      selected: route.clamped.screen == index,
+                                      action: { route = ConsoleRoute(console: consoleIndex, screen: index).clamped })
+            })
+        }
+        return (WebSideNavSection(title: "CONSOLES", items: consoles), screens)
+    }
+
+    private var nav: some View {
+        let (rail, sections) = self.sections
+        return WebSideNav(rail: rail, sections: sections, accent: .heimdall) {
+            if isPicture { HeimdallLayersList(model: picture) }
+        }
+    }
+
+    @ViewBuilder private var main: some View {
+        if showingThreeD, let threeD {
+            threeD.makeView()
+        } else if isPicture {
+            HeimdallPictureCanvas(model: picture)
+        } else {
+            ScreenContent(route: route.clamped)
+        }
+    }
+
+    @ViewBuilder private var aside: some View {
+        if isPicture {
+            HeimdallInspector(model: picture)
+                .accessibilityIdentifier("mg.detail.operating-picture")
+        } else {
+            ScreenDetail(route: route.clamped)
+        }
+    }
+
+    @ViewBuilder private var trailing: some View {
+        if let threeD { threeD.makeEntry(showing: $showingThreeD) }
+        PersonaMenu(model: model, persona: persona)
+    }
+}
+
+/// The split-view shell of the consoles not yet matched to the web suite: the persona
+/// menu above the sidebar, the screen's content and its detail. [FR-C-1]
+struct SplitConsoleShell: View {
+    @ObservedObject var model: AppModel
+    let persona: PersonaInfo
+    @Binding var route: ConsoleRoute
 
     var body: some View {
         VStack(spacing: 0) {
@@ -183,11 +282,9 @@ struct ConsoleShell: View {
                     .accessibilityLabel(Text("Consoles"))
             } content: {
                 ScreenContent(route: route.clamped)
-                    .modifier(ThreeDEntryInset(entry: threeD, showing: $showingThreeD, route: route))
                     .navigationSplitViewColumnWidth(min: 280, ideal: 360)
             } detail: {
                 ScreenDetail(route: route.clamped)
-                    .modifier(ThreeDDetail(entry: threeD, showing: showingThreeD))
                     .accessibilityElement(children: .contain)
                     .accessibilityLabel(Text("Details"))
             }
@@ -199,44 +296,6 @@ struct ConsoleShell: View {
         // contrast audit, and the sidebar and the screen heading already say where the
         // window is.
         .navigationTitle(ConsoleCatalog.console(route).name)
-    }
-}
-
-/// With an edition provider's 3D entry: the entry above the screen's content (a top
-/// inset); the 3D view closes again when the route changes, and when the entry goes (the
-/// route left Heimdall's Operating Picture). Without one (every release app): the content
-/// as it is.
-struct ThreeDEntryInset: ViewModifier {
-    let entry: HeimdallThreeDProvider?
-    @Binding var showing: Bool
-    let route: ConsoleRoute
-
-    func body(content: Content) -> some View {
-        if let entry {
-            content
-                .safeAreaInset(edge: .top, alignment: .leading, spacing: 0) {
-                    entry.makeEntry(showing: $showing).padding([.horizontal, .top], MGSpace.s5)
-                        .onDisappear { showing = false }
-                }
-                .onChange(of: route) { showing = false }
-        } else {
-            content
-        }
-    }
-}
-
-/// While the 3D entry is open: its view in place of the screen's detail. Otherwise (and
-/// always in a release app): the detail as it is.
-struct ThreeDDetail: ViewModifier {
-    let entry: HeimdallThreeDProvider?
-    let showing: Bool
-
-    func body(content: Content) -> some View {
-        if showing, let entry {
-            entry.makeView()
-        } else {
-            content
-        }
     }
 }
 
@@ -363,7 +422,7 @@ struct ScreenContent: View {
         VStack(alignment: .leading, spacing: MGSpace.s3) {
             Text(name).font(MGFonts.display(.title2)).accessibilityAddTraits(.isHeader)
             Text(ConsoleCatalog.placeholder(for: route)).font(MGFonts.sans(.body))
-            Text("Until then this screen is empty: no data source is connected.")
+            Text("Until then it shows nothing of the sample data.")
                 .font(MGFonts.sans(.body))
         }
         .padding(MGSpace.s5)

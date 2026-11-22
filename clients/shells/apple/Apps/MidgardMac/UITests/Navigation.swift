@@ -5,9 +5,25 @@ import XCTest
 enum Nav {
     /// Every test launch starts with no restored windows: a run that terminated the app
     /// can leave saved state with none, and the app would then open no window.
+    /// They open at the apps' default size, 1400 × 1000 (the web reference is 1400 × 900;
+    /// Heimdall's inspector needs the height under the Mac banners), over any window frame
+    /// AppKit saved from an earlier run, for each edition's module.
     static let freshLaunch = ["-ApplePersistenceIgnoreState", "YES"]
+        + ["Midgard", "Midgard3D", "MidgardMaps"].flatMap { module in
+            ["-NSWindow Frame SwiftUI.PresentedWindowContent<MidgardKit.ConsoleRoute, "
+                + "SwiftUI.ModifiedContent<\(module).RootView, SwiftUI._FlexFrameLayout>>-1-AppWindow-1",
+             "100 130 1400 1000 0 0 1920 1170"]
+        }
 
     static let consoleIds = ["midgard", "admin", "heimdall", "forge", "mimir", "bifrost"]
+
+    /// The persona the tests sign in as: K. Osei, the web Heimdall console's own subject
+    /// (confidential, OPS-N), who sees the whole sample picture.
+    static let persona = "k.osei"
+
+    static func personaButton(_ app: XCUIApplication, _ id: String = persona) -> XCUIElement {
+        element(app, matching: "mg\\.[0-9]+\\.persona\\.\(id.replacingOccurrences(of: ".", with: "\\."))")
+    }
 
     static func element(_ app: XCUIApplication, _ id: String) -> XCUIElement {
         app.descendants(matching: .any)[id]
@@ -21,7 +37,7 @@ enum Nav {
     /// Enrol if the app asks to, ending on the sign-in screen (or past it).
     static func toSignIn(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
         let enrol = element(app, "mg.0.enrol")
-        let persona = element(app, "mg.0.persona.local")
+        let persona = personaButton(app)
         let console = element(app, "mg.console.selected")
         let deadline = Date().addingTimeInterval(45)
         while Date() < deadline {
@@ -32,13 +48,13 @@ enum Nav {
         XCTFail("the sign-in screen did not appear:\n\(app.debugDescription)", file: file, line: line)
     }
 
-    /// Signed in as the local user, inside the console shell.
+    /// Signed in as `persona`, inside the console shell.
     static func signedIn(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
         toSignIn(app, file: file, line: line)
         let console = element(app, "mg.console.selected")
         if console.exists { return }
         let unlock = element(app, "mg.0.unlock")
-        if unlock.exists { unlock.click() } else { element(app, "mg.0.persona.local").click() }
+        if unlock.exists { unlock.click() } else { personaButton(app).click() }
         XCTAssertTrue(console.waitForExistence(timeout: 20), "the console shell did not appear", file: file, line: line)
     }
 

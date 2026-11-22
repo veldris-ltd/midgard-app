@@ -1,8 +1,9 @@
 import XCTest
 
-/// The session end to end with no data source (owner decision 19 Nov 2026): enrol,
-/// sign in as the local user, see the "No data source connected" banner, open each
-/// console, go offline and back, lock and unlock. [FR-C-1] [FR-C-5] [FR-C-9] [AC-C-13]
+/// The session end to end over the release's sample data (owner decision 22 Nov 2026):
+/// enrol, see the mock personas, sign in, see the web consoles' demonstration notice,
+/// open each console, go offline and back, lock and unlock. [FR-C-1] [FR-C-5] [FR-C-9]
+/// [AC-C-13]
 final class SessionFlowTests: XCTestCase {
     private var app: XCUIApplication!
 
@@ -17,20 +18,22 @@ final class SessionFlowTests: XCTestCase {
         app.terminate()
     }
 
-    func testNoDataSessionFlow() {
-        // Enrol, then the sign-in screen offers the one local user.
+    func testSampleDataSessionFlow() {
+        // Enrol, then the sign-in screen offers the personas the mocks name.
         Nav.toSignIn(app)
-        let local = Nav.element(app, "mg.0.persona.local")
-        XCTAssertTrue(local.waitForExistence(timeout: 10))
-        XCTAssertTrue(local.label.hasPrefix("Local user"), "persona label: \(local.label)")
-        XCTAssertFalse(Nav.element(app, matching: "mg\\.1\\.persona\\..*").exists, "only one persona with no data")
-        local.click()
+        for (n, id) in ["k.rao", "j.benjamin", "k.osei", "a.holt"].enumerated() {
+            XCTAssertTrue(Nav.element(app, "mg.\(n).persona.\(id)").waitForExistence(timeout: 10), "no persona \(id)")
+        }
+        let osei = Nav.personaButton(app)
+        XCTAssertTrue(osei.label.hasPrefix("K. Osei"), "persona label: \(osei.label)")
+        osei.click()
 
-        // The banner says there is no source.
-        let banner = Nav.element(app, "mg.banner.nosource")
+        // The banner is the web consoles' own demonstration notice.
+        let banner = Nav.element(app, "mg.banner.demo")
         XCTAssertTrue(banner.waitForExistence(timeout: 20), app.debugDescription)
-        XCTAssertEqual(Nav.text(banner), "No data source connected")
-        XCTAssertFalse(Nav.element(app, "mg.banner.demo").exists)
+        XCTAssertEqual(Nav.text(banner),
+                       "Demonstration data. This console runs on built-in sample data and is not connected to an enclosure.")
+        XCTAssertFalse(Nav.element(app, "mg.banner.nosource").exists)
 
         // Each console, from the sidebar, shows its first screen's placeholder.
         let firsts = ["object-fabric", "overview", "operating-picture", "connectors", "model-plane", "release-console"]
@@ -64,6 +67,6 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertFalse(Nav.element(app, "mg.console.selected").exists)
         unlock.click()
         XCTAssertTrue(Nav.element(app, "mg.console.selected").waitForExistence(timeout: 20))
-        XCTAssertTrue(Nav.element(app, "mg.banner.nosource").exists)
+        XCTAssertTrue(Nav.element(app, "mg.banner.demo").exists)
     }
 }

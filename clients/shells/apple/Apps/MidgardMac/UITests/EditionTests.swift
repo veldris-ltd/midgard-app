@@ -20,7 +20,7 @@ final class EditionTests: XCTestCase {
 
     func testTheBannersSayWhichEditionThisIs() {
         Nav.signedIn(app)
-        XCTAssertTrue(Nav.element(app, "mg.banner.nosource").waitForExistence(timeout: 10))
+        XCTAssertTrue(Nav.element(app, "mg.banner.demo").waitForExistence(timeout: 10))
         for id in ["mg.banner.edition3d", "mg.banner.editionmaps"] where id != Edition.banner?.id {
             XCTAssertFalse(Nav.element(app, id).exists, "\(id) is not this edition's banner")
         }
