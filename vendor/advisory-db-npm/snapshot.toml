@@ -6,9 +6,9 @@
 [snapshot]
 source = "https://osv-vulnerabilities.storage.googleapis.com/npm/all.zip"
 ecosystem = "npm"
-date = "2026-11-01"
-advisory_count = 92
-package_count = 125
+date = "2026-11-22"
+advisory_count = 96
+package_count = 133
 
 [staleness]
 warn_after_days = 30

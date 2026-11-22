@@ -17,6 +17,7 @@
 @babel/template
 @babel/traverse
 @babel/types
+@dimforge/rapier3d-compat
 @esbuild/aix-ppc64
 @esbuild/android-arm
 @esbuild/android-arm64
@@ -74,6 +75,7 @@
 @rollup/rollup-win32-ia32-msvc
 @rollup/rollup-win32-x64-gnu
 @rollup/rollup-win32-x64-msvc
+@tweenjs/tween.js
 @types/babel__core
 @types/babel__generator
 @types/babel__template
@@ -83,6 +85,9 @@
 @types/prop-types
 @types/react
 @types/react-dom
+@types/stats.js
+@types/three
+@types/webxr
 @vitejs/plugin-react
 baseline-browser-mapping
 browserslist
@@ -95,6 +100,7 @@ electron-to-chromium
 esbuild
 escalade
 fdir
+fflate
 fsevents
 gensync
 js-tokens
@@ -102,6 +108,7 @@ jsesc
 json5
 loose-envify
 lru-cache
+meshoptimizer
 ms
 nanoid
 node-releases
@@ -117,6 +124,7 @@ scheduler
 semver
 set-cookie-parser
 source-map-js
+three
 tinyglobby
 typescript
 undici-types

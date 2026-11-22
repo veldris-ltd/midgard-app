@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "tsc -p tsconfig.json --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --experimental-strip-types --test \"src/**/*.test.ts\""
   },
   "dependencies": {
     "@midgard/design-system": "workspace:*",
@@ -16,12 +17,14 @@
     "@midgard/ui-shared": "workspace:*",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router": "^7.18.4"
+    "react-router": "^7.18.4",
+    "three": "0.187.0"
   },
   "devDependencies": {
     "@types/node": "^22.9.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "@types/three": "0.187.0",
     "@vitejs/plugin-react": "^5.2.0",
     "typescript": "^5.6.3",
     "vite": "^7.3.7"
