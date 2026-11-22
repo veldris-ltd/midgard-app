@@ -120,12 +120,13 @@ async function main() {
     if (!from || from.startsWith('--')) throw new Error('--from needs a directory');
   }
   let tmp = null;
-  if (!from) {
-    tmp = mkdtempSync(join(tmpdir(), 'ne-'));
-    from = tmp;
-    await download(tmp);
-  }
   try {
+    // Inside the try, so a failed download still removes the temporary directory.
+    if (!from) {
+      tmp = mkdtempSync(join(tmpdir(), 'ne-'));
+      from = tmp;
+      await download(tmp);
+    }
     const ne = await inputs(from);
     const header = { format: 'midgard-heimdall-outlines/1', quantum: QUANTUM };
     const world = {
