@@ -6660,7 +6660,7 @@ collections.
 | Banner | "No data source connected" | The same, plus "3D edition, not in the signed release" |
 
 **Where the globe comes from.** The release tag has no globe. The 3D view ports the
-behaviour of the three.js globe on the unsigned branch `md_mixedfeeds_3d`
+behaviour of the three.js globe on the unsigned branch `md_unified`
 (`products/heimdall/ui/src/app/globe/`, about 2,300 lines in `GlobeView.ts` and its
 helpers). That code is not in the signed release, which is why it ships only in the
 3D edition. If it later lands in a signed release, the editions can merge back into
@@ -6756,7 +6756,7 @@ least-recently-used eviction. A "Clear map cache" control goes under About.
 - TOPOGRAPHIC: tint, hillshade and contours;
 - the satellite imagery style;
 - zoom to 1.5 km above the ground, with the camera kept 150 m above the terrain;
-- the UK close-up patch, as on `md_mixedfeeds_3d`.
+- the UK close-up patch, as on `md_unified`.
 
 **Offline:** the OFFLINE chip, or no network, falls back to the I1 globe with
 "Map tiles need a connection", never an error.
@@ -6791,7 +6791,7 @@ that final step only; until then, nothing is pushed.
 | Tag | Message names |
 |---|---|
 | `apple-midgard-v0.1.0-rc.3` | Midgard, the release edition; macOS and iOS; built from the signed `v0.1.0-rc.3` (`ea5899ab`); no data source |
-| `apple-midgard3d-v0.1.0-rc.3` | Midgard 3D at Task I1; macOS and iOS; the same release plus the Heimdall globe ported from `md_mixedfeeds_3d`; no tiles and no network use |
+| `apple-midgard3d-v0.1.0-rc.3` | Midgard 3D at Task I1; macOS and iOS; the same release plus the Heimdall globe ported from `md_unified`; no tiles and no network use |
 | `apple-midgard3dmaps-v0.1.0-rc.3` | Midgard 3D at Task I2; macOS and iOS; the I1 globe plus online map tiles (EOX imagery, Mapzen and Environment Agency terrain, VersaTiles) |
 
 Each tag points at the commit where both platforms of that stage pass `audit.sh` and
@@ -6835,7 +6835,7 @@ in the apps.
   2. a version bump to `0.2.0` (the clients are new features);
   3. the release pipeline, then a `v0.2.0-rc.1` tag from `main`.
 - The 3D globe reaches a signed release the same way, from its own feature branch off
-  `main`. It is never a wholesale merge of `md_mixedfeeds_3d` or `dev_mac`.
+  `main`. It is never a wholesale merge of `md_unified` or `dev_mac`.
 - No pull requests are opened without the owner's request.
 
 ## Owner decision (22 Nov 2026): only the three clients; everything else paused
@@ -6941,7 +6941,7 @@ above.
   1. the core branches `heimdall_3d` and `heimdall_maps`, once they exist. Their
      carve-out from `md_unified` 857c3bcb (5 Nov) is the newest globe and map code
      across all branches;
-  2. until then, `md_unified` 857c3bcb itself, not `md_mixedfeeds_3d` 27026800.
+  2. until then, `md_unified` 857c3bcb itself.
 - **Port order.** I1 follows `heimdall_3d`, and I2 follows `heimdall_maps`.
 - **Before each edition's tag**, the Mac and iPhone 3D and Maps apps are compared against
   the newest core branch, and any later globe or map change is ported.
