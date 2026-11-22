@@ -1,4 +1,4 @@
-//! The binding surface with no data source (`dataset_path: None`): one `local`
+//! The binding surface with no data source (`SourceChoice::None`): one `local`
 //! persona, every action refused with "no data source connected" and nothing queued,
 //! state round-trips, and a dataset path that does not open is an error, never a
 //! fallback to this mode. [FR-C-1] [FR-C-5] [AC-C-13] [FR-C-4]
@@ -40,7 +40,10 @@ impl KeyRoot for TestKeyRoot {
 
 fn config(dataset_path: Option<String>) -> ClientConfig {
     ClientConfig {
-        dataset_path,
+        source: match dataset_path {
+            None => SourceChoice::None,
+            Some(path) => SourceChoice::Bundled { path },
+        },
         replica_id: "no-source-device".into(),
         device: DeviceInfo {
             ram_mb: 8192,

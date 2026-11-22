@@ -41,6 +41,9 @@ pub const PINNED_AUDIT_ANCHOR: &str = include_str!("../../../demo/trust/demo-aud
 /// The dataset `format` this enclosure reads.
 pub const FORMAT: &str = "midgard-demo-dataset";
 
+/// The `format` of the sample body the core compiles in (`crate::sample_source`).
+pub const SAMPLE_FORMAT: &str = "midgard-sample-data";
+
 /// A stored row.
 #[derive(Debug, Clone)]
 pub struct StoredRow {
@@ -63,12 +66,42 @@ pub struct Collection {
     pub rows: Vec<StoredRow>,
 }
 
+/// How a console numbers and stamps the audit rows its actions add, as its web mock
+/// does (`sdk/ts/src/mock/<console>.ts`: `nextId` and `stamp`). Only the sample source
+/// sets one; the demo dataset keeps its own `AUD-D<n>` rows. [FR-C-4]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MockAuditClock {
+    /// Id prefix, e.g. `D-`.
+    pub prefix: &'static str,
+    /// The last id number used (the mock's seed).
+    pub seq: u64,
+    /// Seconds since midnight of the last stamp (the mock's seed).
+    pub clock: u64,
+    /// Seconds each stamp advances: `1 + floor(latency / 100)` in the mock.
+    pub step: u64,
+}
+
+impl MockAuditClock {
+    /// The next id and stamp.
+    fn next(&mut self) -> (String, String) {
+        self.seq += 1;
+        self.clock = (self.clock + self.step) % 86_400;
+        let c = self.clock;
+        (
+            format!("{}{}", self.prefix, self.seq),
+            format!("{:02}:{:02}:{:02}", c / 3600, c / 60 % 60, c % 60),
+        )
+    }
+}
+
 /// The mutable demo state handlers work on.
 #[derive(Debug, Default)]
 pub struct DemoState {
     /// Collections by name.
     pub collections: BTreeMap<String, Collection>,
     audit_seq: u64,
+    /// Per console: the mock's own audit numbering (sample source only).
+    mock_clocks: BTreeMap<String, MockAuditClock>,
 }
 
 impl DemoState {
@@ -97,15 +130,22 @@ impl DemoState {
         resource: &str,
         marking: RowMarking,
     ) -> String {
-        self.audit_seq += 1;
-        let id = format!("AUD-D{:04}", self.audit_seq);
-        let secs = 15 * 3600 + self.audit_seq;
-        let ts = format!(
-            "{:02}:{:02}:{:02}",
-            secs / 3600 % 24,
-            secs / 60 % 60,
-            secs % 60
-        );
+        let (id, ts) = match self.mock_clocks.get_mut(console) {
+            Some(clock) => clock.next(),
+            None => {
+                self.audit_seq += 1;
+                let secs = 15 * 3600 + self.audit_seq;
+                (
+                    format!("AUD-D{:04}", self.audit_seq),
+                    format!(
+                        "{:02}:{:02}:{:02}",
+                        secs / 3600 % 24,
+                        secs / 60 % 60,
+                        secs % 60
+                    ),
+                )
+            }
+        };
         let name = format!("{console}.audit");
         let key = match self.collections.get(&name) {
             Some(c) if c.type_name == audit::AUDIT_TYPE => name,
@@ -134,6 +174,22 @@ impl DemoState {
             },
         );
         id
+    }
+}
+
+impl DemoState {
+    /// Number and stamp `console`'s new audit rows as its web mock does.
+    pub fn set_mock_clock(&mut self, console: &str, clock: MockAuditClock) {
+        self.mock_clocks.insert(console.to_string(), clock);
+    }
+
+    /// A row of `collection` by id.
+    pub fn row(&self, collection: &str, id: &str) -> Option<&StoredRow> {
+        self.collections
+            .get(collection)?
+            .rows
+            .iter()
+            .find(|r| r.id == id)
     }
 }
 
@@ -442,14 +498,36 @@ impl DemoEnclosure {
     /// local-suite data guard, personas, markings, row types and audit-row
     /// signatures.
     fn load(release: &str, body: &Json, audit_anchors: &TrustAnchors) -> Result<Self, SourceError> {
+        Self::load_as(FORMAT, release, body, audit_anchors)
+    }
+
+    /// Load the sample body the core compiles in (`crate::sample_source`), checked in
+    /// full as a dataset is, except that it carries no signature: it is part of the
+    /// core binary, not a file handed to it. No audit row may claim a build-time
+    /// signature (there is no anchor to check one under), so every audit row is
+    /// delivered unsigned. [AC-C-13]
+    pub(crate) fn load_sample(release: &str, body: &Json) -> Result<Self, SourceError> {
+        Self::load_as(SAMPLE_FORMAT, release, body, &TrustAnchors::new())
+    }
+
+    fn load_as(
+        format: &str,
+        release: &str,
+        body: &Json,
+        audit_anchors: &TrustAnchors,
+    ) -> Result<Self, SourceError> {
         strict(
             body,
             "body",
             &["collections", "personas", "format", "version", "release"],
             &["inputs"],
         )?;
-        if body.get("format").and_then(Json::as_str) != Some(FORMAT) {
-            return Err(bad("not a demo dataset"));
+        if body.get("format").and_then(Json::as_str) != Some(format) {
+            return Err(bad(if format == FORMAT {
+                "not a demo dataset"
+            } else {
+                "not the sample data"
+            }));
         }
         if body.get("version") != Some(&Json::Num("1".into())) {
             return Err(bad("unsupported version"));
@@ -513,6 +591,11 @@ impl DemoEnclosure {
     /// The release the dataset is for.
     pub fn release(&self) -> &str {
         &self.release
+    }
+
+    /// The state handlers work on (the sample source seeds its mock clocks here).
+    pub(crate) fn state_mut(&mut self) -> &mut DemoState {
+        &mut self.state
     }
 
     /// Decide one complete action for `grant`.
