@@ -45,13 +45,14 @@ for the world and 1:50m below 3,000 km. Tracks that carry `lat`/`lon` are placed
 layer at their altitude, read from `alt` (`FL340` is 34,000 ft, `SURFACE` and `GND`
 are 0) and exaggerated ×4 by default (the HEIGHTS slider, ×1–×20); anomalous tracks
 are `--warn`, the rest `--accent`, as in 2D. The mock's tracks sit over northern
-Britain and the North Sea, and the footer still says so: **REFERENCE LAYOUT · NOT
-REAL POSITIONS**.
+Britain and the North Sea, and the footer still says so: **SYNTHETIC PICTURE ·
+REFERENCE LAYOUT · NOT REAL POSITIONS**. The tooltip's RNG row is the same as in 2D:
+it is measured on the reference layout's x/y, not from the globe positions.
 
 | Control | Mouse or touch | Keyboard |
 |---|---|---|
 | Orbit | drag | arrow keys, with the globe focused |
-| Zoom (50 km to 40,000 km) | wheel, pinch, **+** / **−** buttons | `+` / `-` |
+| Zoom (50 km to 40,000 km; the floor rises to stay 25 km above the highest marker) | wheel, pinch, **+** / **−** buttons | `+` / `-` |
 | Fly to a region | the REGION list | Tab to it, Enter |
 | Inspect a track | hover, click | the track list: focus shows the tooltip, Enter selects and flies to it |
 
@@ -59,8 +60,10 @@ Fly-to is instant under `prefers-reduced-motion`, and the camera's position and
 region are announced to screen readers when it settles. Without WebGL the view says
 **3D VIEW UNAVAILABLE · WEBGL** and 2D carries on.
 
-Still no outbound calls: three.js and the outlines are bundled, in their own chunk,
-which the console fetches from its own files only when 3D is opened. The outlines in
+Still no outbound calls: three.js is bundled in the globe's own chunk, and the
+outlines ship as two hashed JSON assets beside it; the console fetches both from its
+own files, only when 3D is opened. The build writes `dist/THIRD-PARTY-LICENSES.md`
+with the licence text of every bundled dependency. The outlines in
 `src/globe/data/` are rebuilt, byte for byte, by
 `node tools/heimdall-outlines/build.mjs` (it downloads Natural Earth 5.1.2 and
 checks each file's SHA-256), or `--from DIR` with the files already downloaded.
