@@ -11,8 +11,9 @@ apart from the Stage 1b map tiles.
 
 | Stage | What | Where |
 |---|---|---|
-| **1a: 3D** | Branch `heimdall_3d` from `main`: the globe, with bundled data only and no network | Pushed; pull request into `dev` |
-| **1b: Maps** | Branch `heimdall_maps`, on `heimdall_3d`: map tiles and a 2D geographic map | Pushed; pull request into `dev` |
+| **1a: 3D** | Built on `heimdall_3d` from `main`: the globe, with bundled data only and no network | Kept local |
+| **1b: Maps** | Built on `heimdall_maps`, on `heimdall_3d`: map tiles and a 2D geographic map | Kept local |
+| **1: combined** | Branch `heimdall_3dmaps` = 1a + 1b in one build (owner, 22 Nov) | Pushed; **one** pull request into `dev` |
 | **2** | Apple clients: the signed release plus 3D, built from 1a | `clients_*` branches |
 | **3** | Apple clients: Stage 2 plus maps, built from 1b | The same branches, as an update |
 
@@ -121,3 +122,15 @@ apart from the Stage 1b map tiles.
 5. Credits, `NOTICE`, the residual-risk entry, the README.
 6. The switch and its bundle test.
 7. Verify as for 1a.
+
+## Owner decisions after the first build (22 Nov 2026)
+
+- **Real 3D.** The globe tilts (pitch 0–75°, less allowed far out) and turns (heading),
+  with a compass reset. The regional presets open tilted. Airborne tracks stand on stems
+  to a ground shadow, and the horizon, sky and atmosphere show.
+- **Close-in terrain presets.** With tiles on, SNOWDONIA and SOUTHERN UPLANDS are added
+  so the relief can be seen.
+- **One build.** 1a and 1b are combined in one branch, `heimdall_3dmaps`, and reach
+  `dev` as a single pull request. `heimdall_3d` and `heimdall_maps` stay local.
+- **Security audit.** A full security audit of this core build runs before the pull
+  request.
