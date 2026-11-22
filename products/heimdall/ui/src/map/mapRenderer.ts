@@ -20,7 +20,8 @@ import { type OutlineFile, decodeLine } from '../globe/outlines.ts';
 import { TILES } from '../tiles/active.ts';
 import { type DecodePool, browserDecodePool } from '../tiles/decodePool.ts';
 import { type LoaderState, TileLoader } from '../tiles/loader.ts';
-import { type Tile, lonToTileX, latToTileY, parent } from '../tiles/tileMath.ts';
+import { lonToTileX, latToTileY } from '../tiles/tileMath.ts';
+import { ON_SCREEN_BYTES, planView } from './onScreen.ts';
 import { type FillClass, type LineClass, type MapTileData, FILL_CLASSES, LINE_CLASSES, labelCandidates } from './features.ts';
 import { type MapCamera, clampMapCamera, nearestCopyX, panMap, project, visibleTiles, worldWidthPx, zoomMapAt } from './mapCamera.ts';
 
@@ -29,7 +30,8 @@ const VECTOR_MAX_ZOOM = TILES.sources.vector.maxZoom;
 export const MAX_REQUESTED_TILES = 96;
 /** Decoded tiles kept: above the requested tiles and their stand-ins. */
 const CACHE_ENTRIES = 192;
-/** And at most this many bytes of them (tiles on screen excepted). */
+/** And at most this many bytes of them besides those on screen, which have their own
+ *  cap (`ON_SCREEN_BYTES`, onScreen.ts). */
 export const CACHE_BYTES = 64 * 1024 * 1024;
 /** How many zooms up a loading tile looks for a stand-in. */
 const ANCESTOR_LEVELS = 5;
@@ -382,40 +384,38 @@ export class MapRenderer {
     const view = visibleTiles(this.cam, w, h, VECTOR_MAX_ZOOM);
     const keep = new Set<string>();
     const labelled: { data: MapTileData; left: number; top: number; size: number }[] = [];
+    // What to draw and ask for, nearest the centre first, within the on-screen cap.
+    const url = (t: { z: number; x: number; y: number }) => TILES.url('vector', t);
+    const plan = planView(
+      view.tiles.map((v) => v.tile),
+      (t) => this.loader.get<MapTileData>(url(t)),
+      url,
+      { maxRequested: MAX_REQUESTED_TILES, maxBytes: ON_SCREEN_BYTES, ancestorLevels: ANCESTOR_LEVELS },
+    );
+    // Offline, the loader queues these and lets one probe the network now and then.
+    plan.request.forEach((t, i) => {
+      const u = url(t);
+      keep.add(u);
+      const st = this.loader.status(u);
+      if (st === 'none' || st === 'failed') this.loader.request(u, i, (b) => this.pool.decode<MapTileData>('vector', b, t.z));
+    });
+    for (const t of plan.used) keep.add(url(t));
     view.tiles.forEach((v, i) => {
-      const url = TILES.url('vector', v.tile);
-      // Offline, the loader queues these and lets one probe the network now and then.
-      // Only the nearest tiles are asked for; the rest show what is already loaded.
-      if (i < MAX_REQUESTED_TILES) {
-        keep.add(url);
-        const st = this.loader.status(url);
-        if (st === 'none' || st === 'failed') {
-          const z = v.tile.z;
-          this.loader.request(url, i, (b) => this.pool.decode<MapTileData>('vector', b, z));
-        }
-      }
-      // The tile itself, or the nearest loaded ancestor standing in for it.
-      let t: Tile | null = v.tile;
-      for (let up = 0; t && up <= ANCESTOR_LEVELS; up++, t = parent(t)) {
-        const u = TILES.url('vector', t);
-        const d = this.loader.get<MapTileData>(u);
-        if (d === undefined) continue;
-        keep.add(u);
-        if (d === null) break;
-        const k = 2 ** up;
-        const size = view.size * k;
-        const left = v.left - (v.tile.x - t.x * k) * view.size;
-        const top = v.top - (v.tile.y - t.y * k) * view.size;
-        g.save();
-        g.setTransform(dpr, 0, 0, dpr, 0, 0);
-        g.beginPath();
-        g.rect(v.left, v.top, view.size, view.size);
-        g.clip();
-        this.drawTile(d, left, top, size);
-        g.restore();
-        if (up === 0) labelled.push({ data: d, left, top, size });
-        break;
-      }
+      const d = plan.draw[i];
+      if (!d) return;
+      // The tile itself, or the ancestor standing in for it.
+      const k = 2 ** d.up;
+      const size = view.size * k;
+      const left = v.left - (v.tile.x - d.from.x * k) * view.size;
+      const top = v.top - (v.tile.y - d.from.y * k) * view.size;
+      g.save();
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      g.beginPath();
+      g.rect(v.left, v.top, view.size, view.size);
+      g.clip();
+      this.drawTile(d.data, left, top, size);
+      g.restore();
+      if (d.up === 0) labelled.push({ data: d.data, left, top, size });
     });
     this.inUse = keep;
     this.loader.retain(keep);
