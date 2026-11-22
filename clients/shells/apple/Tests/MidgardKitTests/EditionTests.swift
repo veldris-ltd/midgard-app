@@ -95,99 +95,65 @@ final class EditionTests: XCTestCase {
         UITestingEnvironment.removeCurrentStore()
     }
 
-    // MARK: banner
+    // MARK: what the model shows comes from the linked provider
 
-    func testOnlyThe3DEditionsShowAnEditionBanner() async {
+    /// SwiftPM links every test target into one bundle, MidgardGlobeKitTests included, so
+    /// the edition provider is registered here; a release app links none, and
+    /// tools/check-edition.sh checks that. Through the provider, the release edition still
+    /// gets nothing.
+    func testTheModelShowsOnlyWhatTheProviderGivesTheEdition() async {
         let release = AppModel()
         await release.start(environment(edition: .release))
         XCTAssertEqual(release.phase, .needsEnrolment)
         XCTAssertEqual(release.edition, .release)
         XCTAssertNil(release.editionBanner)
+        XCTAssertNil(release.about)
+        XCTAssertNil(release.threeDEntry)
         XCTAssertEqual(release.banner, .noSource, "the source banner is unchanged")
 
-        let threeD = AppModel()
-        await threeD.start(environment(edition: .threeD))
-        XCTAssertEqual(threeD.edition, .threeD)
-        XCTAssertEqual(threeD.editionBanner, .threeD)
-        XCTAssertEqual(threeD.banner, .noSource, "the 3D edition keeps the source banner")
-        XCTAssertEqual(EditionBanner.threeD.text, "3D edition, not in the signed release")
-        XCTAssertEqual(EditionBanner.threeD.identifier, "mg.banner.edition3d")
-
-        let maps = AppModel()
-        await maps.start(environment(edition: .maps))
-        XCTAssertEqual(maps.edition, .maps)
-        XCTAssertEqual(maps.editionBanner, .maps)
-        XCTAssertEqual(maps.banner, .noSource)
-        XCTAssertEqual(EditionBanner.maps.text, "3D maps edition, not in the signed release")
-        XCTAssertEqual(EditionBanner.maps.identifier, "mg.banner.editionmaps")
-    }
-
-    // MARK: About
-
-    func testTheReleaseEditionHasNoAbout() async {
-        XCTAssertNil(EditionAbout(.release), "the release apps show nothing new")
-        let release = AppModel()
-        await release.start(environment(edition: .release))
-        XCTAssertNil(release.about)
-        let threeD = AppModel()
-        await threeD.start(environment(edition: .threeD))
-        XCTAssertNotNil(threeD.about)
-        let maps = AppModel()
-        await maps.start(environment(edition: .maps))
-        XCTAssertEqual(maps.about?.name, "Midgard Maps")
-    }
-
-    func testAboutNamesThe3DEditionAndNeverCallsItTheSignedRelease() throws {
-        XCTAssertEqual(SignedRelease.tag, "v0.1.0-rc.3")
-        XCTAssertEqual(SignedRelease.commit, "ea5899ab")
-        let about = try XCTUnwrap(EditionAbout(.threeD))
-        XCTAssertEqual(about.name, "Midgard 3D")
-        XCTAssertEqual(about.editionLine, "Edition: Midgard 3D")
-        XCTAssertEqual(about.releaseLine,
-                       "3D edition, not in the signed release. It is v0.1.0-rc.3 (ea5899ab) with a 3D view added to Heimdall.")
-        let maps = try XCTUnwrap(EditionAbout(.maps))
-        XCTAssertEqual(maps.editionLine, "Edition: Midgard Maps")
-        XCTAssertTrue(maps.releaseLine.hasPrefix("3D maps edition, not in the signed release. It is v0.1.0-rc.3"))
-    }
-
-    func testEditionViewsRender() throws {
-        MGFonts.registerAll()
-        let renderer = ImageRenderer(content: AboutView(try XCTUnwrap(EditionAbout(.threeD))).frame(width: 390, height: 600))
-        XCTAssertNotNil(renderer.cgImage)
-        XCTAssertNotNil(ImageRenderer(content: EditionBannerView(.threeD).frame(width: 390)).cgImage)
-        XCTAssertNotNil(ImageRenderer(content: EditionBannerView(.maps).frame(width: 390)).cgImage)
-    }
-
-    // MARK: the "3D" entry: edition and link-time registration
-
-    func testThe3DEntryNeedsThe3DEditionAndARegisteredLibrary() {
-        let registered = StubThreeD()
-        XCTAssertNil(HeimdallThreeD.entry(edition: .release, registered: registered), "never in the release edition")
-        XCTAssertNil(HeimdallThreeD.entry(edition: nil, registered: registered))
-        XCTAssertNil(HeimdallThreeD.entry(edition: .threeD, registered: nil), "not without the library")
-        XCTAssertTrue(HeimdallThreeD.entry(edition: .threeD, registered: registered) === registered)
-        XCTAssertTrue(HeimdallThreeD.entry(edition: .maps, registered: registered) === registered)
-        XCTAssertNil(HeimdallThreeD.entry(edition: .maps, registered: nil))
-    }
-
-    func testMidgardKitNamesNoGlobeAndNeverImportsTheGlobeLibrary() throws {
-        // The release apps link MidgardKit: a "Globe" name in it would put a Globe type
-        // in their binaries, which tools/check-edition.sh refuses.
-        let sources = repositoryRoot().appendingPathComponent("clients/shells/apple/Sources")
-        for module in ["MidgardKit", "MidgardHooks", "MidgardAuditKit"] {
-            let base = sources.appendingPathComponent(module)
-            let files = try XCTUnwrap(FileManager.default.enumerator(at: base, includingPropertiesForKeys: nil))
-                .compactMap { $0 as? URL }.filter { ["swift", "c", "h"].contains($0.pathExtension) }
-            XCTAssertFalse(files.isEmpty, module)
-            for file in files {
-                let text = try String(contentsOf: file, encoding: .utf8)
-                XCTAssertFalse(text.contains("Globe"), "\(module)/\(file.lastPathComponent) names a Globe")
-            }
+        for edition in [AppEdition.threeD, .maps] {
+            let model = AppModel()
+            await model.start(environment(edition: edition))
+            XCTAssertEqual(model.edition, edition)
+            XCTAssertNotNil(model.editionBanner, "\(edition)")
+            XCTAssertNotNil(model.about, "\(edition)")
+            XCTAssertNotNil(model.threeDEntry, "\(edition)")
+            XCTAssertEqual(model.banner, .noSource)
         }
     }
-}
 
-private final class StubThreeD: HeimdallThreeDView {
-    let title = "stub"
-    func makeView() -> AnyView { AnyView(Text("stub")) }
+    // MARK: MidgardKit, which the release apps link, holds nothing of the editions
+
+    private func sources(_ modules: [String]) throws -> [(String, String)] {
+        let base = repositoryRoot().appendingPathComponent("clients/shells/apple/Sources")
+        var out: [(String, String)] = []
+        for module in modules {
+            let files = try XCTUnwrap(FileManager.default.enumerator(at: base.appendingPathComponent(module),
+                                                                    includingPropertiesForKeys: nil))
+                .compactMap { $0 as? URL }.filter { ["swift", "c", "h", "modulemap"].contains($0.pathExtension) }
+            XCTAssertFalse(files.isEmpty, module)
+            for file in files {
+                out.append(("\(module)/\(file.lastPathComponent)", try String(contentsOf: file, encoding: .utf8)))
+            }
+        }
+        return out
+    }
+
+    func testMidgardKitHoldsNoEditionWordingGlobeOrRendererImport() throws {
+        // The release apps link these modules: tools/check-edition.sh refuses each word
+        // below in their binaries; here the sources are held to it.
+        let words = ["Globe", "not in the signed release", "not the signed release", "Midgard Maps", "Midgard 3D",
+                     "\"Edition: ", "ea5899ab", "v0.1.0-rc.3", "EditionBanner", "EditionAbout", "AboutView",
+                     "SignedRelease", "EditionUIProvider"]
+        for (name, text) in try sources(["MidgardKit", "MidgardHooks", "MidgardAuditKit"]) {
+            for word in words {
+                XCTAssertFalse(text.contains(word), "\(name) holds \"\(word)\"")
+            }
+        }
+        let renderer = try NSRegularExpression(pattern: #"(import\s+(Metal|MetalKit)\b)|(#\s*(include|import)\s*<Metal)"#)
+        for (name, text) in try sources(["MidgardKit", "MidgardHooks"]) {
+            XCTAssertEqual(renderer.numberOfMatches(in: text, range: NSRange(text.startIndex..., in: text)), 0,
+                           "\(name) imports Metal or MetalKit")
+        }
+    }
 }

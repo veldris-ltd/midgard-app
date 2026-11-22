@@ -154,7 +154,7 @@ There are three apps on each platform (owner decision, 22 November 2026), six in
 | Info.plist `MidgardEdition` | `release` | `3d` | `maps` |
 | Links `MidgardGlobeKit` | no | yes | yes |
 | Network entitlement | none | none | the client one, on the Mac (iOS has no such entitlement) |
-| Banners | "No data source connected" | the same, plus "3D edition, not in the signed release" (`mg.banner.edition3d`) | the same, plus "3D maps edition, not in the signed release" (`mg.banner.editionmaps`) |
+| Banners | "No data source connected" | the same, plus "3D edition, not in the signed release" (`mg.banner.edition3d`) | the same, plus "Maps edition, not in the signed release" (`mg.banner.editionmaps`) |
 
 The tile loader itself is Task I2: until then the maps apps are the 3D apps with a
 different edition, banner and entitlements.
@@ -162,28 +162,37 @@ different edition, banner and entitlements.
 The editions share their sources and UI tests; each has its own `Info.plist`,
 entitlements (ad hoc and team), scheme and UI-test target, whose `AccessibilityAudit`
 subclasses the same `AccessibilityAuditBase`. A missing or unknown `MidgardEdition` is
-the "app misconfigured" failed state, as with `MidgardDataSource`. The release apps show
-no visible change from the edition work (owner decision, 22 November 2026): the key is
-read silently, and nothing new appears in them. Only the 3D and maps apps have an About
-screen (Settings on the Mac, the session menu on the iPhone), which names the edition and
-says it is not the signed release.
+the "app misconfigured" failed state, as with `MidgardDataSource`.
 
-Heimdall's "3D view" entry shows only when the edition is `3d` or `maps` **and** the 3D
-library registered itself. The registration is a link-time hook, never a runtime switch:
-`MidgardHooks` defines `midgard_heimdall_3d_hook` weakly, returning nothing, and
-`MidgardGlobeKit` defines it strongly, so a binary that links the library gets the
-library's definition and one that does not gets the default. Nothing calls a register
-function at launch.
+The release apps carry no edition code or wording (owner decision, 22 November 2026):
+they read `MidgardEdition` silently and show nothing new. Everything an edition shows
+lives in `MidgardGlobeKit`, which only the 3D and maps apps link: the edition banner (at
+accessibility text sizes the compact "3D edition · not the signed release" or "Maps
+edition · not the signed release", with the full text as its accessibility label), the
+About screen (Settings on the Mac, the session menu on the iPhone; it names the edition
+and says it is not the signed release), and Heimdall's "3D view" entry on the Operating
+Picture. MidgardKit only asks an `EditionProvider` for them, and a package test holds
+its sources (and MidgardHooks') to no edition wording, no `Globe` and no Metal import.
+
+The provider is registered by a link-time hook, never a runtime switch: `MidgardHooks`
+defines `midgard_edition_hook` weakly, returning nothing, and `MidgardGlobeKit` defines
+it strongly, so a binary that links the library gets its provider and one that does not
+gets none. Nothing calls a register function at launch.
 
 `tools/check-edition.sh` builds every app present (Debug) and checks each against its
-edition: a release app fails if a file's name or bytes contain `MidgardGlobeKit`, a
-Mach-O file contains `Globe`, or it has a network entitlement; a 3D app fails without
-`MidgardGlobeKit` or with a network entitlement; a maps app fails without
-`MidgardGlobeKit`, with the server entitlement, or (on the Mac) without the client one;
-and any app fails whose `MidgardEdition` is not its edition. `--release`, `--3d` and
-`--maps <app>...` check built bundles only. `tools/ci/tests/apple-edition.test.sh` runs
-it against bundles it builds with seeded failures. MidgardKit itself names no `Globe` (a
-package test holds it to that), since the release apps link it.
+edition. Every app: its `MidgardEdition`, the Mac sandbox, and (when it builds) that its
+target signs with its own entitlements file. A release app: no `MidgardGlobeKit` file
+or bytes, no `Globe`, no edition wording or provider type in any Mach-O file, the hook
+weak or absent (`nm -m`), no `MetalKit.framework` (`otool -L`). A 3D or maps app: the
+hook defined strongly. Release and 3D apps: no network, networking or temporary-exception
+entitlement. A maps app: on the Mac the client network entitlement, and nothing beyond it.
+Ahead of the tile loader (Task I2, its own module `MidgardTileKit`, linked only by the
+maps apps), release and 3D apps already fail on a `MidgardTileKit` symbol or on an
+`NSAppTransportSecurity`, `NSLocalNetworkUsageDescription` or `NSBonjourServices` key.
+`--release`, `--3d` and `--maps <app>...` check built bundles only; B4 and B5 run it so on
+the signed Release archives. `audit.sh` runs it first and records nothing when it fails.
+`tools/ci/tests/apple-edition.test.sh` runs it against bundles it builds with seeded
+failures.
 
 ## No data source
 
@@ -262,13 +271,23 @@ stands for both). The known gap is `keyboard_navigation`:
 
 - **macOS**: Tab reaches every control only with the system setting
   System Settings > Keyboard > Keyboard navigation (the global default
-  `AppleKeyboardUIMode`). On a CI runner `audit.sh` turns it on for the run and puts
-  the previous value back; on anyone else's Mac it never changes the setting, and
-  reports `keyboard_navigation` failed, as not measured.
+  `AppleKeyboardUIMode`). When it is off, `audit.sh` turns it on for the run, on CI and
+  on a local Mac alike (owner approval, 20 November 2026), and puts it back on exit. It
+  writes the previous value to `~/Library/Caches/midgard-build/audit-kbd-restore` before
+  the change (a later run applies a restore file left by one that did not finish),
+  holds the lock `audit-kbd.lock` beside it, and says on stderr what it changed and put
+  back. `MIDGARD_AUDIT_KBD=keep` leaves the setting alone, and `keyboard_navigation` is
+  then reported failed, as not measured. A plain `xcodebuild test` changes nothing, so
+  there the macOS keyboard test fails while the setting is off.
 - **iOS**: the test needs the simulator's hardware keyboard and Full Keyboard Access.
   On the iOS 26.3 simulator, turning Full Keyboard Access on made key delivery worse
-  (no Tab or ⌘-digit reached the app), so the iOS test still fails at Tab until a
-  working setting is found and automated in `audit.sh`.
+  (no Tab or ⌘-digit reached the app). Tried again on 22 November 2026 with the
+  simulator's hardware keyboard connected (`ConnectHardwareKeyboard`, already on) and
+  Full Keyboard Access on in the simulator (`com.apple.Accessibility
+  FullKeyboardAccessEnabled`, then a reboot of the simulator): Tab still moved no focus,
+  so the iOS test still fails at Tab and `keyboard_navigation` is not measured on iOS.
+  The setting was put back. Whether the affordance may be waived on iOS is the owner's
+  decision (`accessibility.toml` is unchanged).
 
 ### Status line hooks
 
