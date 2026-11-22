@@ -6636,3 +6636,336 @@ the banner view, tests), regenerated bindings, `ContractTests.swift`.
 - **Heimdall map:** MapKit with no tracks; the offline coastline is deferred with the data.
 - **After Phase H:** H1 (accessibility) and H4 (records) stay; H2 (offline and conflict)
   waits for data; H3 (release builds) waits for the team ID.
+
+## Owner decision (22 Nov 2026): two editions, Midgard and Midgard 3D
+
+The owner asked for two clients on each platform, four apps in all:
+
+1. **Midgard** (the release edition): only the signed official release, tag
+   `v0.1.0-rc.3`. All six consoles and 45 screens, exactly as Phases B to H build them.
+2. **Midgard 3D:** the same release plus a 3D globe in Heimdall.
+
+The owner chose two separate apps over one app with a switch. They also chose online
+tiles for the globe, fetched only while the 3D view is open, and asked for the globe to
+land in two separate commits: the globe first, then the tiles. Everything else in the
+19 Nov decision still holds for both editions: no dataset, the `local` user and empty
+collections.
+
+| | Midgard | Midgard 3D |
+|---|---|---|
+| Content | `v0.1.0-rc.3`, 45 screens | The same, plus a Heimdall globe view |
+| Bundle IDs | `io.veldris.midgard.mac`, `.ios` | `io.veldris.midgard3d.mac`, `.ios` |
+| `MidgardEdition` | `release` | `3d` |
+| Network | None (sandbox with no network entitlement) | Client network entitlement, used only by the globe's tile loader (Task I2) |
+| Banner | "No data source connected" | The same, plus "3D edition, not in the signed release" |
+
+**Where the globe comes from.** The release tag has no globe. The 3D view ports the
+behaviour of the three.js globe on the unsigned branch `md_unified`
+(`products/heimdall/ui/src/app/globe/`, about 2,300 lines in `GlobeView.ts` and its
+helpers). That code is not in the signed release, which is why it ships only in the
+3D edition. If it later lands in a signed release, the editions can merge back into
+one app.
+
+**Renderer.** MetalKit (`MTKView` in an `NSViewRepresentable` or
+`UIViewRepresentable`), because SAD_06 requires native rendering rather than a web view.
+
+- RealityKit's `RealityView` would need macOS 15 and iOS 18, above the deployment
+  targets.
+- SceneKit is deprecated.
+- Metal also matches the web globe's own vertex and index buffer model most directly.
+
+### Task B7 (on `clients_shared`, then both app branches): the 3D edition targets
+
+**Package:** a new `MidgardGlobeKit` library in `Package.swift`, depending on
+`MidgardKit`. Until Phase I it holds only a placeholder view that says "3D view".
+
+**Apps:** each `project.yml` gains a second app target, `MidgardMac3D` and `MidgardiOS3D`.
+
+- These targets link `MidgardGlobeKit`; the release targets do not.
+- Each target has its own `Info.plist` with `MidgardEdition`, its own entitlements and
+  its own scheme, with UI tests that subclass the same audit base class.
+
+**Swift:**
+- `AppEnvironment` reads `MidgardEdition`. A missing or unknown value is the "app
+  misconfigured" failed state, as with `MidgardDataSource`.
+- The About screen names the edition, and for `release` the signed tag and its commit.
+- Heimdall shows a "3D" entry only when the edition is `3d` and the globe library
+  registered itself. The registration is a link-time hook, never a runtime switch.
+
+**Release-binary check:** `clients/shells/apple/tools/check-edition.sh` builds both
+release apps and fails if their binaries or bundles contain any `MidgardGlobeKit` symbol,
+any `Globe` type, or any network entitlement. `tools/ci/tests/apple-edition.test.sh`
+tests the script against a seeded failure.
+
+**Acceptance:**
+- All four schemes build and their UI tests pass.
+- `apple-projects.test.sh` covers both targets in each project.
+- `check-edition.sh` passes, and `audit.sh` runs all four apps.
+
+### Phase I (after Phase E, Heimdall): the globe, in two commits
+
+#### Task I1: 3D globe, no tiles (its own signed commit)
+
+The 3D view with nothing fetched:
+
+- **Globe:** a lit sphere with a graticule, and a land and sea outline from Natural
+  Earth 1:110m land. That file is public domain, about 100 KB, and bundled in
+  `MidgardGlobeKit`'s resources.
+- **Camera:** behaves like `GlobeCamera.ts`, with drag to orbit, pinch or scroll to zoom,
+  and the same easing. It has the same presets and REGION menu as `presets.ts`, ported
+  as a pure Swift module with tests that compare against the web values.
+- **Style and layers:** only the CLEAN style, because TOPOGRAPHIC needs terrain. With no
+  feeds the globe shows an empty picture and the same empty-state wording as the 2D
+  map. Layers are listed and disabled with the core's reason.
+- **Network:** none. The 3D app's network entitlement is present but unused until I2,
+  and a test asserts that no URL session is created.
+- **Tests:**
+  - unit tests for projection, the camera limits and the presets;
+  - snapshot tests of three camera presets, so the outline lands on the right places;
+  - a UI test that opens Heimdall, switches to 3D, moves the camera and uses each preset;
+  - the accessibility audit, where the globe has a text summary of the camera position
+    and region.
+
+#### Task I2: online globe tiles (a separate signed commit on top of I1)
+
+**Sources:** the same as the web globe. Each source's attribution is shown in a readable
+credits strip.
+
+| Source | Use | Licence |
+|---|---|---|
+| EOX Sentinel‑2 cloudless, layer `s2cloudless_3857` (2016) | Imagery | CC BY 4.0 (the 2018-onwards yearly layers are CC BY‑NC‑SA; use only the 2016 layer, and confirm against EOX's capabilities) |
+| Mapzen Terrain Tiles (AWS Open Data) | World terrain | Attribution |
+| Environment Agency | UK close-up terrain | OGL v3.0 |
+| VersaTiles | Vector tiles: coast, roads, labels | OpenStreetMap, ODbL |
+
+All four allow commercial use with attribution, provided the imagery stays on the 2016
+EOX layer.
+
+**Loader:**
+- A list of the four host names. Any other host is refused.
+- HTTPS only, and no cookies.
+- A generic User-Agent with no user or machine detail.
+- Requests are made only while the 3D view is on screen, and are cancelled when it
+  closes.
+
+**Cache:** in `~/Library/Caches/<bundle id>/tiles`, capped at 500 MB with
+least-recently-used eviction. A "Clear map cache" control goes under About.
+
+**Adds:**
+- terrain on the globe;
+- TOPOGRAPHIC: tint, hillshade and contours;
+- the satellite imagery style;
+- zoom to 1.5 km above the ground, with the camera kept 150 m above the terrain;
+- the UK close-up patch, as on `md_unified`.
+
+**Offline:** the OFFLINE chip, or no network, falls back to the I1 globe with
+"Map tiles need a connection", never an error.
+
+**Tests:**
+- the loader refuses other hosts, HTTP and redirects to other hosts;
+- cache eviction stays under the cap;
+- terrain sampling matches the web globe's bilinear sampler on fixed tiles;
+- tiles come from recorded fixtures in tests, with no live network in CI;
+- the UI test from I1 is extended to show the credits strip.
+
+**Checks for Phase I:** the review steps are the same as for every other task (spec
+review, then quality review). Once I2 is done, `check-edition.sh` must still show that
+the release apps carry no globe code and no network entitlement.
+
+### Publishing on completion (owner decision, 22 Nov 2026)
+
+When both editions are complete and reviewed, the work goes to branches of the main
+repository, `veldris-ltd/midgard-app`. This replaces the "do not push" line above for
+that final step only; until then, nothing is pushed.
+
+**Branches**, with the names this plan uses:
+
+| Branch | Holds |
+|---|---|
+| `clients_shared` | The core, the FFI and the shared Swift packages, including `MidgardGlobeKit` |
+| `clients_mac` | The Mac apps, `MidgardMac` and `MidgardMac3D` |
+| `clients_iphone` | The iPhone apps, `MidgardiOS` and `MidgardiOS3D` |
+
+**Signed tags**, annotated, on the final reviewed commits:
+
+| Tag | Message names |
+|---|---|
+| `apple-midgard-v0.1.0-rc.3` | Midgard, the release edition; macOS and iOS; built from the signed `v0.1.0-rc.3` (`ea5899ab`); no data source |
+| `apple-midgard3d-v0.1.0-rc.3` | Midgard 3D at Task I1; macOS and iOS; the same release plus the Heimdall globe ported from `md_unified`; no tiles and no network use |
+| `apple-midgard3dmaps-v0.1.0-rc.3` | Midgard 3D at Task I2; macOS and iOS; the I1 globe plus online map tiles (EOX imagery, Mapzen and Environment Agency terrain, VersaTiles) |
+
+Each tag points at the commit where both platforms of that stage pass `audit.sh` and
+`check-edition.sh`. The 3D tag is on the I1 commit and the maps tag on the I2 commit, so
+the globe without tiles stays checkable on its own.
+
+**How the push is done:**
+- The checkout's push URL stays blocked. The push names the repository URL and the
+  three branches and two tags explicitly, so no other branch can go with it.
+- Before pushing:
+  - verify every commit's signature with `git log --format=%G?`, and all three tags with
+    `git verify-tag`;
+  - confirm that no commit message mentions an AI tool;
+  - run gitleaks over the range;
+  - ask the owner for a final go-ahead.
+
+**Public by choice:** the repository is public. The 3D edition puts a port of the globe
+work, which was taken off it on 27 Oct, back in public. The owner chose this.
+
+### Branch base before publishing (owner decision, 22 Nov 2026)
+
+`dev` is left untouched: nothing merges into it or out of it, and syncing it is deferred.
+
+The work is built from `main`, as `CONTRIBUTING.md` allows ("Branch from `main` (or `dev`)"),
+and as the three release candidates were made. Since `v0.1.0-rc.3`, `main` has one commit,
+PR #97 (`7493bbac`), a CI-only fix with no client code.
+
+**Before the push:**
+- Merge `origin/main` into `clients_shared`, `clients_mac` and `clients_iphone`, with
+  signed merge commits.
+- Run each branch's checks again.
+- Put the three `apple-*` tags on the merged commits.
+
+The release edition's content is still exactly `v0.1.0-rc.3`, because #97 changes nothing
+in the apps.
+
+**Later, not part of this plan:**
+- The `apple-*` tags are labels, not release tags.
+- To make the clients part of a signed release:
+  1. a pull request from each branch into `main`;
+  2. a version bump to `0.2.0` (the clients are new features);
+  3. the release pipeline, then a `v0.2.0-rc.1` tag from `main`.
+- The 3D globe reaches a signed release the same way, from its own feature branch off
+  `main`. It is never a wholesale merge of `md_unified` or `dev_mac`.
+- No pull requests are opened without the owner's request.
+
+## Owner decision (22 Nov 2026): only the three clients; everything else paused
+
+Only these three builds continue:
+
+1. **Midgard:** clients of the signed release `v0.1.0-rc.3` only, with no other additions
+   or changes. Phases B to H build the rc.3 screens in the no-data mode the owner chose
+   on 19 Nov. Tag `apple-midgard-v0.1.0-rc.3`.
+2. **Midgard 3D:** the same, plus the 3D globe only (Task B7, then Task I1). Tag
+   `apple-midgard3d-v0.1.0-rc.3`.
+3. **Midgard 3D with map tiles:** item 2 plus online map tiles (Task I2). Tag
+   `apple-midgard3dmaps-v0.1.0-rc.3`.
+
+**The release apps get no visible change beyond the rc.3 screens.** There is no edition
+or tag line in their About screen, and no new banner, menu entry or behaviour. The
+`MidgardEdition` key is read silently. The edition and tag lines and the 3D banner
+appear only in the 3D apps.
+
+**Paused until the owner resumes them:**
+- development signing setup, Team ID included;
+- the Secure Enclave check;
+- B4/B5, the release scripts;
+- publishing:
+  - the `main` merge before the push;
+  - the push;
+  - the tags;
+- any pull request;
+- `dev` and `main` work;
+- the defensive cyber option (`md_cyber_dco`);
+- every other project.
+
+**Signing resumed (owner, 22 Nov 2026):** all six apps are signed under team
+`64JX2CTLJR`. That means the release, 3D and 3D-with-tiles editions, on Mac and iPhone.
+
+- **Development signing:** set up as soon as B7 has finished.
+  - The Team ID goes in each app's gitignored `Config/Signing.local.xcconfig`.
+  - Each app gets one Debug build with `-allowProvisioningUpdates`.
+  - Then the Secure Enclave enrol and unlock check runs.
+- **Release signing:** B4/B5 build each edition's signed Release app.
+  - Mac apps: signed with Developer ID and Hardened Runtime.
+  - iPhone apps: an Ad Hoc or Development export for test devices.
+- **Still needs a go-ahead each time:**
+  - notarisation (an upload to Apple);
+  - TestFlight;
+  - any App Store submission.
+
+Signing changes nothing inside the apps. The release edition still contains only the
+rc.3 screens.
+
+**Distribution approved (owner, 22 Nov 2026):**
+
+- **Mac:** notarisation of the Developer ID builds.
+- **iPhone and Mac:** uploads to TestFlight.
+- **When:** each edition is notarised and uploaded at its tag, once it is complete and
+  reviewed:
+  - the release edition after Phase H;
+  - the 3D edition after I1;
+  - the 3D-with-tiles edition after I2.
+- **Bundle IDs:** the 3D and 3D-with-tiles stages share one bundle ID per platform, so
+  they appear as successive builds of the same apps.
+- **App Store review:** submitting a build for review publishes the app to the public
+  once it is approved, so that one step is confirmed with the owner when it comes.
+
+**Prerequisites (owner):**
+- **Notary credential:** an App Store Connect API key, stored in the login keychain with
+  `xcrun notarytool store-credentials midgard-notary`. Scripts refer to the profile name
+  only, and never read or print the key.
+- **Developer ID Application certificate:** created by the Account Holder (or an Admin
+  allowed to).
+- **App Store Connect records:** one per bundle ID: `io.veldris.midgard.mac`,
+  `io.veldris.midgard.ios`, `io.veldris.midgard3d.mac` and `io.veldris.midgard3d.ios`.
+- **Agreements:** the current agreements accepted.
+- **Export compliance:** the apps use encryption (keys stored at rest, PQ mTLS code in
+  the core). `ITSAppUsesNonExemptEncryption` is set only after the owner decides
+  whether an exemption applies.
+
+**Three apps per platform (owner, 22 Nov 2026).** This replaces the shared 3D bundle ID
+above.
+
+| Edition | `MidgardEdition` | Mac / iPhone targets | Bundle IDs | Network | Tag |
+|---|---|---|---|---|---|
+| Midgard | `release` | `MidgardMac`, `MidgardiOS` | `io.veldris.midgard.mac`, `.ios` | None | `apple-midgard-v0.1.0-rc.3` |
+| Midgard 3D | `3d` | `MidgardMac3D`, `MidgardiOS3D` | `io.veldris.midgard3d.mac`, `.ios` | **None** | `apple-midgard3d-v0.1.0-rc.3` |
+| Midgard Maps | `maps` | `MidgardMacMaps`, `MidgardiOSMaps` | `io.veldris.midgardmaps.mac`, `.ios` | Client network entitlement, used only by the tile loader | `apple-midgard3dmaps-v0.1.0-rc.3` |
+
+**Where each piece lands:**
+- B7 adds all six targets.
+- I1 puts the globe in both the 3D and Maps apps.
+- I2 adds the tile loader and turns it on only in the Maps apps. The 3D apps never fetch
+  anything.
+
+**`check-edition.sh` asserts:**
+- the release apps have no globe code and no network entitlement;
+- the 3D apps have no network entitlement;
+- only the Maps apps have one.
+
+**App Store Connect** needs six app records, one per bundle ID.
+
+**Midgard 3D and Midgard Maps follow the newest build (owner, 22 Nov 2026).**
+
+- **Reference.** Phase I ports the newest globe and map code. The reference order is:
+  1. the core branches `heimdall_3d` and `heimdall_maps`, once they exist. Their
+     carve-out from `md_unified` 857c3bcb (5 Nov) is the newest globe and map code
+     across all branches;
+  2. until then, `md_unified` 857c3bcb itself.
+- **Port order.** I1 follows `heimdall_3d`, and I2 follows `heimdall_maps`.
+- **Before each edition's tag**, the Mac and iPhone 3D and Maps apps are compared against
+  the newest core branch, and any later globe or map change is ported.
+- **What the Midgard Maps app has.** It matches `heimdall_maps` in full:
+  - the close-up;
+  - the TOPOGRAPHIC and satellite styles;
+  - the folding ⓘ CREDITS strip;
+  - the regenerated UK images (516bed75);
+  - **the 2D geographic map**, from VersaTiles vector tiles, native in MapKit or Metal
+    with the same tile sources.
+- **What the Midgard 3D app has.** It matches `heimdall_3d`: the globe with bundled data
+  only, and no network.
+- **Shared defaults:** height ×4, and the REGION menu without the feed regions.
+
+## Owner's stages (22 Nov 2026): this replaces every earlier source note for the globe and maps
+
+1. **Stage 1 (core repo):** a Heimdall 3D globe (`heimdall_3d`), and then maps
+   (`heimdall_maps`), written fresh on `main`. Pushed, with pull requests into `dev`. No
+   work branch is read or ported, and there are no feeds.
+2. **Stage 2 (these clients):** the signed release plus the 3D function. Phase I1 ports
+   the behaviour of Stage 1's `heimdall_3d`, and nothing else. Pushed to the `clients_*`
+   branches, tag `apple-midgard3d-v0.1.0-rc.3`.
+3. **Stage 3 (these clients):** Stage 2 plus maps. Phase I2 follows `heimdall_maps`,
+   including the 2D geographic map. Pushed to the same branches as an update, tag
+   `apple-midgard3dmaps-v0.1.0-rc.3`.
+
+**Superseded:** any earlier mention in this plan of porting from a work branch.

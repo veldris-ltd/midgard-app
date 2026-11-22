@@ -70,6 +70,7 @@ public struct SessionRootView<Content: View>: View {
     public var body: some View {
         VStack(spacing: 0) {
             if let banner = model.banner { DemoBannerView(banner) }
+            if let banner = model.editionBanner { EditionBannerView(banner) }
             switch model.phase {
             case .loading:
                 LoadingView().frame(maxWidth: .infinity, maxHeight: .infinity)

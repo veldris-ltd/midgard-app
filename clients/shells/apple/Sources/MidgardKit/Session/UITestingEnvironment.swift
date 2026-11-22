@@ -7,7 +7,8 @@ import MidgardCore
 /// software key root, which never prompts here, over secrets kept in memory for the
 /// launch, and a fresh store in a temporary directory, so UI tests and the
 /// accessibility audit start from enrolment every launch, without a passcode prompt and
-/// without touching the keychain. The data source is still the one Info.plist names.
+/// without touching the keychain. The data source and the edition are still the ones
+/// Info.plist names.
 /// Each launch first removes the stores earlier launches left (an app killed by the
 /// test runner never cleans up after itself). [RC-49] [AC-C-11]
 public enum UITestingEnvironment {
@@ -28,12 +29,13 @@ public enum UITestingEnvironment {
     public static func make(reason: String, device: DeviceInfo, bundle: Bundle = .main,
                             temporaryDirectory: URL = FileManager.default.temporaryDirectory) throws -> AppEnvironment {
         let dataSource = try AppEnvironment.dataSourceChoice(in: bundle)
+        let edition = try AppEnvironment.edition(in: bundle)
         removeStores(in: temporaryDirectory)
         let base = temporaryDirectory.appendingPathComponent(prefix + UUID().uuidString, isDirectory: true)
         lock.withLock { current = base }
         let secrets = MemorySecretStore()
         let root = SoftwareKeyRoot(reason: reason, label: custodyLabel, secrets: secrets, presence: NoPrompt())
-        return AppEnvironment(dataSource: dataSource, storeDirectory: try StorePaths.storeDirectory(base: base),
+        return AppEnvironment(dataSource: dataSource, edition: edition, storeDirectory: try StorePaths.storeDirectory(base: base),
                               secrets: secrets, keyRoot: root, device: device, replicaId: UUID().uuidString)
     }
 

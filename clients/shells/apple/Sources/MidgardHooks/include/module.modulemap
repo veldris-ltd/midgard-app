@@ -1,0 +1,4 @@
+module MidgardHooks {
+    header "MidgardHooks.h"
+    export *
+}

@@ -80,6 +80,7 @@ aarch64-apple-ios-sim --toolchain 1.82.0`), Node 22 (token generation only).
 | `Sources/MidgardCore/` | the generated `midgard_client_ffi.swift` (gitignored, copied in by the build) over the `MidgardCoreFFI` XCFramework (`Frameworks/`, a gitignored link) |
 | `Sources/MidgardKit/` | shared SwiftUI layer: design tokens (generated), Secure Enclave key root, sign-in, lock, chips, acknowledgements |
 | `Sources/MidgardAuditKit/` | the accessibility audit's base class that each app's UI-test target subclasses |
+| `Sources/MidgardHooks/`, `Sources/MidgardGlobeKit/` | the link-time hook and the 3D editions' library (Task B7; [`apple/README.md`](apple/README.md#editions)) |
 | `Tests/MidgardKitTests/` | package tests, including the contract test over every exported binding |
 | `audit.sh` | the on-device accessibility audit (`tools/ci/run.sh shell-audit apple`) |
 
@@ -97,6 +98,7 @@ bash tools/check-contract.sh      # every exported function is exercised by Cont
 bash tools/check-bindings.sh      # the bindings are a fresh uniffi-bindgen run's; acknowledgement; licence expiry
 node tools/gen-tokens.mjs --check # design tokens and fonts match ui/design-system
 bash tools/typecheck-ios.sh       # typecheck for iOS without a simulator runtime
+bash tools/check-edition.sh       # each app carries what its edition allows, no more (on an app branch)
 bash tools/clean.sh [--target]    # delete every clients-* build output, the apps' derived data
                                   # and archives included (and the cargo target dir)
 ```

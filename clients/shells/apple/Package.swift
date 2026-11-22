@@ -17,15 +17,27 @@ let package = Package(
         // The accessibility audit's base class; each app's UI-test target subclasses it
         // (Task A14, clients/shells/apple/audit.sh). Links XCTest: UI-test targets only.
         .library(name: "MidgardAuditKit", targets: ["MidgardAuditKit"]),
+        // The 3D editions' library (Task B7, owner decision 22 Nov 2026): linked only by
+        // the 3D and maps apps (MidgardMac3D, MidgardiOS3D, MidgardMacMaps,
+        // MidgardiOSMaps), never by the release apps
+        // (tools/check-edition.sh). Linked in, it registers its Heimdall "3D" view at link
+        // time: its strong `midgard_heimdall_3d_hook` replaces MidgardHooks' weak default.
+        .library(name: "MidgardGlobeKit", targets: ["MidgardGlobeKit"]),
     ],
     targets: [
         .binaryTarget(name: "MidgardCoreFFI", path: "Frameworks/MidgardCoreFFI.xcframework"),
         .target(name: "MidgardCore", dependencies: ["MidgardCoreFFI"], path: "Sources/MidgardCore",
                 exclude: [".gitkeep"]),
-        .target(name: "MidgardKit", dependencies: ["MidgardCore"], path: "Sources/MidgardKit",
+        // The link-time hooks MidgardKit reads: weak C defaults that a linked library's
+        // strong definitions replace. No runtime switch, no lookup by name.
+        .target(name: "MidgardHooks", path: "Sources/MidgardHooks"),
+        .target(name: "MidgardKit", dependencies: ["MidgardCore", "MidgardHooks"], path: "Sources/MidgardKit",
                 resources: [.copy("Resources/Fonts")]),
         .target(name: "MidgardAuditKit", path: "Sources/MidgardAuditKit"),
+        .target(name: "MidgardGlobeKit", dependencies: ["MidgardKit"], path: "Sources/MidgardGlobeKit"),
         .testTarget(name: "MidgardKitTests", dependencies: ["MidgardKit", "MidgardCore", "MidgardAuditKit"],
                     path: "Tests/MidgardKitTests"),
+        .testTarget(name: "MidgardGlobeKitTests", dependencies: ["MidgardGlobeKit", "MidgardKit"],
+                    path: "Tests/MidgardGlobeKitTests"),
     ]
 )
