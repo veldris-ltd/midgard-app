@@ -2,7 +2,8 @@ import MidgardCore
 
 /// The demonstration notice, word for word the web consoles' (`DEMONSTRATION_NOTICE`
 /// in ui/shared/src/DemonstrationBanner.tsx): shown above everything while the app
-/// runs on the bundled demo dataset (owner decision 10). [AC-C-13]
+/// runs on the release's sample data (owner decision 22 Nov 2026) or the bundled demo
+/// dataset (owner decision 10). [AC-C-13]
 public enum DemoBanner {
     public static let notice =
         "Demonstration data. This console runs on built-in sample data and is not connected to an enclosure."

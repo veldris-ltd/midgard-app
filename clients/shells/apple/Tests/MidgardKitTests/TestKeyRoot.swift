@@ -63,6 +63,9 @@ func temporaryDirectory() throws -> URL {
 }
 
 func makeConfig(dataset: URL? = releaseDataset(), replica: String = "contract") -> ClientConfig {
-    ClientConfig(datasetPath: dataset?.path, replicaId: replica,
-                 device: DeviceInfo(ramMb: 8192, hasAccelerator: true))
+    makeConfig(source: dataset.map { .bundled(path: $0.path) } ?? .none, replica: replica)
+}
+
+func makeConfig(source: SourceChoice, replica: String = "contract") -> ClientConfig {
+    ClientConfig(source: source, replicaId: replica, device: DeviceInfo(ramMb: 8192, hasAccelerator: true))
 }

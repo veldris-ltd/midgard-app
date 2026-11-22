@@ -42,6 +42,7 @@ pub mod demo;
 pub mod device_audit;
 pub mod local_source;
 pub mod marking;
+pub mod sample_source;
 pub mod session;
 pub mod source;
 
