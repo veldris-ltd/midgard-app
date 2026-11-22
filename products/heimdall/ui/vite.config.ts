@@ -22,4 +22,13 @@ export default defineConfig({
     },
   },
   server: { port: 5176 },
+  build: {
+    // The full licence text of every bundled dependency (three.js, React and the rest)
+    // ships in dist/, since minifying drops their headers. [FR-H-1]
+    license: { fileName: 'THIRD-PARTY-LICENSES.md' },
+    // The globe's chunk is three.js (about 0.5 MB minified) and the view. It loads only
+    // when 3D is opened, and three cannot be split further, so the warning is raised
+    // just above it; the main chunk stays far below. [FR-H-1]
+    chunkSizeWarningLimit: 600,
+  },
 });
