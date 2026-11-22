@@ -9,7 +9,7 @@ import { DEFAULT_EXAGGERATION, MAX_EXAGGERATION, MIN_EXAGGERATION, clampExaggera
 import { loadOutlines } from './outlineAssets.ts';
 import { type Region, buildRegions, describeCamera, regionAt } from './presets.ts';
 import { type GlobeOutlines, GlobeRenderer, webglAvailable } from './renderer.ts';
-import type { GlobeTileLayer } from './tileLayer.ts';
+import { GLOBE_STYLES, type GlobeStyle, type GlobeTileLayer } from './tileLayer.ts';
 import './globe.css';
 
 /* The operating picture as a 3D globe. Loaded lazily, with three.js and the bundled
@@ -29,6 +29,19 @@ const reducedMotion = () =>
 
 const KEY_STEP_PX = 60;
 
+/** The globe's style, remembered per browser. CLEAN, the 1a look, is the default. */
+const STYLE_KEY = 'mg-heimdall-globe-style';
+const STYLE_LABEL: Record<GlobeStyle, string> = { clean: 'CLEAN', topographic: 'TOPOGRAPHIC', satellite: 'SATELLITE' };
+
+function storedStyle(): GlobeStyle {
+  try {
+    const v = localStorage.getItem(STYLE_KEY);
+    return (GLOBE_STYLES as readonly string[]).includes(v ?? '') ? (v as GlobeStyle) : 'clean';
+  } catch {
+    return 'clean';
+  }
+}
+
 export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: GlobeViewProps) {
   const hostRef = React.useRef<HTMLDivElement>(null);
   const labelsRef = React.useRef<HTMLDivElement>(null);
@@ -44,6 +57,17 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
   // Map tiles: the layer, once its module has loaded, and whether the network answers.
   const layerRef = React.useRef<GlobeTileLayer | null>(null);
   const [tileState, setTileState] = React.useState<'online' | 'offline' | null>(null);
+  const [style, setStyle] = React.useState<GlobeStyle>(storedStyle);
+  const styleRef = React.useRef(style);
+  styleRef.current = style;
+  const chooseStyle = (s: GlobeStyle) => {
+    setStyle(s);
+    try {
+      localStorage.setItem(STYLE_KEY, s);
+    } catch {
+      /* storage blocked: the choice lasts for this page only */
+    }
+  };
   const mode = useResolvedMode();
   const summaryId = React.useId();
 
@@ -91,6 +115,7 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
         ({ GlobeTiles }) => {
           if (!live) return;
           const layer = new GlobeTiles(r.tileHost, { onState: (s) => { if (live) setTileState(s); } });
+          layer.setStyle(styleRef.current);
           layerRef.current = layer;
           r.setTileLayer(layer);
           setTileState(layer.state);
@@ -123,6 +148,7 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
   }, [items, tracks, heights, failed, outlines]);
 
   React.useEffect(() => { rendererRef.current?.setSelected(selectedId); }, [selectedId, items, failed, outlines]);
+  React.useEffect(() => { layerRef.current?.setStyle(style); }, [style, tileState]);
   React.useEffect(() => { rendererRef.current?.setTooltipAnchor(tooltipRef.current); }, [hover, failed, outlines]);
   // Repaint only when the mode changes after start-up; the renderer paints once on its own.
   React.useEffect(() => {
@@ -268,6 +294,18 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
             <button type="button" aria-label="Zoom out" onClick={() => rendererRef.current?.nudge(0, 0, 1 / 0.6)}>−</button>
           </div>
         </div>
+        {__HEIMDALL_TILES__ && (
+          <div className="hg-globe-section">
+            <div className="hg-globe-heading" id={`${summaryId}-style`}>STYLE</div>
+            <div role="group" aria-labelledby={`${summaryId}-style`} className="hg-globe-styles">
+              {GLOBE_STYLES.map((s) => (
+                <button key={s} type="button" aria-pressed={style === s} onClick={() => chooseStyle(s)}>
+                  {STYLE_LABEL[s]}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <label className="hg-globe-section hg-globe-heights">
           <span className="hg-globe-heading"><span>HEIGHTS</span><span>×{heights}</span></span>
           <input

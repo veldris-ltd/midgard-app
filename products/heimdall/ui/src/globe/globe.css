@@ -27,15 +27,15 @@
   display: flex; justify-content: space-between; gap: 8px;
 }
 .hg-globe-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; min-height: 0; }
-.hg-globe-list button, .hg-globe-zoom button {
+.hg-globe-list button, .hg-globe-zoom button, .hg-globe-styles button {
   all: unset; box-sizing: border-box; display: block; width: 100%; cursor: pointer;
   padding: 5px 8px; border-radius: var(--radius-xs); border: 1px solid transparent;
   font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; color: var(--text-body);
 }
-.hg-globe-list button:hover, .hg-globe-zoom button:hover { background: var(--surface-raised); color: var(--text-heading); }
+.hg-globe-list button:hover, .hg-globe-zoom button:hover, .hg-globe-styles button:hover { background: var(--surface-raised); color: var(--text-heading); }
 .hg-globe-list button[aria-current='true'] { border-color: var(--accent); color: var(--accent-hover); }
 .hg-globe-list button:disabled { cursor: default; color: var(--text-faint); background: none; }
-.hg-globe-list button:focus-visible, .hg-globe-zoom button:focus-visible, .hg-globe-heights input:focus-visible {
+.hg-globe-list button:focus-visible, .hg-globe-zoom button:focus-visible, .hg-globe-styles button:focus-visible, .hg-globe-heights input:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 1px; box-shadow: none;
 }
 .hg-globe-track { display: flex; gap: 6px; align-items: baseline; }
@@ -71,3 +71,5 @@
   background: color-mix(in srgb, var(--bg-sunken) 88%, transparent); border: 1px solid var(--divider);
   border-radius: var(--radius-sm); padding: 6px 10px; white-space: nowrap;
 }
+.hg-globe-styles { display: flex; flex-direction: column; gap: 2px; }
+.hg-globe-styles button[aria-pressed='true'] { border-color: var(--accent); color: var(--accent-hover); background: var(--accent-tint); }

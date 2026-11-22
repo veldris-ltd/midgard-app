@@ -1,11 +1,17 @@
-/* The globe's map-tile layer: terrain patches for the area in view. [FR-H-1]
+/* The globe's map-tile layer: terrain patches for the area in view, in one of three
+ * styles. [FR-H-1]
  *
  * Each frame it picks tiles for the camera (`selectGlobeTiles`, within the budget),
  * asks the loader for their data, cancels what the view no longer needs, and swaps the
  * patches in. A patch is built once its data has arrived: terrain heights (Mapzen
  * terrarium tiles, from zoom 6 down; flatter tiles stay flat) raised by HEIGHTS, and
- * the style's colours. When the loader goes offline the layer stops drawing and the
- * globe falls back to its own sphere.
+ * the style's colours:
+ * - CLEAN: the 1a globe's flat land and sea, from the design tokens;
+ * - TOPOGRAPHIC: tints, hillshade and contours drawn from the terrain tiles;
+ * - SATELLITE: EOX Sentinel-2 cloudless 2016 imagery (the clean colours where a tile
+ *   has none).
+ * When the loader goes offline the layer stops drawing and the globe falls back to
+ * its own sphere.
  *
  * Reached only through the tiles switch: this module is never in a build with
  * `VITE_HEIMDALL_TILES` off. */
@@ -15,14 +21,15 @@ import { CAMERA_FOV_DEG, type CameraState } from '../globe/camera.ts';
 import type { GlobeStyle, GlobeTileLayer, TileLayerHost } from '../globe/tileLayer.ts';
 import { tileUrl } from './hosts.ts';
 import { type LoaderState, TileLoader } from './loader.ts';
+import { TOPO_DARK, TOPO_LIGHT, contourIntervalM, shadeZFactor, topoPixels } from './topo.ts';
 import { LruCache } from './cache.ts';
 import { buildPatch } from './mesh.ts';
 import { selectGlobeTiles } from './select.ts';
 import { type HeightGrid, decodeTerrarium, heightAt, resampleGrid } from './terrarium.ts';
-import { type Tile, ancestorAt, lonToTileX, latToTileY, subRect, tileAt, tileKey } from './tileMath.ts';
+import { type Tile, ancestorAt, lonToTileX, latToTileY, metresPerPixel, subRect, tileAt, tileKey, tileYToLat } from './tileMath.ts';
 
 /** Terrain heights are fetched to this zoom; finer patches sample their ancestor. */
-const TERRAIN_MAX_ZOOM = 12;
+const TERRAIN_MAX_ZOOM = 13;
 /** Patches coarser than this are flat: relief does not show from that far out. */
 const TERRAIN_MIN_ZOOM = 6;
 const MIN_ZOOM = 2;
@@ -30,8 +37,10 @@ const MAX_ZOOM = 14;
 /** Most tiles drawn plus wanted at once. */
 export const TILE_BUDGET = 160;
 const SEGMENTS = 32;
-/** Patches built per frame, so a burst of arrivals never stalls a frame. */
-const BUILDS_PER_FRAME = 12;
+/** Time spent building patches per frame, so a burst of arrivals never stalls one. */
+const BUILD_MS_PER_FRAME = 10;
+/** The topographic style's texture size. */
+const TOPO_PX = 256;
 
 const PATCH_VERTEX = /* glsl */ `
   attribute vec2 geoUv;
@@ -70,6 +79,11 @@ export interface GlobeTilesOptions {
   onState?: (state: LoaderState) => void;
 }
 
+/** Decodes an imagery tile in the browser. */
+async function decodeImage(bytes: ArrayBuffer): Promise<ImageBitmap> {
+  return createImageBitmap(new Blob([bytes], { type: 'image/jpeg' }));
+}
+
 /** Decodes a terrarium PNG in the browser, with no colour management. */
 async function decodeTerrainPng(bytes: ArrayBuffer): Promise<HeightGrid> {
   const bmp = await createImageBitmap(new Blob([bytes], { type: 'image/png' }), {
@@ -101,7 +115,9 @@ export class GlobeTiles implements GlobeTileLayer {
   private exaggeration = 4;
   private drawn = new Set<string>();
   private lastState: LoaderState = 'online';
-  private builds = 0;
+  private dark = true;
+  private buildUntil = 0;
+  private starved = false;
 
   constructor(host: TileLayerHost, o: GlobeTilesOptions = {}) {
     this.host = host;
@@ -134,6 +150,13 @@ export class GlobeTiles implements GlobeTileLayer {
     this.rebuild();
   }
 
+  /** The console's mode, for the topographic palette. */
+  setDark(dark: boolean): void {
+    if (dark === this.dark) return;
+    this.dark = dark;
+    if (this.style === 'topographic') this.rebuild();
+  }
+
   setExaggeration(k: number): void {
     if (k === this.exaggeration) return;
     this.exaggeration = k;
@@ -156,7 +179,8 @@ export class GlobeTiles implements GlobeTileLayer {
   private inUse = new Set<string>();
 
   update(cam: CameraState, viewportPx: number, aspect: number): void {
-    this.builds = 0;
+    this.buildUntil = performance.now() + BUILD_MS_PER_FRAME;
+    this.starved = false;
     if (this.loader.state === 'offline') {
       // Keep asking for the tile under the camera, so the loader can probe for the
       // network coming back; draw nothing until it does.
@@ -195,7 +219,7 @@ export class GlobeTiles implements GlobeTileLayer {
     for (const u of this.inUse) keep.add(u);
     this.loader.retain(keep);
     // Data waiting to become patches: come back next frame.
-    if (this.builds >= BUILDS_PER_FRAME) this.host.requestRender();
+    if (this.starved) this.host.requestRender();
   }
 
   dispose(): void {
@@ -209,8 +233,13 @@ export class GlobeTiles implements GlobeTileLayer {
 
   // --- data -----------------------------------------------------------------------
 
+  /** Terrain for the relief from zoom 6, and for the topographic colours at any zoom. */
   private needsTerrain(t: Tile): boolean {
-    return t.z >= TERRAIN_MIN_ZOOM;
+    return t.z >= TERRAIN_MIN_ZOOM || this.style === 'topographic';
+  }
+
+  private needsImagery(): boolean {
+    return this.style === 'satellite';
   }
 
   private terrainTile(t: Tile): Tile {
@@ -220,6 +249,7 @@ export class GlobeTiles implements GlobeTileLayer {
   private urlsFor(t: Tile): string[] {
     const urls: string[] = [];
     if (this.needsTerrain(t)) urls.push(tileUrl('terrain', this.terrainTile(t)));
+    if (this.needsImagery()) urls.push(tileUrl('imagery', t));
     return urls;
   }
 
@@ -233,7 +263,8 @@ export class GlobeTiles implements GlobeTileLayer {
     const urls = this.urlsFor(t);
     for (const u of urls) {
       if (this.loader.status(u) !== 'none') continue;
-      this.loader.request(u, priority, decodeTerrainPng);
+      if (u === tileUrl('terrain', this.terrainTile(t))) this.loader.request(u, priority, decodeTerrainPng);
+      else this.loader.request(u, priority, decodeImage);
     }
     return urls;
   }
@@ -253,20 +284,70 @@ export class GlobeTiles implements GlobeTileLayer {
   private ensureMesh(t: Tile): boolean {
     const key = tileKey(t);
     if (this.meshes.has(key)) return true;
-    let heights: Float32Array | null = null;
+    let grid: HeightGrid | null = null;
     if (this.needsTerrain(t)) {
-      const tt = this.terrainTile(t);
-      const grid = this.terrain(tt);
-      if (grid === undefined) return false;
-      if (grid) heights = resampleGrid(grid, subRect(t, tt.z), SEGMENTS);
+      const g = this.terrain(this.terrainTile(t));
+      if (g === undefined) return false;
+      grid = g;
     }
-    if (this.builds >= BUILDS_PER_FRAME) return false;
-    this.builds++;
-    this.meshes.set(key, this.buildMesh(t, heights));
+    let image: ImageBitmap | null = null;
+    if (this.needsImagery()) {
+      const b = this.loader.get<ImageBitmap>(tileUrl('imagery', t));
+      if (b === undefined) return false;
+      image = b;
+    }
+    if (performance.now() > this.buildUntil) {
+      this.starved = true;
+      return false;
+    }
+    const rect = subRect(t, this.terrainTile(t).z);
+    const heights = grid && t.z >= TERRAIN_MIN_ZOOM ? resampleGrid(grid, rect, SEGMENTS) : null;
+    let map: THREE.Texture | null = null;
+    if (this.style === 'topographic' && grid) map = this.topoTexture(t, grid);
+    else if (this.style === 'satellite' && image) map = this.imageTexture(image);
+    this.meshes.set(key, this.buildMesh(t, heights, map));
     return true;
   }
 
-  private buildMesh(t: Tile, heights: Float32Array | null): THREE.Mesh {
+  private topoTexture(t: Tile, grid: HeightGrid): THREE.Texture {
+    const rect = subRect(t, this.terrainTile(t).z);
+    const n = TOPO_PX;
+    let h: Float32Array;
+    if (rect.size === 1 && grid.width === n && grid.height === n) {
+      h = grid.data;
+    } else {
+      // Pixel centres of the finer tile, sampled from its ancestor.
+      h = new Float32Array(n * n);
+      const inner = resampleGrid(grid, { ox: rect.ox + rect.size / (2 * n), oy: rect.oy + rect.size / (2 * n), size: rect.size * (1 - 1 / n) }, n - 1);
+      h.set(inner);
+    }
+    const lat = tileYToLat(t.y + 0.5, t.z);
+    const px = topoPixels(h, n, n, metresPerPixel(lat, t.z, n), contourIntervalM(t.z), this.dark ? TOPO_DARK : TOPO_LIGHT, shadeZFactor(t.z));
+    const tex = new THREE.DataTexture(px, n, n, THREE.RGBAFormat);
+    this.finishTexture(tex);
+    return tex;
+  }
+
+  private imageTexture(image: ImageBitmap): THREE.Texture {
+    const tex = new THREE.Texture(image);
+    this.finishTexture(tex);
+    return tex;
+  }
+
+  private finishTexture(tex: THREE.Texture): void {
+    // Row 0 is the tile's north edge, as the patch's uv expects.
+    tex.flipY = false;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.magFilter = THREE.LinearFilter;
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.generateMipmaps = true;
+    tex.anisotropy = 4;
+    tex.wrapS = THREE.ClampToEdgeWrapping;
+    tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.needsUpdate = true;
+  }
+
+  private buildMesh(t: Tile, heights: Float32Array | null, map: THREE.Texture | null): THREE.Mesh {
     const p = buildPatch(t, heights, SEGMENTS, this.exaggeration);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(p.positions, 3));
@@ -277,9 +358,9 @@ export class GlobeTiles implements GlobeTileLayer {
     geo.computeBoundingSphere();
     const mat = new THREE.ShaderMaterial({
       uniforms: {
-        map: { value: this.blank },
+        map: { value: map ?? this.blank },
         land: { value: this.host.landTexture },
-        useLand: { value: 1 },
+        useLand: { value: map ? 0 : 1 },
         sunDir: { value: this.host.sunDir },
         night: this.host.night,
       },

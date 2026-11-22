@@ -31,5 +31,7 @@ export interface GlobeTileLayer {
   groundKm(lat: number, lon: number): number | null;
   setExaggeration(k: number): void;
   setStyle(style: GlobeStyle): void;
+  /** The console's mode, for palettes drawn by the layer. */
+  setDark(dark: boolean): void;
   dispose(): void;
 }

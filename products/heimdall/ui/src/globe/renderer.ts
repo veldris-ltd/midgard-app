@@ -309,6 +309,7 @@ export class GlobeRenderer {
     this.tiles = layer;
     if (layer) {
       layer.setExaggeration(this.heights);
+      layer.setDark(this.isDark());
       this.scene.add(layer.object);
     }
     this.applyCamera();
@@ -321,8 +322,15 @@ export class GlobeRenderer {
     this.requestRender();
   }
 
+  /** Whether the mode is dark, judged by the sea token's lightness. */
+  private isDark(): boolean {
+    const s = this.colours.sea;
+    return 0.2126 * s.r + 0.7152 * s.g + 0.0722 * s.b < 0.5;
+  }
+
   setColours(colours: GlobeColours): void {
     this.colours = colours;
+    this.tiles?.setDark(this.isDark());
     this.paintLand();
     this.atmosphereMat.uniforms.glow.value = toColor(colours.atmosphere);
     this.applyLineColours();
