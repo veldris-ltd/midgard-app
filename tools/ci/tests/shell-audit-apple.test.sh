@@ -2,10 +2,12 @@
 # The Apple audit hook fails closed without an app, reports failed affordances from an
 # xcresult summary, needs both apps (owner decision 4), never lets the macOS run claim
 # Dynamic Type, refuses UI tests that rewrite their own results, and record-audit.sh
-# stamps `overall` on BSD and GNU sed alike, and handles the macOS keyboard navigation
-# setting (CI turns it on for the run and restores it; elsewhere it is left alone and
-# keyboard_navigation is reported failed when it is off). Runs on /bin/bash 3.2 and on Linux (the
-# Xcode tools are stubbed; the JavaScript parser is checked only where osascript exists).
+# stamps `overall` on BSD and GNU sed alike, refuses a tree check-edition.sh fails, and
+# handles the macOS keyboard navigation setting (turned on for the run on CI and locally,
+# with a restore file written first and applied by a later run, a lock, a notice, and the
+# MIDGARD_AUDIT_KBD=keep opt-out, under which keyboard_navigation is reported failed).
+# Runs on /bin/bash 3.2 and on Linux (the Xcode tools are stubbed; the JavaScript parser
+# is checked only where osascript exists).
 # [RC-49] [AC-C-11]
 #
 #   bash tools/ci/tests/shell-audit-apple.test.sh
@@ -115,7 +117,10 @@ echo "\$*" >> "\$f.log"
 [ "\$2" = -g ] && [ "\$3" = AppleKeyboardUIMode ] || { echo "stub defaults: refused: \$*" >&2; exit 99; }
 case "\$1" in
     read) [ -f "\$f" ] || exit 1; cat "\$f" ;;
-    write) [ "\$4" = -int ] || exit 99; echo "\$5" > "\$f" ;;
+    write) [ "\$4" = -int ] || exit 99
+        # Safeguard 1: the restore file must exist before the setting is turned on.
+        [ "\$5" = 2 ] && echo "restore-file-before-write=\$([ -f "\${STUB_RESTORE:-/nonexistent}" ] && echo yes || echo no)" >> "\$f.log"
+        echo "\$5" > "\$f" ;;
     delete) [ -f "\$f" ] || exit 1; rm -f "\$f" ;;
     *) exit 99 ;;
 esac
@@ -132,6 +137,8 @@ apps() {
     mkdir -p "$t/clients/shells/apple/tools"
     cp "$root/clients/shells/apple/audit.sh" "$t/clients/shells/apple/"
     printf '#!/usr/bin/env bash\nexit 0\n' > "$t/clients/shells/apple/tools/build-xcframework.sh"
+    # check-edition.sh: passes unless STUB_EDITION_RC says otherwise.
+    printf '#!/usr/bin/env bash\nexit "${STUB_EDITION_RC:-0}"\n' > "$t/clients/shells/apple/tools/check-edition.sh"
     local a
     for a in "$@"; do
         mkdir -p "$t/clients/shells/apple/Apps/$a/$a.xcodeproj" "$t/clients/shells/apple/Apps/$a/UITests"
@@ -232,13 +239,21 @@ else
     fail "no tests: rc=$rc out='$out'"
 fi
 
+t="$(apps edition-fails MidgardiOS MidgardMac)"
+run_audit "$t" STUB_EDITION_RC=1
+if [ "$rc" -ne 0 ] && [ -z "$out" ] && [ ! -f "$t/calls" ] && grep -q 'check-edition.sh failed' "$t/stderr"; then
+    pass "check-edition.sh failing: nothing is audited"
+else
+    fail "check-edition failing: rc=$rc out='$out' $(cat "$t/stderr")"
+fi
+
 # 4b. Keyboard navigation (macOS): the global AppleKeyboardUIMode, through the stub.
 kbd_case() { # kbd_case NAME BEFORE [VAR=value...]: BEFORE is a value or "absent"; tree in $t, state in $kbd
     local name="$1" before="$2"; shift 2
     t="$(apps "kbd-$name" MidgardiOS MidgardMac)"
     kbd="$t/kbd"
     [ "$before" = absent ] || echo "$before" > "$kbd"
-    run_audit "$t" STUB_KBD="$kbd" STUB_FAIL_MidgardMac=dynamic_type "$@"
+    run_audit "$t" STUB_KBD="$kbd" STUB_RESTORE="$t/cache/audit-kbd-restore" STUB_FAIL_MidgardMac=dynamic_type "$@"
 }
 real_before="$(defaults read -g AppleKeyboardUIMode 2>/dev/null || echo absent)"
 for ci in GITHUB_ACTIONS=true CI=true; do
@@ -269,18 +284,59 @@ if [ "$rc" -eq 0 ] && [ "$(cat "$kbd")" = 3 ] && ! grep -qE '^(write|delete)' "$
 else
     fail "CI, on: rc=$rc kbd=$(cat "$kbd" 2>/dev/null) log=$(tr '\n' ';' < "$kbd.log")"
 fi
+six="MidgardiOS MidgardiOS3D MidgardiOSMaps MidgardMac MidgardMac3D MidgardMacMaps "
 for before in absent 0; do
     kbd_case "local-off-$before" "$before"
     after="$(cat "$kbd" 2>/dev/null || echo absent)"
-    if [ "$rc" -eq 0 ] && [ "$out" = "keyboard_navigation " ] && [ "$after" = "$before" ] \
-        && ! grep -qE '^(write|delete)' "$kbd.log" \
-        && grep -q 'turn on System Settings > Keyboard > Keyboard navigation' "$t/stderr" \
-        && [ "$(tr '\n' ' ' < "$t/calls")" = "MidgardiOS MidgardiOS3D MidgardiOSMaps MidgardMac MidgardMac3D MidgardMacMaps " ]; then
-        pass "not CI, setting $before: left alone, told how to turn it on, keyboard_navigation failed"
+    if [ "$rc" -eq 0 ] && [ -z "$(echo "$out" | tr -d ' ')" ] && [ "$after" = "$before" ] \
+        && grep -q '^write -g AppleKeyboardUIMode -int 2$' "$kbd.log" \
+        && grep -q '^restore-file-before-write=yes$' "$kbd.log" \
+        && grep -q 'turned on Keyboard navigation' "$t/stderr" && grep -q 'put back to' "$t/stderr" \
+        && [ ! -e "$t/cache/audit-kbd-restore" ] && [ ! -e "$t/cache/audit-kbd.lock" ] \
+        && [ "$(tr '\n' ' ' < "$t/calls")" = "$six" ]; then
+        pass "not CI, setting $before: turned on for the run (restore file first), put back after, said so"
     else
         fail "not CI, $before: rc=$rc out='$out' after=$after log=$(tr '\n' ';' < "$kbd.log") $(cat "$t/stderr")"
     fi
 done
+kbd_case local-keep 0 MIDGARD_AUDIT_KBD=keep
+if [ "$rc" -eq 0 ] && [ "$out" = "keyboard_navigation " ] && [ "$(cat "$kbd")" = 0 ] \
+    && ! grep -qE '^(write|delete)' "$kbd.log" && grep -q 'MIDGARD_AUDIT_KBD=keep' "$t/stderr" \
+    && [ ! -e "$t/cache/audit-kbd.lock" ]; then
+    pass "MIDGARD_AUDIT_KBD=keep: left alone, keyboard_navigation reported failed"
+else
+    fail "keep: rc=$rc out='$out' log=$(tr '\n' ';' < "$kbd.log") $(cat "$t/stderr")"
+fi
+# A run that did not finish left the setting on and its restore file (holding 0): the
+# next run puts 0 back first, turns it on for itself, and puts 0 back again at the end.
+t="$(apps kbd-stale MidgardiOS MidgardMac)"
+kbd="$t/kbd"; echo 2 > "$kbd"; mkdir -p "$t/cache"; echo 0 > "$t/cache/audit-kbd-restore"
+run_audit "$t" STUB_KBD="$kbd" STUB_RESTORE="$t/cache/audit-kbd-restore" STUB_FAIL_MidgardMac=dynamic_type
+first_write="$(grep -m 1 -E '^(write|delete)' "$kbd.log")"
+if [ "$rc" -eq 0 ] && [ "$first_write" = "write -g AppleKeyboardUIMode -int 0" ] && [ "$(cat "$kbd")" = 0 ] \
+    && [ ! -e "$t/cache/audit-kbd-restore" ]; then
+    pass "a restore file left by an unfinished run is applied first, and the setting ends as it was"
+else
+    fail "stale restore: rc=$rc first='$first_write' kbd=$(cat "$kbd") log=$(tr '\n' ';' < "$kbd.log") $(cat "$t/stderr")"
+fi
+# Safeguard 2: a lock held by a live audit refuses the run; a dead holder's is taken over.
+t="$(apps kbd-locked MidgardiOS MidgardMac)"
+kbd="$t/kbd"; echo 0 > "$kbd"; mkdir -p "$t/cache/audit-kbd.lock"; echo $$ > "$t/cache/audit-kbd.lock/pid"
+run_audit "$t" STUB_KBD="$kbd" STUB_FAIL_MidgardMac=dynamic_type
+if [ "$rc" -ne 0 ] && [ -z "$out" ] && [ ! -f "$t/calls" ] && ! grep -qE '^(write|delete)' "$kbd.log" 2>/dev/null \
+    && grep -q 'another audit' "$t/stderr" && [ -d "$t/cache/audit-kbd.lock" ]; then
+    pass "a lock held by a live audit: refused, setting and lock untouched"
+else
+    fail "live lock: rc=$rc out='$out' $(cat "$t/stderr")"
+fi
+t="$(apps kbd-deadlock MidgardiOS MidgardMac)"
+kbd="$t/kbd"; echo 0 > "$kbd"; mkdir -p "$t/cache/audit-kbd.lock"; echo 999999 > "$t/cache/audit-kbd.lock/pid"
+run_audit "$t" STUB_KBD="$kbd" STUB_RESTORE="$t/cache/audit-kbd-restore" STUB_FAIL_MidgardMac=dynamic_type
+if [ "$rc" -eq 0 ] && [ "$(cat "$kbd")" = 0 ] && [ ! -e "$t/cache/audit-kbd.lock" ]; then
+    pass "a lock whose holder is gone is taken over, and released after"
+else
+    fail "dead lock: rc=$rc $(cat "$t/stderr")"
+fi
 kbd_case local-on 2
 if [ "$rc" -eq 0 ] && [ -z "$(echo "$out" | tr -d ' ')" ] && [ "$(cat "$kbd")" = 2 ] \
     && ! grep -qE '^(write|delete)' "$kbd.log" && ! grep -q 'Keyboard navigation' "$t/stderr"; then

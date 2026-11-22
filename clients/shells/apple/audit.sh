@@ -11,16 +11,17 @@
 # project holds the three editions (Task B7): the release app (scheme MidgardiOS,
 # MidgardMac), the 3D app (MidgardiOS3D, MidgardMac3D) and the maps app (MidgardiOSMaps,
 # MidgardMacMaps), so six apps are audited, and a 3D or maps scheme that does not run
-# fails the audit as the release one would. Each
-# app's UI-test target runs `AccessibilityAudit` (a subclass of MidgardAuditKit's
+# fails the audit as the release one would. tools/check-edition.sh runs first: a tree
+# whose apps carry what their edition does not allow is not audited. Each app's
+# UI-test target runs `AccessibilityAudit` (a subclass of MidgardAuditKit's
 # AccessibilityAuditBase); tools/audit-failures.js reads the result bundle. An
 # affordance whose test failed, was skipped or did not run is reported failed. UI-test
 # sources that override `record(_:)` or `invokeTest` could rewrite their own results,
 # so they are refused. Dynamic Type is measured on iOS only: the macOS run never claims
 # it, and the iOS results stand for it. Next to <report> (the six apps' result summaries,
 # merged) it keeps <report>-ios.json, -ios3d.json, -iosmaps.json, -mac.json, -mac3d.json,
-# -macmaps.json and <report>.device, the devices audited, which `run.sh` records. Derived data and result bundles go to
-# ~/Library/Caches/midgard-build/clients-derived.
+# -macmaps.json and <report>.device, the devices audited, which `run.sh` records.
+# Derived data and result bundles go to ~/Library/Caches/midgard-build/clients-derived.
 set -euo pipefail
 release="${1:?release}"; report="${2:?report path}"
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -76,13 +77,28 @@ if [ -n "${CI:-}" ]; then
 fi
 bash "$here/tools/build-xcframework.sh" >&2
 
+# Each app carries what its edition allows, and nothing more (Task B7): the audit records
+# nothing for a tree whose apps do not.
+if ! bash "$here/tools/check-edition.sh" >&2; then
+    echo "audit: tools/check-edition.sh failed: an app carries what its edition does not allow; nothing was audited" >&2
+    exit 1
+fi
+
 # Keyboard navigation: Tab moves focus to every control (SwiftUI's included) only with
 # the system setting on (System Settings > Keyboard > Keyboard navigation), the global
 # default AppleKeyboardUIMode with its 2 bit set (the toggle writes 2; older "All controls"
-# wrote 3); a launch argument does not turn it on. A CI runner turns it on for this run
-# and puts the previous value back (or removes the key) on exit. Elsewhere the setting
-# is the user's: it is not changed, and keyboard_navigation is reported failed, as not
-# measured. Every read and write of the global domain goes through kbd_mode.
+# wrote 3); a launch argument does not turn it on. When it is off, the audit turns it on
+# for the run, on CI and on a local Mac alike (owner approval, 20 Nov 2026), with four
+# safeguards:
+#   1. before the change, the previous value (or "absent") goes to the restore file
+#      $cache/audit-kbd-restore; it is put back on exit, and a run that finds a restore
+#      file left by one that did not finish applies it first;
+#   2. a lock directory, $cache/audit-kbd.lock, holding the run's pid: a second audit
+#      refuses while the first is alive, and takes over a lock whose pid is gone;
+#   3. a notice on stderr whenever the setting is changed or put back;
+#   4. MIDGARD_AUDIT_KBD=keep leaves the setting alone, and keyboard_navigation is then
+#      reported failed, as not measured.
+# Every read and write of the global domain goes through kbd_mode.
 kbd_mode() { # kbd_mode read | write N | delete: AppleKeyboardUIMode in the global domain
     case "$1" in
         read) defaults read -g AppleKeyboardUIMode 2>/dev/null ;;
@@ -91,19 +107,46 @@ kbd_mode() { # kbd_mode read | write N | delete: AppleKeyboardUIMode in the glob
     esac
 }
 kbd_on() { case "$1" in '' | *[!0-9]*) return 1 ;; esac; [ $(($1 & 2)) -ne 0 ]; }
+kbd_restore_file="$cache/audit-kbd-restore"
+kbd_lock="$cache/audit-kbd.lock"
+kbd_put_back() { # kbd_put_back: applies the restore file, if any, and removes it
+    [ -f "$kbd_restore_file" ] || return 0
+    local prev
+    prev="$(cat "$kbd_restore_file")"
+    case "$prev" in
+        absent) kbd_mode delete || true ;;
+        '' | *[!0-9]*) echo "audit: the keyboard restore file holds '$prev'; left in place, setting unchanged" >&2; return 1 ;;
+        *) kbd_mode write "$prev" || return 1 ;;
+    esac
+    rm -f "$kbd_restore_file"
+    echo "audit: Keyboard navigation (AppleKeyboardUIMode) put back to $prev" >&2
+}
 kbd_unmeasured=""
-kbd_before="$(kbd_mode read || true)"
-if ! kbd_on "$kbd_before"; then
-    if [ "${GITHUB_ACTIONS:-}" = true ] || [ "${CI:-}" = true ]; then
-        if [ -n "$kbd_before" ]; then
-            trap 'kbd_mode write "$kbd_before" || true' EXIT
-        else
-            trap 'kbd_mode delete || true' EXIT
-        fi
-        kbd_mode write 2
-    else
-        echo "audit: turn on System Settings > Keyboard > Keyboard navigation; keyboard_navigation is not measured and reported failed" >&2
+mkdir -p "$cache"
+if [ "${MIDGARD_AUDIT_KBD:-}" = keep ]; then
+    if ! kbd_on "$(kbd_mode read || true)"; then
+        echo "audit: MIDGARD_AUDIT_KBD=keep: Keyboard navigation is off and left alone; keyboard_navigation is not measured and reported failed" >&2
         kbd_unmeasured=keyboard_navigation
+    fi
+else
+    if ! mkdir "$kbd_lock" 2>/dev/null; then
+        holder="$(cat "$kbd_lock/pid" 2>/dev/null || true)"
+        if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
+            echo "audit: another audit (pid $holder) holds $kbd_lock; nothing was audited" >&2
+            exit 1
+        fi
+        rm -rf "$kbd_lock"
+        mkdir "$kbd_lock" || { echo "audit: cannot take $kbd_lock" >&2; exit 1; }
+    fi
+    echo $$ > "$kbd_lock/pid"
+    trap 'kbd_put_back; rm -rf "$kbd_lock"' EXIT
+    # A run that did not finish left its restore file: put that value back first.
+    kbd_put_back || exit 1
+    kbd_before="$(kbd_mode read || true)"
+    if ! kbd_on "$kbd_before"; then
+        echo "${kbd_before:-absent}" > "$kbd_restore_file"
+        kbd_mode write 2
+        echo "audit: turned on Keyboard navigation (AppleKeyboardUIMode 2, was ${kbd_before:-absent}) for this run; it is put back on exit (restore file $kbd_restore_file). MIDGARD_AUDIT_KBD=keep leaves it alone." >&2
     fi
 fi
 

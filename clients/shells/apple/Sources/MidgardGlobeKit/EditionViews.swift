@@ -1,7 +1,8 @@
+import MidgardKit
 import SwiftUI
 
-/// A 3D edition's About screen: the edition, and that it is not the signed release.
-/// The release edition has none. [FR-C-1] [AC-C-13]
+/// An edition's About screen: the edition, and that it is not the signed release.
+/// [FR-C-1] [AC-C-13]
 public struct AboutView: View {
     let about: EditionAbout
 
@@ -23,13 +24,17 @@ public struct AboutView: View {
     }
 }
 
-/// A 3D edition's banner, under the source banner, styled as it is.
+/// An edition's banner, under the source banner and styled as it is. At accessibility
+/// text sizes it shows the compact text (the full text is the accessibility label), so
+/// the banners leave the iPhone's screen list room; the text still scales.
 public struct EditionBannerView: View {
     let banner: EditionBanner
+    @Environment(\.dynamicTypeSize) private var typeSize
+
     public init(_ banner: EditionBanner) { self.banner = banner }
 
     public var body: some View {
-        Text(banner.text)
+        Text(typeSize.isAccessibilitySize ? banner.compactText : banner.text)
             .font(MGFonts.sans(.caption).weight(.semibold))
             .multilineTextAlignment(.center)
             .foregroundStyle(Color(mgHex: MGContrast.ink(on: MGToken.warn)))
@@ -37,6 +42,7 @@ public struct EditionBannerView: View {
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity)
             .background(Color(mgHex: MGToken.warn))
+            .accessibilityLabel(Text(banner.text))
             .accessibilityAddTraits(.isStaticText)
             .accessibilityIdentifier(banner.identifier)
     }
