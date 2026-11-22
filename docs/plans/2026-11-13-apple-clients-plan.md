@@ -6733,13 +6733,13 @@ credits strip.
 
 | Source | Use | Licence |
 |---|---|---|
-| EOX Sentinel‑2 cloudless | Imagery | CC BY‑NC‑SA 4.0 |
+| EOX Sentinel‑2 cloudless, layer `s2cloudless_3857` (2016) | Imagery | CC BY 4.0 (the 2018-onwards yearly layers are CC BY‑NC‑SA; use only the 2016 layer, and confirm against EOX's capabilities) |
 | Mapzen Terrain Tiles (AWS Open Data) | World terrain | Attribution |
 | Environment Agency | UK close-up terrain | OGL v3.0 |
 | VersaTiles | Vector tiles: coast, roads, labels | OpenStreetMap, ODbL |
 
-These licences fit the owner's demo scope, which allows non-commercial use. Commercial
-use needs a different imagery source.
+All four allow commercial use with attribution, provided the imagery stays on the 2016
+EOX layer.
 
 **Loader:**
 - A list of the four host names. Any other host is refused.
