@@ -41,7 +41,8 @@
 }
 .hg-credits > button:hover, .hg-credits > button[aria-expanded='true'] { color: var(--text-heading); border-color: var(--border-strong); }
 .hg-credits > button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.hg-credits-list { max-height: 220px; overflow-y: auto; }
+.hg-credits-list { max-height: 220px; overflow-y: auto; border-radius: var(--radius-xs); }
+.hg-credits-list:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .hg-credits-list ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .hg-credits-list li { display: flex; flex-direction: column; gap: 2px; font-size: 10px; line-height: 1.45; color: var(--text-body); }
 .hg-credits-list strong { font-weight: 600; color: var(--text-heading); }

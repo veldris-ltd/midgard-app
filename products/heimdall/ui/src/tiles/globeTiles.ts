@@ -262,7 +262,9 @@ export class GlobeTiles implements GlobeTileLayer {
   private requestData(t: Tile, priority: number): string[] {
     const urls = this.urlsFor(t);
     for (const u of urls) {
-      if (this.loader.status(u) !== 'none') continue;
+      // The loader holds back a failed tile until its retry time, and probes when offline.
+      const st = this.loader.status(u);
+      if (st !== 'none' && st !== 'failed') continue;
       if (u === tileUrl('terrain', this.terrainTile(t))) this.loader.request(u, priority, decodeTerrainPng);
       else this.loader.request(u, priority, decodeImage);
     }

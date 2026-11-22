@@ -347,11 +347,12 @@ export class MapRenderer {
     const view = visibleTiles(this.cam, w, h, VECTOR_MAX_ZOOM);
     const keep = new Set<string>();
     const labelled: { data: MapTileData; left: number; top: number; size: number }[] = [];
-    const online = this.loader.state === 'online';
     view.tiles.forEach((v, i) => {
       const url = tileUrl('vector', v.tile);
       keep.add(url);
-      if (online && this.loader.status(url) === 'none') {
+      // Offline, the loader queues these and lets one probe the network now and then.
+      const st = this.loader.status(url);
+      if (st === 'none' || st === 'failed') {
         const z = v.tile.z;
         this.loader.request(url, i, async (b) => extractFeatures(new VectorTile(new PbfReader(new Uint8Array(b))), z));
       }

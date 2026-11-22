@@ -6,9 +6,9 @@
  * - A bounded cache of decoded tiles; a 4xx answer is remembered as "missing".
  * - A few requests at a time, most urgent first; `retain` cancels whatever the view
  *   no longer needs, queued or in flight.
- * - Offline: after a few network failures in a row (or when the browser says it is
- *   offline) it stops sending, reports `offline`, and lets one request probe again
- *   after a while.
+ * - Offline: after a few network failures in a row, or when every request so far has
+ *   failed and none is left, or when the browser says it is offline, it stops
+ *   sending, reports `offline`, and lets one request probe again after a while.
  * Plain TypeScript with an injected `fetch`, so node:test runs it on recorded tiles. */
 import { LruCache } from './cache.ts';
 import { allowedTileUrl } from './hosts.ts';
@@ -205,6 +205,9 @@ export class TileLoader {
       })
       .finally(() => {
         this.inFlight--;
+        // Every request so far has failed and nothing is left to try: that is offline
+        // too, however few tiles the view asked for.
+        if (this.failuresInARow > 0 && this.inFlight === 0 && this.pending.size === 0) this.goOffline();
         this.opts.onChange?.();
         this.schedule();
       });

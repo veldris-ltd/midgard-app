@@ -154,6 +154,16 @@ test('repeated network failures mean offline; it retries later and recovers', as
   assert.equal(l.status(TERRAIN), 'ready');
 });
 
+test('fewer failures than the limit still mean offline when nothing else is left to try', async () => {
+  const fetch: FetchLike = () => Promise.reject(new TypeError('Failed to fetch'));
+  const l = new TileLoader({ fetch, offlineAfter: 3 });
+  l.request(TERRAIN, 0, bytes);
+  l.request(IMAGERY, 0, bytes);
+  await settle();
+  await settle();
+  assert.equal(l.state, 'offline');
+});
+
 test('a browser that says it is offline is offline at once', () => {
   const net = recorded();
   const l = new TileLoader({ fetch: net.fetch, online: () => false });

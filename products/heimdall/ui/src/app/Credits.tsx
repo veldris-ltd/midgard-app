@@ -13,7 +13,8 @@ export function Credits({ credits }: { credits: readonly Credit[] }) {
       <button type="button" aria-expanded={open} aria-controls={id} onClick={() => setOpen((v) => !v)}>
         <span aria-hidden="true">ⓘ</span> CREDITS
       </button>
-      <div id={id} hidden={!open} className="hg-credits-list">
+      {/* Focusable, so a keyboard can scroll a long list. */}
+      <div id={id} hidden={!open} className="hg-credits-list" role="region" aria-label="Credits" tabIndex={0}>
         <ul aria-label="Data sources in use">
           {credits.map((c) => (
             <li key={c.id}>
