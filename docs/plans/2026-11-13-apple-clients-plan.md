@@ -6934,3 +6934,24 @@ above.
 - only the Maps apps have one.
 
 **App Store Connect** needs six app records, one per bundle ID.
+
+**Midgard 3D and Midgard Maps follow the newest build (owner, 22 Nov 2026).**
+
+- **Reference.** Phase I ports the newest globe and map code. The reference order is:
+  1. the core branches `heimdall_3d` and `heimdall_maps`, once they exist. Their
+     carve-out from `md_unified` 857c3bcb (5 Nov) is the newest globe and map code
+     across all branches;
+  2. until then, `md_unified` 857c3bcb itself, not `md_mixedfeeds_3d` 27026800.
+- **Port order.** I1 follows `heimdall_3d`, and I2 follows `heimdall_maps`.
+- **Before each edition's tag**, the Mac and iPhone 3D and Maps apps are compared against
+  the newest core branch, and any later globe or map change is ported.
+- **What the Midgard Maps app has.** It matches `heimdall_maps` in full:
+  - the close-up;
+  - the TOPOGRAPHIC and satellite styles;
+  - the folding ⓘ CREDITS strip;
+  - the regenerated UK images (516bed75);
+  - **the 2D geographic map**, from VersaTiles vector tiles, native in MapKit or Metal
+    with the same tile sources.
+- **What the Midgard 3D app has.** It matches `heimdall_3d`: the globe with bundled data
+  only, and no network.
+- **Shared defaults:** height ×4, and the REGION menu without the feed regions.
