@@ -67,8 +67,8 @@ public enum ErrorText {
             return "Saved data on this device cannot be read right now. Unlock the device and try again."
         case SessionController.Failure.notEnrolled:
             return "This device is not set up yet."
-        case AppEnvironment.Failure.misconfigured:
-            return "This app is misconfigured: MidgardDataSource is missing or not recognised. Install a correctly built app."
+        case let AppEnvironment.Failure.misconfigured(key):
+            return "This app is misconfigured: \(key) is missing or not recognised. Install a correctly built app."
         default:
             break
         }

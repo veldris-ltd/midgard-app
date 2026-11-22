@@ -28,7 +28,7 @@ final class AppModelTests: XCTestCase {
 
     private func environment(dataSource: DataSourceChoice = .bundled(releaseDataset()),
                              makeClient: AppEnvironment.ClientFactory? = nil) -> AppEnvironment {
-        var env = AppEnvironment(dataSource: dataSource, storeDirectory: dir, secrets: secrets, keyRoot: keyRoot,
+        var env = AppEnvironment(dataSource: dataSource, edition: .release, storeDirectory: dir, secrets: secrets, keyRoot: keyRoot,
                                  device: DeviceInfo(ramMb: 8192, hasAccelerator: true), replicaId: "app-test")
         if let makeClient { env.makeClient = makeClient }
         return env
@@ -131,20 +131,22 @@ final class AppModelTests: XCTestCase {
         for info: [String: Any] in [[:], ["MidgardDataSource": ""], ["MidgardDataSource": "None"],
                                     ["MidgardDataSource": "demo"], ["MidgardDataSource": 1]] {
             XCTAssertThrowsError(try AppEnvironment.dataSourceChoice(in: try fakeBundle(info)), "\(info)") {
-                XCTAssertEqual($0 as? AppEnvironment.Failure, .misconfigured)
+                XCTAssertEqual($0 as? AppEnvironment.Failure, .misconfigured(AppEnvironment.dataSourceKey))
             }
         }
     }
 
     func testAMissingOrUnknownDataSourceIsAFailedState() async throws {
-        for info: [String: Any] in [[:], ["MidgardDataSource": "local"]] {
+        for info: [String: Any] in [["MidgardEdition": "release"],
+                                    ["MidgardDataSource": "local", "MidgardEdition": "release"]] {
             let bundle = try fakeBundle(info)
             let model = AppModel()
             await model.start {
                 try AppEnvironment.live(reason: "test", device: DeviceInfo(ramMb: 8192, hasAccelerator: true), bundle: bundle)
             }
-            XCTAssertEqual(model.phase, .failed(ErrorText.describe(AppEnvironment.Failure.misconfigured)), "\(info)")
-            XCTAssertTrue(ErrorText.describe(AppEnvironment.Failure.misconfigured).contains("MidgardDataSource"))
+            let failure = AppEnvironment.Failure.misconfigured(AppEnvironment.dataSourceKey)
+            XCTAssertEqual(model.phase, .failed(ErrorText.describe(failure)), "\(info)")
+            XCTAssertTrue(ErrorText.describe(failure).contains("MidgardDataSource"))
             XCTAssertNil(model.banner, "no source is claimed")
         }
     }

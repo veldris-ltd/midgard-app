@@ -179,8 +179,11 @@ else
     fail "iOS and macOS: rc=$rc out='$out' $(cat "$t/stderr")"
 fi
 ev="$t/shell-audit/apple-0.0.0-test"
-if [ -s "$ev-ios.json" ] && [ -s "$ev-mac.json" ] && grep -q '^{"ios":' "$ev.json" && grep -q ',"mac":' "$ev.json"; then
-    pass "both apps' reports are kept, and merged in the report"
+if [ -s "$ev-ios.json" ] && [ -s "$ev-ios3d.json" ] && [ -s "$ev-iosmaps.json" ] && [ -s "$ev-mac.json" ] \
+    && [ -s "$ev-mac3d.json" ] && [ -s "$ev-macmaps.json" ] && grep -q '^{"ios":' "$ev.json" \
+    && grep -q ',"ios3d":' "$ev.json" && grep -q ',"iosmaps":' "$ev.json" && grep -q ',"mac":' "$ev.json" \
+    && grep -q ',"mac3d":' "$ev.json" && grep -q ',"macmaps":' "$ev.json"; then
+    pass "the six apps' reports are kept, and merged in the report"
 else
     fail "reports: $(ls "$t/shell-audit" 2>/dev/null)"
 fi
@@ -203,8 +206,8 @@ if [ "$rc" -ne 0 ] && [ -z "$out" ]; then
 else
     fail "unknown simulator: rc=$rc out='$out'"
 fi
-if [ "$(tr '\n' ' ' < "$t/calls")" = "MidgardiOS MidgardMac " ]; then
-    pass "both apps are tested"
+if [ "$(tr '\n' ' ' < "$t/calls")" = "MidgardiOS MidgardiOS3D MidgardiOSMaps MidgardMac MidgardMac3D MidgardMacMaps " ]; then
+    pass "both apps are tested, each in all three editions"
 else
     fail "tested: $(cat "$t/calls")"
 fi
@@ -272,7 +275,7 @@ for before in absent 0; do
     if [ "$rc" -eq 0 ] && [ "$out" = "keyboard_navigation " ] && [ "$after" = "$before" ] \
         && ! grep -qE '^(write|delete)' "$kbd.log" \
         && grep -q 'turn on System Settings > Keyboard > Keyboard navigation' "$t/stderr" \
-        && [ "$(tr '\n' ' ' < "$t/calls")" = "MidgardiOS MidgardMac " ]; then
+        && [ "$(tr '\n' ' ' < "$t/calls")" = "MidgardiOS MidgardiOS3D MidgardiOSMaps MidgardMac MidgardMac3D MidgardMacMaps " ]; then
         pass "not CI, setting $before: left alone, told how to turn it on, keyboard_navigation failed"
     else
         fail "not CI, $before: rc=$rc out='$out' after=$after log=$(tr '\n' ';' < "$kbd.log") $(cat "$t/stderr")"

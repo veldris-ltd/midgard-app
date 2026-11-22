@@ -1,0 +1,13 @@
+// Link-time hooks of the Apple shell (Task B7). MidgardKit calls each hook; this target
+// defines it weakly, as "nothing registered". A library that a target links may define
+// the same symbol strongly, and the linker then uses that definition: what is
+// registered follows what is linked, with no runtime switch and no lookup by name.
+// [FR-C-1]
+#ifndef MIDGARD_HOOKS_H
+#define MIDGARD_HOOKS_H
+
+/// Heimdall's 3D view: NULL here; the 3D edition's library returns an unretained
+/// pointer to its registration object, which lives for the whole process.
+const void *_Nullable midgard_heimdall_3d_hook(void);
+
+#endif

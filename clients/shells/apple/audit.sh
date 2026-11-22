@@ -8,14 +8,18 @@
 #
 # The record covers both apps (owner decision 4: it is written from a merge of
 # clients_mac and clients_iphone), so a tree with only one of them is refused. Each
+# project holds the three editions (Task B7): the release app (scheme MidgardiOS,
+# MidgardMac), the 3D app (MidgardiOS3D, MidgardMac3D) and the maps app (MidgardiOSMaps,
+# MidgardMacMaps), so six apps are audited, and a 3D or maps scheme that does not run
+# fails the audit as the release one would. Each
 # app's UI-test target runs `AccessibilityAudit` (a subclass of MidgardAuditKit's
 # AccessibilityAuditBase); tools/audit-failures.js reads the result bundle. An
 # affordance whose test failed, was skipped or did not run is reported failed. UI-test
 # sources that override `record(_:)` or `invokeTest` could rewrite their own results,
 # so they are refused. Dynamic Type is measured on iOS only: the macOS run never claims
-# it, and the iOS result stands for it. Next to <report> (both apps' result summaries,
-# merged) it keeps <report>-ios.json, <report>-mac.json and <report>.device, the
-# devices audited, which `run.sh` records. Derived data and result bundles go to
+# it, and the iOS results stand for it. Next to <report> (the six apps' result summaries,
+# merged) it keeps <report>-ios.json, -ios3d.json, -iosmaps.json, -mac.json, -mac3d.json,
+# -macmaps.json and <report>.device, the devices audited, which `run.sh` records. Derived data and result bundles go to
 # ~/Library/Caches/midgard-build/clients-derived.
 set -euo pipefail
 release="${1:?release}"; report="${2:?report path}"
@@ -105,12 +109,16 @@ fi
 
 mkdir -p "$derived"
 failed="$kbd_unmeasured"
-for app in $apps; do
+runs=""
+for app in $apps; do runs="$runs $app ${app}3d ${app}maps"; done
+for app in $runs; do
     case "$app" in
-        ios) proj="$here/Apps/MidgardiOS/MidgardiOS.xcodeproj"; scheme=MidgardiOS
-             dest="platform=iOS Simulator,name=$sim" ;;
-        mac) proj="$here/Apps/MidgardMac/MidgardMac.xcodeproj"; scheme=MidgardMac; dest="platform=macOS" ;;
+        ios | ios3d | iosmaps)
+            proj="$here/Apps/MidgardiOS/MidgardiOS.xcodeproj"; scheme=MidgardiOS
+            dest="platform=iOS Simulator,name=$sim" ;;
+        mac | mac3d | macmaps) proj="$here/Apps/MidgardMac/MidgardMac.xcodeproj"; scheme=MidgardMac; dest="platform=macOS" ;;
     esac
+    case "$app" in *3d) scheme="${scheme}3D" ;; *maps) scheme="${scheme}Maps" ;; esac
     bundle="$derived/$app-$release.xcresult"
     rm -rf "$bundle"
     # Test failures are data here, not a reason to stop: the parser reads them.
@@ -128,16 +136,21 @@ for app in $apps; do
     f="$(osascript -l JavaScript "$here/tools/audit-failures.js" "$derived/$app-tests.json")"
     # Dynamic Type is measured on iOS only; the macOS run does not claim it, and the
     # iOS app, always audited in the same run, stands for the affordance.
-    [ "$app" = mac ] && f="$(echo " $f " | sed 's/ dynamic_type / /')"
+    case "$app" in mac*) f="$(echo " $f " | sed 's/ dynamic_type / /')" ;; esac
     failed="$failed $f"
 done
 
 # Evidence: each app's summary, and both merged at <report>.
 base="$root/${report%.json}"
 mkdir -p "$(dirname "$base")"
-cp "$derived/ios-tests.json" "$base-ios.json"
-cp "$derived/mac-tests.json" "$base-mac.json"
-{ printf '{"ios":'; cat "$base-ios.json"; printf ',"mac":'; cat "$base-mac.json"; printf '}\n'; } > "$root/$report"
+sep='{'
+for app in $runs; do
+    cp "$derived/$app-tests.json" "$base-$app.json"
+    printf '%s"%s":' "$sep" "$app"
+    cat "$base-$app.json"
+    sep=','
+done > "$root/$report"
+printf '}\n' >> "$root/$report"
 echo "$device" > "$base.device"
 # Each affordance once, in a stable order.
 for a in $failed; do echo "$a"; done | sort -u | tr '\n' ' '
