@@ -3,11 +3,12 @@ import type { HeimdallLayerId, HeimdallTrack } from '@midgard/sdk';
 import { useResolvedMode } from '@midgard/ui-shared';
 
 import { TrackTooltip } from '../app/TrackTooltip';
-import { type CameraState, MIN_ALTITUDE_KM } from './camera.ts';
+import { type CameraState, MIN_ALTITUDE_KM, cameraFloorKm } from './camera.ts';
 import { readGlobeColours } from './colours.ts';
-import { DEFAULT_EXAGGERATION, MAX_EXAGGERATION, MIN_EXAGGERATION, tracksToGlobeItems } from './items.ts';
+import { DEFAULT_EXAGGERATION, MAX_EXAGGERATION, MIN_EXAGGERATION, clampExaggeration, tracksToGlobeItems } from './items.ts';
+import { loadOutlines } from './outlineAssets.ts';
 import { type Region, buildRegions, describeCamera, regionAt } from './presets.ts';
-import { GlobeRenderer, webglAvailable } from './renderer.ts';
+import { type GlobeOutlines, GlobeRenderer, webglAvailable } from './renderer.ts';
 import './globe.css';
 
 /* The operating picture as a 3D globe. Loaded lazily, with three.js and the bundled
@@ -33,6 +34,9 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
   const tooltipRef = React.useRef<HTMLDivElement>(null);
   const rendererRef = React.useRef<GlobeRenderer | null>(null);
   const [failed, setFailed] = React.useState(() => !webglAvailable());
+  const [outlines, setOutlines] = React.useState<GlobeOutlines | null>(null);
+  const [loadFailed, setLoadFailed] = React.useState(false);
+  const paintedMode = React.useRef<string | null>(null);
   const [hover, setHover] = React.useState<string | null>(null);
   const [heights, setHeights] = React.useState(DEFAULT_EXAGGERATION);
   const [camera, setCamera] = React.useState<CameraState | null>(null);
@@ -46,12 +50,24 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
   const onSelectRef = React.useRef(onSelect);
   onSelectRef.current = onSelect;
 
+  // The outlines, from the console's own files, once per mount.
+  React.useEffect(() => {
+    if (failed) return;
+    let live = true;
+    loadOutlines().then(
+      (o) => { if (live) setOutlines(o); },
+      () => { if (live) setLoadFailed(true); },
+    );
+    return () => { live = false; };
+  }, [failed]);
+
   // Start-up: one renderer per mount, opening on SECTOR NORTH.
   React.useEffect(() => {
-    if (failed || !hostRef.current || !labelsRef.current) return;
+    if (failed || !outlines || !hostRef.current || !labelsRef.current) return;
     let r: GlobeRenderer;
     try {
-      r = new GlobeRenderer(hostRef.current, labelsRef.current, readGlobeColours(hostRef.current), {
+      paintedMode.current = mode;
+      r = new GlobeRenderer(hostRef.current, labelsRef.current, readGlobeColours(hostRef.current), outlines, {
         onHover: setHover,
         onSelect: (id) => onSelectRef.current(id),
         onCamera: (c, settled) => { if (settled) setCamera(c); },
@@ -68,7 +84,7 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
       r.dispose();
     };
     // Mount once per WebGL attempt; the effects below push every later change in.
-  }, [failed]);
+  }, [failed, outlines]);
 
   React.useEffect(() => {
     const r = rendererRef.current;
@@ -79,13 +95,19 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
       const t = byId.get(id);
       return t ? `${t.id}${t.track === 'anomalous' ? ' ⚠' : ''} · ${t.hdg}°` : id;
     });
-  }, [items, tracks, failed]);
+    // No marker may stand above the camera or inside its near plane.
+    const highest = items.reduce((m, i) => Math.max(m, i.altitudeKm), 0) * clampExaggeration(heights);
+    r.setCameraFloor(cameraFloorKm(highest));
+  }, [items, tracks, heights, failed, outlines]);
 
-  React.useEffect(() => { rendererRef.current?.setSelected(selectedId); }, [selectedId, items, failed]);
-  React.useEffect(() => { rendererRef.current?.setTooltipAnchor(tooltipRef.current); }, [hover, failed]);
+  React.useEffect(() => { rendererRef.current?.setSelected(selectedId); }, [selectedId, items, failed, outlines]);
+  React.useEffect(() => { rendererRef.current?.setTooltipAnchor(tooltipRef.current); }, [hover, failed, outlines]);
+  // Repaint only when the mode changes after start-up; the renderer paints once on its own.
   React.useEffect(() => {
     const r = rendererRef.current;
-    if (r && hostRef.current) r.setColours(readGlobeColours(hostRef.current));
+    if (!r || !hostRef.current || paintedMode.current === mode) return;
+    paintedMode.current = mode;
+    r.setColours(readGlobeColours(hostRef.current));
   }, [mode]);
 
   const flyTo = (c: CameraState) => rendererRef.current?.flyTo(c, reducedMotion());
@@ -114,6 +136,17 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
   const summary = camera ? describeCamera(camera, regions) : '';
   const hovered = hover ? tracks.find((t) => t.id === hover) : undefined;
 
+  if (loadFailed) {
+    return (
+      <div className="hg-globe" role="status">
+        <div className="hg-globe-unavailable">
+          <strong>3D VIEW UNAVAILABLE · RELOAD TO RETRY</strong>
+          <span>THE GLOBE'S OUTLINES DID NOT LOAD · THE 2D VIEW STILL WORKS</span>
+        </div>
+      </div>
+    );
+  }
+
   if (failed) {
     return (
       <div className="hg-globe" role="status">
@@ -138,6 +171,7 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
         onKeyDown={onKeyDown}
       />
       <div ref={labelsRef} className="hg-globe-labels" aria-hidden="true" />
+      {!outlines && <div className="hg-globe-loading" role="status">LOADING 3D VIEW…</div>}
       {hovered && (
         <div ref={tooltipRef} style={{ position: 'absolute', left: 0, top: 0, zIndex: 5, pointerEvents: 'none', display: 'none' }}>
           <TrackTooltip track={hovered} selected={hovered.id === selectedId} style={{ position: 'relative' }} />
@@ -173,10 +207,10 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
                     aria-current={t.id === selectedId ? 'true' : undefined}
                     aria-label={`${t.id} · ${t.cls} · ${t.alt}${t.track === 'anomalous' ? ' · anomalous' : ''}${placed ? '' : ' · no position'}`}
                     onClick={() => { onSelect(t.id); flyToTrack(t); }}
-                    onMouseEnter={() => rendererRef.current?.setHoverFromOutside(t.id)}
-                    onMouseLeave={() => rendererRef.current?.setHoverFromOutside(null)}
-                    onFocus={() => rendererRef.current?.setHoverFromOutside(t.id)}
-                    onBlur={() => rendererRef.current?.setHoverFromOutside(null)}
+                    onMouseEnter={() => rendererRef.current?.setHovered(t.id)}
+                    onMouseLeave={() => rendererRef.current?.setHovered(null)}
+                    onFocus={() => rendererRef.current?.setHovered(t.id)}
+                    onBlur={() => rendererRef.current?.setHovered(null)}
                   >
                     <span className="hg-globe-track">
                       <span className="tone" data-tone={t.track === 'anomalous' ? 'warn' : 'accent'} />

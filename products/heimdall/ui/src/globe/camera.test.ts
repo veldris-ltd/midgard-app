@@ -94,3 +94,35 @@ test('fly-to takes no time when reduced motion is asked for', () => {
   assert.ok(d >= 600 && d <= 2400, `${d}`);
   assert.equal(flyDurationMs(a, a, false), 0);
 });
+
+test('every marker stays drawable: at the highest HEIGHTS, FL450, from every camera altitude allowed', async () => {
+  const { cameraFloorKm, clipPlanes } = await import('./camera.ts');
+  const { MAX_EXAGGERATION } = await import('./items.ts');
+  const { EARTH_RADIUS_KM } = await import('./projection.ts');
+  const { FEET_TO_METRES } = await import('./altitude.ts');
+  const R = EARTH_RADIUS_KM;
+  const fl450Km = (45000 * FEET_TO_METRES) / 1000;
+  for (let k = 1; k <= MAX_EXAGGERATION; k++) {
+    const markerKm = fl450Km * k;
+    const floor = cameraFloorKm(markerKm);
+    assert.ok(floor >= MIN_ALTITUDE_KM && floor > markerKm, `x${k}: floor ${floor}`);
+    for (let alt = floor; alt <= MAX_ALTITUDE_KM; alt *= 1.05) {
+      const { near, far } = clipPlanes(alt);
+      // Straight below the camera: the closest a marker can be.
+      const nearest = (alt - markerKm) / R;
+      assert.ok(nearest > near, `x${k} at ${alt.toFixed(1)} km: marker ${nearest} inside near ${near}`);
+      // Over the camera's horizon and the marker's own: the farthest it can still be seen.
+      const horizon = (h: number) => Math.sqrt((1 + h / R) ** 2 - 1);
+      assert.ok(horizon(alt) + horizon(markerKm) < far, `x${k} at ${alt.toFixed(1)} km: beyond far`);
+    }
+  }
+});
+
+test('the floor is the 50 km limit until markers stand higher', async () => {
+  const { cameraFloorKm } = await import('./camera.ts');
+  assert.equal(cameraFloorKm(0), MIN_ALTITUDE_KM);
+  assert.equal(cameraFloorKm(10), MIN_ALTITUDE_KM);
+  assert.ok(cameraFloorKm(274) > 274);
+  assert.ok(cameraFloorKm(1e9) <= MAX_ALTITUDE_KM);
+  assert.equal(cameraFloorKm(Number.NaN), MIN_ALTITUDE_KM);
+});

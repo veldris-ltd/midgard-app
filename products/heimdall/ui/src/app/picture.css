@@ -24,7 +24,8 @@
 .hg-view-switch button:hover { color: var(--text-heading); }
 .hg-view-switch button[aria-pressed='true'] {
   background: var(--accent-tint);
-  color: var(--accent-hover);
+  color: var(--text-heading);
+  box-shadow: inset 0 -2px 0 var(--accent);
 }
 .hg-view-switch button:focus-visible {
   outline: 2px solid var(--accent);

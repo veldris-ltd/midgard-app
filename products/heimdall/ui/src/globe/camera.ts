@@ -87,3 +87,26 @@ export function flyDurationMs(a: CameraState, b: CameraState, reducedMotion: boo
   const effort = Math.min(1, angle / 120 + zoom / Math.log(MAX_ALTITUDE_KM / MIN_ALTITUDE_KM));
   return Math.round(600 + 1800 * effort);
 }
+
+/** Clearance kept between the camera and the highest marker below it. */
+const MARKER_CLEARANCE_KM = 25;
+
+/**
+ * The lowest the camera may go: the 50 km limit, or higher when the HEIGHTS setting
+ * lifts a marker near it, so no marker ever sits behind the camera or inside its
+ * near plane.
+ */
+export function cameraFloorKm(highestMarkerKm: number): number {
+  if (!(highestMarkerKm > 0)) return MIN_ALTITUDE_KM;
+  return clampAltitude(Math.max(MIN_ALTITUDE_KM, highestMarkerKm + MARKER_CLEARANCE_KM));
+}
+
+/**
+ * Near and far clip planes, in globe radii, for a camera `altKm` up. The near plane
+ * is 2% of the altitude, so a marker 25 km under the lowest camera is still drawn;
+ * the far plane reaches past the horizon.
+ */
+export function clipPlanes(altKm: number): { near: number; far: number } {
+  const altUnits = clampAltitude(altKm) / EARTH_RADIUS_KM;
+  return { near: Math.max(1e-5, altUnits * 0.02), far: altUnits + 2.5 };
+}

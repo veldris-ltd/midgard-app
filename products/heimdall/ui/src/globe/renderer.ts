@@ -6,12 +6,15 @@
  * the land borders as lines (1:110m far out, 1:50m close in), a soft atmosphere edge,
  * and the track markers. The camera, the markers' placement and the picking are the
  * pure modules beside this file; this one only draws and listens. Nothing here makes
- * a network request: the outlines are bundled. */
+ * a network request: the bundled outlines are handed in by the view, which fetches
+ * them from the console's own files. */
 import * as THREE from 'three';
 
 import {
   CAMERA_FOV_DEG,
   type CameraState,
+  MIN_ALTITUDE_KM,
+  clipPlanes,
   flyDurationMs,
   interpolateCamera,
   normaliseCamera,
@@ -22,10 +25,8 @@ import { type GlobeColours, type Rgba, cssRgba } from './colours.ts';
 import { graticule, lineSegments } from './geometry.ts';
 import type { GlobeItem } from './items.ts';
 import { type OutlineFile, coastFromLand, decodeLine } from './outlines.ts';
-import { EARTH_RADIUS_KM, isOccluded, toXyz } from './projection.ts';
+import { isOccluded, toXyz } from './projection.ts';
 import { subsolarPoint } from './sun.ts';
-import world110 from './data/ne-110m.json';
-import close50 from './data/ne-50m.json';
 
 /** Below this altitude the 1:50m outlines replace the 1:110m ones. */
 const DETAIL_BELOW_KM = 3000;
@@ -46,14 +47,24 @@ export interface GlobeCallbacks {
   onContextLost(): void;
 }
 
-/** Whether this browser can give the globe a WebGL context at all. */
+/** Whether this browser can give the globe a WebGL 2 context, which three.js needs.
+ *  The probe's context is released at once. */
 export function webglAvailable(): boolean {
   try {
-    const c = document.createElement('canvas');
-    return Boolean(c.getContext('webgl2') ?? c.getContext('webgl'));
+    const gl = document.createElement('canvas').getContext('webgl2');
+    if (!gl) return false;
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+    return true;
   } catch {
     return false;
   }
+}
+
+export interface GlobeOutlines {
+  /** 1:110m coastlines and borders. */
+  world: OutlineFile;
+  /** 1:50m land and borders. */
+  close: OutlineFile;
 }
 
 const toColor = (c: Rgba) => new THREE.Color().setRGB(c.r, c.g, c.b, THREE.SRGBColorSpace);
@@ -177,6 +188,7 @@ export class GlobeRenderer {
   private selected: string | null = null;
   private tooltip: HTMLElement | null = null;
   private settleTimer = 0;
+  private floorKm = MIN_ALTITUDE_KM;
   private sunTimer = 0;
   private readonly resize: ResizeObserver;
   private readonly unlisten: (() => void)[] = [];
@@ -186,6 +198,7 @@ export class GlobeRenderer {
     private readonly host: HTMLElement,
     private readonly labelLayer: HTMLElement,
     colours: GlobeColours,
+    private readonly outlines: GlobeOutlines,
     private readonly cb: GlobeCallbacks,
   ) {
     this.colours = colours;
@@ -226,8 +239,8 @@ export class GlobeRenderer {
     });
     this.scene.add(new THREE.Mesh(new THREE.SphereGeometry(1.035, 96, 48), this.atmosphereMat));
 
-    const w = world110 as unknown as OutlineFile;
-    const c = close50 as unknown as OutlineFile;
+    const w = outlines.world;
+    const c = outlines.close;
     this.addLines('graticule', 'all', graticule(15, 2), 1.0004);
     this.addLines('coast', 'far', (w.coast ?? []).map((l) => decodeLine(l, w.quantum)), 1.0008);
     this.addLines('border', 'far', (w.borders ?? []).map((l) => decodeLine(l, w.quantum)), 1.0007);
@@ -323,9 +336,10 @@ export class GlobeRenderer {
     this.requestRender();
   }
 
-  /** Shows `id`'s tooltip as if hovered: for keyboard focus in the track list. */
-  setHoverFromOutside(id: string | null): void {
-    this.setHovered(id);
+  /** The lowest the camera may go now, from the highest marker (`cameraFloorKm`). */
+  setCameraFloor(km: number): void {
+    this.floorKm = Math.max(MIN_ALTITUDE_KM, km);
+    if (this.cam.altKm < this.floorKm) this.applyCamera();
   }
 
   flyTo(target: CameraState, reducedMotion: boolean): void {
@@ -381,7 +395,7 @@ export class GlobeRenderer {
     g.fillStyle = cssRgba({ ...this.colours.sea, a: 1 });
     g.fillRect(0, 0, W, H);
     g.fillStyle = cssRgba({ ...this.colours.land, a: 1 });
-    const c = close50 as unknown as OutlineFile;
+    const c = this.outlines.close;
     for (const poly of c.land ?? []) {
       g.beginPath();
       for (const ring of poly) {
@@ -451,25 +465,26 @@ export class GlobeRenderer {
   }
 
   private applyCamera(): void {
-    const altUnits = this.cam.altKm / EARTH_RADIUS_KM;
+    if (this.cam.altKm < this.floorKm) this.cam = { ...this.cam, altKm: this.floorKm };
+    const { near, far } = clipPlanes(this.cam.altKm);
     const p = toXyz(this.cam.lat, this.cam.lon, this.cam.altKm);
     this.camera3.position.set(p.x, p.y, p.z);
     this.camera3.up.set(0, 1, 0);
     this.camera3.lookAt(0, 0, 0);
-    this.camera3.near = Math.max(1e-4, altUnits * 0.25);
-    this.camera3.far = altUnits + 2.5;
+    this.camera3.near = near;
+    this.camera3.far = far;
     this.camera3.updateProjectionMatrix();
     // Labels and picking project with this camera before the next render updates it.
     this.camera3.updateMatrixWorld();
-    const near = this.cam.altKm < DETAIL_BELOW_KM;
-    for (const l of this.lines) l.obj.visible = l.detail === 'all' || (l.detail === 'near') === near;
+    const closeIn = this.cam.altKm < DETAIL_BELOW_KM;
+    for (const l of this.lines) l.obj.visible = l.detail === 'all' || (l.detail === 'near') === closeIn;
     // The atmosphere fades out as the camera comes down into it.
     this.atmosphereMat.uniforms.strength.value = Math.min(0.55, Math.max(0, (this.cam.altKm - 250) / 1500));
     this.cb.onCamera(this.cam, false);
     this.requestRender();
   }
 
-  requestRender(): void {
+  private requestRender(): void {
     if (this.frame || this.disposed) return;
     this.frame = requestAnimationFrame((t) => {
       this.frame = 0;
@@ -508,7 +523,7 @@ export class GlobeRenderer {
       v.set(m.item.position.x, m.item.position.y, m.item.position.z).project(this.camera3);
       const x = ((v.x + 1) / 2) * this.width;
       const y = ((1 - v.y) / 2) * this.height;
-      const onScreen = !hidden && v.z < 1 && x > -40 && x < this.width + 40 && y > -40 && y < this.height + 40;
+      const onScreen = !hidden && v.z > -1 && v.z < 1 && x > -40 && x < this.width + 40 && y > -40 && y < this.height + 40;
       const named = this.cam.altKm < LABELS_BELOW_KM || m.item.id === this.selected || m.item.id === this.hovered;
       m.label.style.display = onScreen && named ? '' : 'none';
       m.label.style.transform = `translate(${Math.round(x)}px, ${Math.round(y + MARKER_PX)}px) translateX(-50%)`;
@@ -568,8 +583,16 @@ export class GlobeRenderer {
     });
     const end = (e: PointerEvent) => {
       const wasDrag = this.drag;
+      const wasPinch = this.pinch !== null;
       this.pointers.delete(e.pointerId);
       if (this.pointers.size < 2) this.pinch = null;
+      if (wasPinch && this.pinch === null) {
+        // The pinch is over: settle, and let a finger still down carry on orbiting.
+        const rest = [...this.pointers.entries()][0];
+        this.drag = rest ? { id: rest[0], x: rest[1].x, y: rest[1].y, moved: true } : null;
+        this.settled();
+        return;
+      }
       if (wasDrag && wasDrag.id === e.pointerId) {
         this.drag = null;
         if (!wasDrag.moved && e.type === 'pointerup') {
@@ -614,7 +637,7 @@ export class GlobeRenderer {
     for (const m of this.markers) {
       if (isOccluded(this.camera3.position, m.item.position)) continue;
       v.set(m.item.position.x, m.item.position.y, m.item.position.z).project(this.camera3);
-      if (v.z >= 1) continue;
+      if (v.z <= -1 || v.z >= 1) continue;
       const d = Math.hypot(((v.x + 1) / 2) * this.width - px, ((1 - v.y) / 2) * this.height - py);
       if (d <= bestD) {
         bestD = d;
@@ -630,7 +653,8 @@ export class GlobeRenderer {
     this.setHovered(id);
   }
 
-  private setHovered(id: string | null): void {
+  /** The hovered track; also set from the track list, so keyboard focus shows its tooltip. */
+  setHovered(id: string | null): void {
     if (id === this.hovered) return;
     this.hovered = id;
     this.cb.onHover(id);
@@ -648,4 +672,3 @@ export class GlobeRenderer {
   }
 }
 
-export { DETAIL_BELOW_KM };

@@ -33,7 +33,7 @@ class GlobeBoundary extends React.Component<{ children: React.ReactNode }, { fai
     if (!this.state.failed) return this.props.children;
     return (
       <div role="status" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-mono)', fontSize: 12, letterSpacing: '0.14em', color: 'var(--warn)' }}>
-        3D VIEW UNAVAILABLE · THE 2D VIEW STILL WORKS
+        3D VIEW UNAVAILABLE · RELOAD TO RETRY · THE 2D VIEW STILL WORKS
       </div>
     );
   }
@@ -313,7 +313,7 @@ export function OperatingPictureScreen() {
         <StatBlock value="1,204" label="TRACKED ENTITIES" size="sm" />
         <StatBlock value="0.4s" label="FUSION LATENCY" size="sm" />
         <StatBlock value="1" label="ANOMALIES" size="sm" accent />
-        <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em', color: 'var(--text-faint)', whiteSpace: 'nowrap' }}>{view === '3d' ? 'REFERENCE LAYOUT · NOT REAL POSITIONS' : 'SYNTHETIC PICTURE · REFERENCE LAYOUT ONLY'}</span>
+        <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em', color: 'var(--text-faint)', whiteSpace: 'nowrap' }}>{view === '3d' ? 'SYNTHETIC PICTURE · REFERENCE LAYOUT · NOT REAL POSITIONS' : 'SYNTHETIC PICTURE · REFERENCE LAYOUT ONLY'}</span>
       </div>
     </ConsolePage>
   );
