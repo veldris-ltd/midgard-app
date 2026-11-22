@@ -48,6 +48,22 @@ export function wrapLongitude(lon: number): number {
   return w === -180 ? 180 : w;
 }
 
+/**
+ * Whether the globe (radius `radius`) hides point `p` from a camera at `cam`: the
+ * straight line between them enters the sphere before it reaches `p`.
+ */
+export function isOccluded(cam: Vec3, p: Vec3, radius = 1): boolean {
+  const dx = p.x - cam.x, dy = p.y - cam.y, dz = p.z - cam.z;
+  const a = dx * dx + dy * dy + dz * dz;
+  if (a === 0) return false;
+  const b = 2 * (cam.x * dx + cam.y * dy + cam.z * dz);
+  const c = cam.x * cam.x + cam.y * cam.y + cam.z * cam.z - radius * radius;
+  const disc = b * b - 4 * a * c;
+  if (disc <= 0) return false;
+  const t = (-b - Math.sqrt(disc)) / (2 * a);
+  return t > 0 && t < 1 - 1e-7;
+}
+
 /** Great-circle angle between two positions, in degrees. */
 export function angularDistanceDeg(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
   const p1 = a.lat * RAD;
