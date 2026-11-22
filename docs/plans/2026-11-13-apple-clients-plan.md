@@ -6837,3 +6837,33 @@ in the apps.
 - The 3D globe reaches a signed release the same way, from its own feature branch off
   `main`. It is never a wholesale merge of `md_mixedfeeds_3d` or `dev_mac`.
 - No pull requests are opened without the owner's request.
+
+## Owner decision (22 Nov 2026): only the three clients; everything else paused
+
+Only these three builds continue:
+
+1. **Midgard:** clients of the signed release `v0.1.0-rc.3` only, with no other additions
+   or changes. Phases B to H build the rc.3 screens in the no-data mode the owner chose
+   on 19 Nov. Tag `apple-midgard-v0.1.0-rc.3`.
+2. **Midgard 3D:** the same, plus the 3D globe only (Task B7, then Task I1). Tag
+   `apple-midgard3d-v0.1.0-rc.3`.
+3. **Midgard 3D with map tiles:** item 2 plus online map tiles (Task I2). Tag
+   `apple-midgard3dmaps-v0.1.0-rc.3`.
+
+**The release apps get no visible change beyond the rc.3 screens.** There is no edition
+or tag line in their About screen, and no new banner, menu entry or behaviour. The
+`MidgardEdition` key is read silently. The edition and tag lines and the 3D banner
+appear only in the 3D apps.
+
+**Paused until the owner resumes them:**
+- development signing setup, Team ID included;
+- the Secure Enclave check;
+- B4/B5, the release scripts;
+- publishing:
+  - the `main` merge before the push;
+  - the push;
+  - the tags;
+- any pull request;
+- `dev` and `main` work;
+- the defensive cyber option (`md_cyber_dco`);
+- every other project.
