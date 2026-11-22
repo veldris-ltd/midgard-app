@@ -55,6 +55,16 @@ test('anything else is refused', () => {
     'blob:https://tiles.versatiles.org/123',
     '/tiles/osm/6/31/19',
     'not a url',
+    // Spellings a URL parser normalises to an allowed tile: only the exact form passes.
+    '//s3.amazonaws.com/elevation-tiles-prod/terrarium/6/31/19.png',
+    'https:\\\\s3.amazonaws.com\\elevation-tiles-prod\\terrarium\\6\\31\\19.png',
+    'https://s3.amazonaws.com\\elevation-tiles-prod/terrarium/6/31/19.png',
+    'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/6/31/%2e%2e/19.png',
+    'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/x/%2e%2e/6/31/19.png',
+    'https://S3.AMAZONAWS.COM/elevation-tiles-prod/terrarium/6/31/19.png',
+    'https://s3.amazonaws.com./elevation-tiles-prod/terrarium/6/31/19.png',
+    'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/06/31/19.png',
+    ' https://s3.amazonaws.com/elevation-tiles-prod/terrarium/6/31/19.png',
   ];
   for (const u of refused) assert.equal(allowedTileUrl(u), null, u);
 });

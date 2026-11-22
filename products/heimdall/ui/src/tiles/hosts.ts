@@ -73,7 +73,7 @@ const PATTERNS = Object.values(TILE_SOURCES).map((s) => ({
   re: new RegExp(`^${escape(s.pathPrefix)}(\\d{1,2})/(\\d{1,7})/(\\d{1,7})${escape(s.ext)}$`),
 }));
 
-/** The source a URL belongs to when it is an allowed tile request, else null. */
+/** The source a URL belongs to when it is exactly an allowed tile request, else null. */
 export function allowedTileUrl(url: string): TileSourceId | null {
   let u: URL;
   try {
@@ -89,7 +89,10 @@ export function allowedTileUrl(url: string): TileSourceId | null {
     const z = Number(m[1]);
     const [x, y] = s.order === 'zxy' ? [Number(m[2]), Number(m[3])] : [Number(m[3]), Number(m[2])];
     if (!validTile({ z, x, y }) || z < s.minZoom || z > s.maxZoom) return null;
-    return s.id;
+    // Only the one spelling this module builds: nothing a URL parser would normalise
+    // (backslashes, dot segments, case, a trailing dot, padded numbers) gets through.
+    const canonical = tileUrl(s.id, { z, x, y });
+    return url === canonical && u.href === canonical ? s.id : null;
   }
   return null;
 }

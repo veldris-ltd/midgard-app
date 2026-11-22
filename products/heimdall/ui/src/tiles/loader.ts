@@ -3,12 +3,14 @@
  * - Only URLs on the host allow-list (`allowedTileUrl`), so HTTPS only.
  * - No cookies or other credentials, no referrer, and no redirects (a redirect could
  *   lead off the list).
- * - A bounded cache of decoded tiles; a 4xx answer is remembered as "missing".
+ * - A bounded cache of decoded tiles. A 4xx answer (but 429) or a tile that will not
+ *   decode is remembered as "missing"; a 5xx or 429 is retried after the retry time.
  * - A few requests at a time, most urgent first; `retain` cancels whatever the view
  *   no longer needs, queued or in flight.
- * - Offline: after a few network failures in a row, or when every request so far has
- *   failed and none is left, or when the browser says it is offline, it stops
- *   sending, reports `offline`, and lets one request probe again after a while.
+ * - Offline: after a few network failures in a row, or when nothing has ever loaded
+ *   and every request has failed with none left, or when the browser says it is
+ *   offline, it stops sending and reports `offline`. After the retry time it calls
+ *   `onChange`, so the view asks again, and lets one request through as a probe.
  * Plain TypeScript with an injected `fetch`, so node:test runs it on recorded tiles. */
 import { LruCache } from './cache.ts';
 import { allowedTileUrl } from './hosts.ts';
@@ -68,6 +70,7 @@ export class TileLoader {
   private scheduled = false;
   private destroyed = false;
   private stateNow: LoaderState = 'online';
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(o: LoaderOptions) {
     this.opts = {
@@ -95,8 +98,16 @@ export class TileLoader {
     if (c) return c.value === null ? 'missing' : 'ready';
     if (this.pending.has(url)) return 'pending';
     const f = this.failedAt.get(url);
-    if (f !== undefined && this.opts.now() - f < this.opts.retryAfterMs) return 'failed';
+    if (f !== undefined) {
+      if (this.opts.now() - f < this.opts.retryAfterMs) return 'failed';
+      this.failedAt.delete(url);
+    }
     return 'none';
+  }
+
+  /** Failures still remembered (a test diagnostic: they are pruned at their retry time). */
+  get failureRecords(): number {
+    return this.failedAt.size;
   }
 
   /** The decoded tile, null when the source has none, undefined when not loaded. */
@@ -139,6 +150,8 @@ export class TileLoader {
 
   destroy(): void {
     this.destroyed = true;
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
     this.retain(new Set());
     this.cache.clear();
   }
@@ -171,46 +184,77 @@ export class TileLoader {
     p.ctrl = ctrl;
     this.inFlight++;
     const current = () => this.pending.get(p.url) === p;
-    let network = true;
+    // What came back: a tile, nothing usable, a server that cannot serve it now, or no
+    // answer at all.
+    const settle = (outcome: { value: unknown } | 'missing' | 'server' | 'network') => {
+      if (outcome === 'network') {
+        this.stats.failed++;
+        this.markFailed(p, current());
+        this.failuresInARow++;
+        if (this.stateNow === 'offline') {
+          this.offlineSince = this.opts.now();
+          this.armRetry();
+        } else if (this.failuresInARow >= this.opts.offlineAfter) {
+          this.goOffline();
+        }
+        return;
+      }
+      this.answered();
+      if (outcome === 'server') this.markFailed(p, current());
+      else if (outcome === 'missing') { if (current()) this.store(p, null); }
+      else if (current()) this.store(p, outcome.value);
+      else (p.dispose as ((v: unknown) => void) | undefined)?.(outcome.value);
+    };
     this.opts
       .fetch(p.url, { ...TILE_FETCH_INIT, signal: ctrl.signal })
-      .then(async (res) => {
-        network = false;
-        this.stats.fetched++;
-        if (res.ok) {
-          const value = await p.decode(await res.arrayBuffer());
-          if (current()) this.store(p, value);
-          else (p.dispose as ((v: unknown) => void) | undefined)?.(value);
-        } else if (res.status >= 400 && res.status < 500 && res.status !== 429) {
-          if (current()) this.store(p, null);
-        } else {
-          throw new Error(`tiles: HTTP ${res.status}`);
-        }
-        this.answered();
-      })
-      .catch(() => {
-        if (ctrl.signal.aborted) return;
-        if (!network) {
-          // The server answered but the tile was unusable: treat it as missing.
-          if (current()) this.store(p, null);
-          this.answered();
-          return;
-        }
-        this.stats.failed++;
-        if (current()) this.pending.delete(p.url);
-        this.failedAt.set(p.url, this.opts.now());
-        this.failuresInARow++;
-        if (this.stateNow === 'offline') this.offlineSince = this.opts.now();
-        else if (this.failuresInARow >= this.opts.offlineAfter) this.goOffline();
-      })
+      .then(
+        async (res) => {
+          this.stats.fetched++;
+          if (res.status >= 500 || res.status === 429) return settle('server');
+          if (!res.ok) return settle('missing');
+          let value: unknown;
+          try {
+            value = await p.decode(await res.arrayBuffer());
+          } catch {
+            if (ctrl.signal.aborted) return;
+            return settle('missing');
+          }
+          settle({ value });
+        },
+        () => {
+          if (!ctrl.signal.aborted) settle('network');
+        },
+      )
       .finally(() => {
         this.inFlight--;
-        // Every request so far has failed and nothing is left to try: that is offline
-        // too, however few tiles the view asked for.
-        if (this.failuresInARow > 0 && this.inFlight === 0 && this.pending.size === 0) this.goOffline();
+        // Nothing has ever loaded, every request has failed and none is left to try:
+        // that is offline too, however few tiles the view asked for.
+        if (this.stats.fetched === 0 && this.failuresInARow > 0 && this.inFlight === 0 && this.pending.size === 0) this.goOffline();
         this.opts.onChange?.();
         this.schedule();
       });
+  }
+
+  /** Remembers a failure until its retry time, pruning the ones whose time has passed. */
+  private markFailed(p: Pending, current: boolean): void {
+    if (current) this.pending.delete(p.url);
+    const now = this.opts.now();
+    for (const [u, t] of this.failedAt) if (now - t >= this.opts.retryAfterMs) this.failedAt.delete(u);
+    this.failedAt.set(p.url, now);
+  }
+
+  /** After the retry time, tells the view to ask again, which lets a probe through. */
+  private armRetry(): void {
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    if (this.destroyed) return;
+    const t = setTimeout(() => {
+      this.retryTimer = null;
+      if (this.destroyed) return;
+      this.opts.onChange?.();
+      this.schedule();
+    }, this.opts.retryAfterMs);
+    (t as { unref?: () => void }).unref?.();
+    this.retryTimer = t;
   }
 
   private store(p: Pending, value: unknown): void {
@@ -221,13 +265,18 @@ export class TileLoader {
 
   private answered(): void {
     this.failuresInARow = 0;
-    if (this.stateNow === 'offline') this.stateNow = 'online';
+    if (this.stateNow === 'offline') {
+      this.stateNow = 'online';
+      if (this.retryTimer) clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
   }
 
   private goOffline(): void {
     if (this.stateNow === 'offline') return;
     this.stateNow = 'offline';
     this.offlineSince = this.opts.now();
+    this.armRetry();
     this.opts.onChange?.();
   }
 }
