@@ -98,9 +98,10 @@ keystore_jobs() {
         !gh && /^[a-z][a-z0-9_-]*:$/ { job = $1; sub(/:$/, "", job) }
         job && $0 ~ ("run[.]sh (" t ")( |$)") { print job }' | sort -u
 }
-# job_block FILE JOB INDENT: the lines of JOB, a key at INDENT spaces.
+# job_block FILE JOB [INDENT]: the lines of JOB, a key at INDENT spaces (default two,
+# a GitHub job), up to the next key at that indent.
 job_block() {
-    tr -d '\r' < "$1" | awk -v job="$2" -v ind="$3" '
+    tr -d '\r' < "$1" | awk -v job="$2" -v ind="${3-  }" '
         $0 ~ ("^" ind job ":$") { on = 1; next }
         on && $0 ~ ("^" ind "[^ #]") { on = 0 }
         on'
@@ -149,6 +150,69 @@ got_steps="$(xargs printf '%s\n' <<<"$step_list" | awk '{ print $1 }' | tr '\n' 
 [ -n "$want_steps" ] && [ "$got_steps" = "$want_steps" ] &&
     pass "release-offline runs the release workflow's steps in its order: $got_steps" ||
     fail "release-offline runs the release workflow's steps in its order: want '$want_steps', got '$got_steps'"
+# The release goes by the shell-audit gate's verdict, not by the audit jobs' results: a
+# waived pre-release has audits that failed, or that GitHub cancelled before they
+# started, and its release must still run once the gate passes; with no verdict of
+# "pass" it must not. [RC-49] [AC-C-11]
+# job_block (above) gives a GitHub job's lines, up to the next job.
+release_if="$(job_block "$workflows/release.yml" release | sed -n 's/^    if: *//p')"
+for part in '!cancelled()' "needs.preflight.result == 'success'" "needs.shell-audits.outputs.verdict == 'pass'"; do
+    grep -qF -- "$part" <<<"$release_if" &&
+        pass "GitHub: the release job requires $part" ||
+        fail "GitHub: the release job requires $part: if: $release_if"
+done
+grep -qE 'always\(\)|failure\(\)|\|\|' <<<"$release_if" &&
+    fail "GitHub: the release job's condition only narrows, never widens: if: $release_if" ||
+    pass "GitHub: the release job's condition only narrows, never widens"
+audit="$workflows/shell-audit.yml"
+tr -d '\r' < "$audit" | grep -q '^        value: \${{ jobs.gate.outputs.verdict }}$' &&
+    pass "GitHub: shell-audit.yml outputs the gate job's verdict" ||
+    fail "GitHub: shell-audit.yml outputs the gate job's verdict"
+# In the gate job the verdict is written by a step with no condition of its own, right
+# after the gate step, so it is reached only when the gate passed.
+gate_steps="$(job_block "$audit" gate | sed -n '/^    steps:$/,$p' | grep -E '^      - |^        (run|if|id):')"
+tail -n 3 <<<"$gate_steps" | tr '\n' '|' |
+    grep -qF -- '      - run: bash tools/ci/run.sh shell-audit-gate|      - id: verdict|        run: echo "verdict=pass" >> "$GITHUB_OUTPUT"|' &&
+    pass "GitHub: the verdict is written only after the gate step passes" ||
+    fail "GitHub: the verdict is written only after the gate step passes:"$'\n'"$gate_steps"
+job_block "$audit" gate | grep -q '^      verdict: \${{ steps.verdict.outputs.verdict }}$' &&
+    pass "GitHub: the gate job exposes the verdict step's output" ||
+    fail "GitHub: the gate job exposes the verdict step's output"
+
+# Publishing a tag never releases it again: the Bifrost registry refuses a second
+# release of a version it holds, and what is published must be what was released. So a
+# publish run starts no preflight, audit or release job, and its publish job depends on
+# none: it fetches what the tag's own run made (tools/ci/run.sh, fetch_tag_release).
+# [RC-07] [AC-RF-SC-5e]
+for job in preflight shell-audits; do
+    job_block "$workflows/release.yml" "$job" | grep -q "^    if: .*inputs.publish == ''" &&
+        pass "GitHub: a publish run does not start the $job job" ||
+        fail "GitHub: a publish run does not start the $job job"
+done
+publish_job="$(job_block "$workflows/release.yml" publish)"
+grep -q '^    needs:' <<<"$publish_job" &&
+    fail "GitHub: the publish job waits on no release in its own run" ||
+    pass "GitHub: the publish job waits on no release in its own run"
+grep -q '^      actions: read$' <<<"$publish_job" && grep -q '^      contents: write$' <<<"$publish_job" &&
+    pass "GitHub: the publish job may read the tag's run and write the draft" ||
+    fail "GitHub: the publish job may read the tag's run and write the draft"
+grep -q 'download-artifact' <<<"$publish_job" &&
+    fail "GitHub: the publish job takes no artefact from its own run" ||
+    pass "GitHub: the publish job takes no artefact from its own run"
+# gitlab_block NAME: a top-level key of .gitlab-ci.yml and its lines, up to the next.
+gitlab_block() { tr -d '\r' < "$gitlab" | awk -v j="$1:" '$0 == j { on = 1; next } on && /^[^ #]/ { on = 0 } on'; }
+gitlab_block release-publish | grep -q '^  needs: \[\]$' &&
+    pass "GitLab: release-publish waits on no release in its own pipeline" ||
+    fail "GitLab: release-publish waits on no release in its own pipeline"
+# Every job rule in the file that starts a job on a v* tag or in release mode excludes
+# a publish run, release-publish's own rule apart. (The pipeline-level `workflow:` rules
+# decide only whether there is a pipeline.)
+rule_lines="$(tr -d '\r' < "$gitlab" | awk '/^workflow:/ { skip = 1; next } /^[^ #]/ { skip = 0 } !skip' |
+    grep -E -- '- if: .*(CI_COMMIT_TAG =~|MIDGARD_RELEASE_MODE == "release")' |
+    grep -v 'MIDGARD_PUBLISH_TAG != ""')"
+[ "$(wc -l <<<"$rule_lines")" -ge 5 ] && ! grep -v 'MIDGARD_PUBLISH_TAG == ""' <<<"$rule_lines" | grep -q . &&
+    pass "GitLab: every rule for a tag or a release excludes a publish run" ||
+    fail "GitLab: every rule for a tag or a release excludes a publish run:"$'\n'"$(grep -v 'MIDGARD_PUBLISH_TAG == ""' <<<"$rule_lines")"
 
 if [ "$failures" -gt 0 ]; then
     echo "$failures failure(s)"

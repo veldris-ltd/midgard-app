@@ -128,6 +128,11 @@ export function PipelineBuilderScreen() {
     return `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`;
   };
 
+  /* Graph content box: sized to the node extents so the edge layer scrolls
+   * with the nodes rather than clipping at the viewport. */
+  const graphW = PAD * 2 + Math.max(0, ...(pipeline?.nodes.map((n) => n.x) ?? [])) * COL_W + NODE_W;
+  const graphH = PAD * 2 + Math.max(0, ...(pipeline?.nodes.map((n) => n.y) ?? [])) * ROW_H + NODE_H;
+
   const aside = node ? (
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
@@ -178,24 +183,30 @@ export function PipelineBuilderScreen() {
       }
       aside={aside}
     >
-      <div style={{ flex: 1, position: 'relative', background: 'var(--bg-sunken)', minHeight: 0, overflow: 'auto' }} className="mg-grid-bg">
-        <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
-          {pipeline?.edges.map((e, i) => <path key={i} d={edgePath(e.from, e.to)} fill="none" stroke="var(--ink-500)" strokeWidth="1.5" />)}
-        </svg>
-        {pipeline?.nodes.map((n) => <Node key={n.id} n={n} selected={sel === n.id} onClick={() => setSel(n.id)} />)}
-
-        {/* Build status strip + pipeline switcher */}
-        <div style={{ position: 'absolute', top: 16, left: 16, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative', background: 'var(--bg-sunken)' }} className="mg-grid-bg">
+        {/* Build status strip + pipeline switcher: its own row, so it wraps
+         * above the graph instead of being drawn over the nodes. */}
+        <div style={{ flex: 'none', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10, padding: '14px 16px', borderBottom: '1px solid var(--divider)' }}>
           <StatusPill status={building ? 'live' : 'healthy'} pulse={building} label={building ? phase : 'Ready'} />
           <MeterBar value={progress} label="BUILD" width={90} />
-          {pipelines.map((p, i) => (
-            <Tag key={p.id} active={i === pipeIdx} onClick={() => setPipeIdx(i)}>{p.name}</Tag>
-          ))}
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+            {pipelines.map((p, i) => (
+              <Tag key={p.id} active={i === pipeIdx} onClick={() => setPipeIdx(i)}>{p.name}</Tag>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
+            <Tag active>low-code</Tag>
+            <Tag>pro-code</Tag>
+          </div>
         </div>
 
-        <div style={{ position: 'absolute', top: 16, right: 16, display: 'flex', gap: 8 }}>
-          <Tag active>low-code</Tag>
-          <Tag>pro-code</Tag>
+        <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+          <div style={{ position: 'relative', width: graphW, height: graphH }}>
+            <svg width={graphW} height={graphH} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+              {pipeline?.edges.map((e, i) => <path key={i} d={edgePath(e.from, e.to)} fill="none" stroke="var(--ink-500)" strokeWidth="1.5" />)}
+            </svg>
+            {pipeline?.nodes.map((n) => <Node key={n.id} n={n} selected={sel === n.id} onClick={() => setSel(n.id)} />)}
+          </div>
         </div>
 
         {loading && (

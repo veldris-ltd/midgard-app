@@ -96,11 +96,13 @@ Services talk to each other over PQ-mTLS: a mutually authenticated handshake wit
   - [`deploy/kind/smoke.sh:115`](../../deploy/kind/smoke.sh)
   - [`deploy/kind/smoke.sh:140`](../../deploy/kind/smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:253`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:310`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:17`](../../docs/releases/v0.1.0-rc.1.md)
+  - [`docs/releases/v0.1.0-rc.2.md:33`](../../docs/releases/v0.1.0-rc.2.md)
+  - [`docs/releases/v0.1.0-rc.3.md:33`](../../docs/releases/v0.1.0-rc.3.md)
   - [`docs/launch/pipeline/build-deck.js:470`](../../docs/launch/pipeline/build-deck.js)
-  - [`CHANGELOG.md:257`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:344`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:314`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:401`](../../CHANGELOG.md)
 
 ### `mesh-certificate-lifecycle` (reference)
 
@@ -137,10 +139,10 @@ The five running services keep their state in sealed, append-only journals: AES-
   - [`deploy/kind/smoke.sh:80`](../../deploy/kind/smoke.sh)
   - [`deploy/kind/smoke.sh:105`](../../deploy/kind/smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:301`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:358`](../../CHANGELOG.md)
   - [`docs/launch/pipeline/build-deck.js:471`](../../docs/launch/pipeline/build-deck.js)
-  - [`CHANGELOG.md:305`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:392`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:362`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:449`](../../CHANGELOG.md)
 
 ### `hardware-key-custody` (reference)
 
@@ -158,11 +160,13 @@ A hardware trust root (HSM or TPM) in which the root secret never enters process
   - [`services/kms/tests/rc_28.rs::root_attestation_verifies_and_fails_closed_on_tamper`](../../services/kms/tests/rc_28.rs)
   - [`crypto/attest/tests/keystore_v2.rs::external_root_wrap_round_trips`](../../crypto/attest/tests/keystore_v2.rs)
 - Stated at:
-  - [`CHANGELOG.md:288`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:345`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:112`](../../docs/releases/v0.1.0-rc.1.md)
+  - [`docs/releases/v0.1.0-rc.2.md:128`](../../docs/releases/v0.1.0-rc.2.md)
+  - [`docs/releases/v0.1.0-rc.3.md:128`](../../docs/releases/v0.1.0-rc.3.md)
   - [`docs/launch/pipeline/build-deck.js:483`](../../docs/launch/pipeline/build-deck.js)
-  - [`CHANGELOG.md:292`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:379`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:349`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:436`](../../CHANGELOG.md)
 
 ## Core: fabric, identity and governance
 
@@ -210,11 +214,11 @@ Edge admission and every object-fabric call are written to one append-only ledge
   - [`services/http-gateway/tests/http.rs::real_socket_round_trip`](../../services/http-gateway/tests/http.rs)
   - [`deploy/compose/smoke.sh:24`](../../deploy/compose/smoke.sh)
 - Stated at:
-  - [`README.md:24`](../../README.md)
-  - [`CHANGELOG.md:244`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:301`](../../CHANGELOG.md)
   - [`docs/launch/pipeline/build-deck.js:334`](../../docs/launch/pipeline/build-deck.js)
-  - [`CHANGELOG.md:248`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:335`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:305`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:392`](../../CHANGELOG.md)
+  - [`README.md:24`](../../README.md)
 
 ### `object-fabric` (operable)
 
@@ -458,11 +462,11 @@ Enrolling a principal online needs two different administrators, each proving po
   - [`tools/mg-admin/tests/enrol.rs::administration_needs_the_passphrase_and_a_one_time_code`](../../tools/mg-admin/tests/enrol.rs)
   - [`tools/mg-admin/tests/enrol.rs::a_wrong_passkey_passphrase_stops_before_the_gateway`](../../tools/mg-admin/tests/enrol.rs)
 - Stated at:
-  - [`CHANGELOG.md:251`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:236`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:318`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:255`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:342`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:308`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:293`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:375`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:312`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:399`](../../CHANGELOG.md)
 
 ## Admin
 
@@ -539,15 +543,17 @@ Seven console interfaces: Midgard core, Forge, Mimir, Bifrost, Heimdall, Admin a
 - Tests:
   - [`services/http-gateway/tests/rc_37.rs::login_issues_a_pq_token_that_authorises_data_requests`](../../services/http-gateway/tests/rc_37.rs)
 - Stated at:
-  - [`README.md:144`](../../README.md)
-  - [`CHANGELOG.md:277`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:334`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:118`](../../docs/releases/v0.1.0-rc.1.md)
+  - [`docs/releases/v0.1.0-rc.2.md:134`](../../docs/releases/v0.1.0-rc.2.md)
+  - [`docs/releases/v0.1.0-rc.3.md:134`](../../docs/releases/v0.1.0-rc.3.md)
   - [`docs/launch/pipeline/build-deck.js:544`](../../docs/launch/pipeline/build-deck.js)
+  - [`CHANGELOG.md:349`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:353`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:440`](../../CHANGELOG.md)
+  - [`README.md:144`](../../README.md)
   - [`docs/guides/RUNNING.md:141`](../../docs/guides/RUNNING.md)
-  - [`CHANGELOG.md:292`](../../CHANGELOG.md)
   - [`docs/guides/RUNNING.md:118`](../../docs/guides/RUNNING.md)
-  - [`CHANGELOG.md:296`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:383`](../../CHANGELOG.md)
 
 ## Mimir
 
@@ -582,12 +588,14 @@ mimir-server answers inference requests from a real model inside the enclosure: 
   - [`deploy/kind/smoke.sh:73`](../../deploy/kind/smoke.sh)
   - [`deploy/kind/smoke.sh:98`](../../deploy/kind/smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:252`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:309`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:22`](../../docs/releases/v0.1.0-rc.1.md)
+  - [`docs/releases/v0.1.0-rc.2.md:38`](../../docs/releases/v0.1.0-rc.2.md)
+  - [`docs/releases/v0.1.0-rc.3.md:38`](../../docs/releases/v0.1.0-rc.3.md)
   - [`docs/launch/pipeline/build-deck.js:381`](../../docs/launch/pipeline/build-deck.js)
-  - [`CHANGELOG.md:267`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:271`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:358`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:324`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:328`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:415`](../../CHANGELOG.md)
 
 ### `mimir-inference-gpu` (reference)
 
@@ -603,11 +611,13 @@ GPU serving through vLLM, with a first token in under 800 ms.
 - Tests:
   - [`mimir/mimir-server/tests/serve.rs::a_signed_model_is_served_through_its_sidecar_and_a_tampered_one_never_starts`](../../mimir/mimir-server/tests/serve.rs)
 - Stated at:
-  - [`CHANGELOG.md:289`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:346`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:114`](../../docs/releases/v0.1.0-rc.1.md)
+  - [`docs/releases/v0.1.0-rc.2.md:130`](../../docs/releases/v0.1.0-rc.2.md)
+  - [`docs/releases/v0.1.0-rc.3.md:130`](../../docs/releases/v0.1.0-rc.3.md)
   - [`docs/launch/pipeline/build-deck.js:541`](../../docs/launch/pipeline/build-deck.js)
-  - [`CHANGELOG.md:293`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:380`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:350`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:437`](../../CHANGELOG.md)
 
 ### `signed-model-manifest` (operable)
 
@@ -638,10 +648,10 @@ A model loads only from a manifest signed with ML-DSA, and its weights are check
   - [`mimir/mimir-server/tests/serve.rs::a_trust_anchor_inside_the_model_dir_is_refused_at_start`](../../mimir/mimir-server/tests/serve.rs)
   - [`deploy/compose/granite-smoke.sh:40`](../../deploy/compose/granite-smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:269`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:326`](../../CHANGELOG.md)
   - [`docs/launch/pipeline/build-deck.js:380`](../../docs/launch/pipeline/build-deck.js)
-  - [`CHANGELOG.md:273`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:360`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:330`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:417`](../../CHANGELOG.md)
 
 ### `model-family-routing` (reference)
 
@@ -771,12 +781,14 @@ forge-worker syncs delimited files, PostgreSQL and S3-compatible stores into sea
   - [`deploy/kind/smoke.sh:105`](../../deploy/kind/smoke.sh)
   - [`deploy/kind/smoke.sh:130`](../../deploy/kind/smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:247`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:304`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:20`](../../docs/releases/v0.1.0-rc.1.md)
+  - [`docs/releases/v0.1.0-rc.2.md:36`](../../docs/releases/v0.1.0-rc.2.md)
+  - [`docs/releases/v0.1.0-rc.3.md:36`](../../docs/releases/v0.1.0-rc.3.md)
   - [`docs/launch/pipeline/build-deck.js:367`](../../docs/launch/pipeline/build-deck.js)
-  - [`CHANGELOG.md:262`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:266`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:353`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:319`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:323`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:410`](../../CHANGELOG.md)
 
 ### `forge-compute-engine` (reference)
 
@@ -792,10 +804,10 @@ A partitioned compute engine in Rust: filter, derive, join, aggregate, sort and 
   - [`forge/engine/tests/partitioned.rs::partitioned_matches_reference_with_shuffle_and_spill`](../../forge/engine/tests/partitioned.rs)
   - [`forge/engine/tests/relational.rs::inner_join_then_aggregate`](../../forge/engine/tests/relational.rs)
 - Stated at:
-  - [`CHANGELOG.md:308`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:365`](../../CHANGELOG.md)
   - [`docs/launch/pipeline/build-deck.js:371`](../../docs/launch/pipeline/build-deck.js)
-  - [`CHANGELOG.md:312`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:399`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:369`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:456`](../../CHANGELOG.md)
 
 ### `forge-data-expectations` (reference)
 
@@ -864,6 +876,8 @@ Ring-by-ring rollout with health gates between rings and automatic rollback, wit
   - [`services/scheduler/tests/rollout_real.rs::rolling_upgrade_serves_every_request_with_real_replicas`](../../services/scheduler/tests/rollout_real.rs)
 - Stated at:
   - [`docs/releases/v0.1.0-rc.1.md:119`](../../docs/releases/v0.1.0-rc.1.md)
+  - [`docs/releases/v0.1.0-rc.2.md:135`](../../docs/releases/v0.1.0-rc.2.md)
+  - [`docs/releases/v0.1.0-rc.3.md:135`](../../docs/releases/v0.1.0-rc.3.md)
   - [`docs/launch/pipeline/build-deck.js:545`](../../docs/launch/pipeline/build-deck.js)
 
 ### `air-gap-bundle` (operable)
@@ -887,9 +901,12 @@ mg-bundle packs gate-verified artefacts into one signed bundle and imports it of
   - [`tools/mg-bundle/tests/cli.rs::a_bundle_from_a_sealed_keystore_imports_offline_and_refuses_everything_else`](../../tools/mg-bundle/tests/cli.rs)
   - [`tools/mg-bundle/tests/cli.rs::image_archives_and_deploy_files_pack_and_import_byte_for_byte`](../../tools/mg-bundle/tests/cli.rs)
 - Stated at:
-  - [`CHANGELOG.md:13`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:123`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:25`](../../docs/releases/v0.1.0-rc.1.md)
+  - [`docs/releases/v0.1.0-rc.2.md:41`](../../docs/releases/v0.1.0-rc.2.md)
+  - [`docs/releases/v0.1.0-rc.3.md:41`](../../docs/releases/v0.1.0-rc.3.md)
   - [`docs/compliance/GA_READINESS.md:77`](../../docs/compliance/GA_READINESS.md)
+  - [`CHANGELOG.md:13`](../../CHANGELOG.md)
 
 ## Heimdall
 
@@ -1078,7 +1095,7 @@ The workspace builds and its tests run with no network: every dependency is vend
 - Source:
   - [`.cargo/config.toml:18`](../../.cargo/config.toml)
   - [`tools/ci/in-toolchain.sh:12`](../../tools/ci/in-toolchain.sh)
-  - [`tools/ci/in-toolchain.sh:60`](../../tools/ci/in-toolchain.sh)
+  - [`tools/ci/in-toolchain.sh:61`](../../tools/ci/in-toolchain.sh)
   - [`tools/ci/vendor-check.sh`](../../tools/ci/vendor-check.sh)
   - [`.gitlab-ci.yml:117`](../../.gitlab-ci.yml)
 - Service tests:
@@ -1115,15 +1132,17 @@ Each service image re-verifies the ML-DSA signature, SBOM and provenance of its 
 - Service tests:
   - [`deploy/images/build.sh:103`](../../deploy/images/build.sh)
 - Stated at:
-  - [`docs/guides/VERIFYING.md:80`](../../docs/guides/VERIFYING.md)
   - [`docs/releases/v0.1.0-rc.1.md:24`](../../docs/releases/v0.1.0-rc.1.md)
+  - [`docs/releases/v0.1.0-rc.2.md:40`](../../docs/releases/v0.1.0-rc.2.md)
+  - [`docs/releases/v0.1.0-rc.3.md:40`](../../docs/releases/v0.1.0-rc.3.md)
   - [`docs/compliance/GA_READINESS.md:114`](../../docs/compliance/GA_READINESS.md)
-  - [`CHANGELOG.md:263`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:320`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:335`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:339`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:426`](../../CHANGELOG.md)
+  - [`docs/guides/VERIFYING.md:80`](../../docs/guides/VERIFYING.md)
   - [`docs/guides/VERIFYING.md:72`](../../docs/guides/VERIFYING.md)
-  - [`CHANGELOG.md:278`](../../CHANGELOG.md)
   - [`README.md:208`](../../README.md)
-  - [`CHANGELOG.md:282`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:369`](../../CHANGELOG.md)
 
 ### `acceptance-gate` (operable)
 
@@ -1133,7 +1152,7 @@ Each of the 72 acceptance criteria maps to a test, and one script runs them all 
 
 - Source:
   - [`deploy/acceptance/run-airgapped.sh:10`](../../deploy/acceptance/run-airgapped.sh)
-  - [`.gitlab-ci.yml:245`](../../.gitlab-ci.yml)
+  - [`.gitlab-ci.yml:247`](../../.gitlab-ci.yml)
   - [`tools/ci/verify-tag.sh`](../../tools/ci/verify-tag.sh)
   - [`tools/ci/tests/verify-tag.test.sh`](../../tools/ci/tests/verify-tag.test.sh)
 - Service tests:
@@ -1163,12 +1182,14 @@ Five services (http-gateway, mimir-server, bifrost-fleet, heimdall-feed, forge-w
   - [`deploy/kind/smoke.sh:73`](../../deploy/kind/smoke.sh)
   - [`deploy/kind/smoke.sh:98`](../../deploy/kind/smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:243`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:300`](../../CHANGELOG.md)
   - [`docs/releases/v0.1.0-rc.1.md:18`](../../docs/releases/v0.1.0-rc.1.md)
+  - [`docs/releases/v0.1.0-rc.2.md:34`](../../docs/releases/v0.1.0-rc.2.md)
+  - [`docs/releases/v0.1.0-rc.3.md:34`](../../docs/releases/v0.1.0-rc.3.md)
   - [`docs/launch/pipeline/build-deck.js:323`](../../docs/launch/pipeline/build-deck.js)
-  - [`CHANGELOG.md:258`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:262`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:349`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:315`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:319`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:406`](../../CHANGELOG.md)
 
 ### `high-availability` (spec)
 
@@ -1182,6 +1203,8 @@ Highly available clusters, replication between sites, zero-downtime operation an
   - [`docs/ops/DR_PLAN.md:16`](../../docs/ops/DR_PLAN.md)
 - Stated at:
   - [`docs/releases/v0.1.0-rc.1.md:119`](../../docs/releases/v0.1.0-rc.1.md)
+  - [`docs/releases/v0.1.0-rc.2.md:135`](../../docs/releases/v0.1.0-rc.2.md)
+  - [`docs/releases/v0.1.0-rc.3.md:135`](../../docs/releases/v0.1.0-rc.3.md)
 
 ### `telemetry` (operable)
 
@@ -1205,9 +1228,9 @@ Each service exposes liveness, readiness and Prometheus metrics, and writes stru
 - Service tests:
   - [`deploy/compose/smoke.sh:15`](../../deploy/compose/smoke.sh)
 - Stated at:
-  - [`CHANGELOG.md:320`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:324`](../../CHANGELOG.md)
-  - [`CHANGELOG.md:411`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:377`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:381`](../../CHANGELOG.md)
+  - [`CHANGELOG.md:468`](../../CHANGELOG.md)
 
 ### `compliance-mapping` (spec)
 

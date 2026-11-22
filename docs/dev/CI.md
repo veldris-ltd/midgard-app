@@ -324,7 +324,7 @@ touches the release machinery, and by hand on any branch.
 ### A real release
 
 Needs a signing runner provisioned as [docs/ops/PKI.md](../ops/PKI.md) describes —
-labelled `[self-hosted, kms]` on GitHub, tagged `kms` on GitLab — with four settings
+labelled `[self-hosted, kms]` on GitHub, tagged `kms` on GitLab — with these settings
 naming files on that runner, all outside the job's workspace:
 
 | Setting | What |
@@ -335,6 +335,7 @@ naming files on that runner, all outside the job's workspace:
 | `MIDGARD_ALLOWED_SIGNERS_PATH` | the runner's own copy of `deploy/trust/allowed_signers`, which release tags are verified against |
 | `MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE` | the passphrase the release keystore's root is wrapped under, a secret of its own |
 | `MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE` | the passphrase the admission keystore's root is wrapped under, a secret of its own |
+| `MIDGARD_EXTERNAL_IMAGES_PATH` | a directory: the external images the air-gap bundle carries, as `deploy/images/externals.sh fetch` left them |
 
 On GitHub these are repository secrets; on GitLab, CI/CD variables. None of this needs a
 forge: the same release runs on one machine with `bash tools/ci/run.sh release-offline
@@ -372,11 +373,30 @@ both pipelines the gate runs from `.ci-trusted` before anything else.
 
 A release also waits on the client shell audits, which fail closed until every shell
 has a buildable project (see [`clients/shells/AUDIT_SCHEMA.md`](../../clients/shells/AUDIT_SCHEMA.md)).
+On GitHub the release job goes by the audit gate's verdict, the `verdict` output of
+`shell-audit.yml`, and not by the audit jobs' results: a waived pre-release passes the
+gate with audits that failed, or that GitHub cancelled before they started.
 
 Publishing is deliberately limited. On GitHub, `release-publish` creates a **draft**
 pre-release. GitLab has no draft state, so there the files are uploaded to the
 project's package registry and creating the release entry is left to a person. Either
 way the gate record, its raw logs and the numbers sheet go with the binaries.
+
+Publishing never releases again. It runs on the tag, after the tag's own release run
+has passed, and takes what that run made: on GitHub, the `release` artifact of the
+tag's latest successful push run; on GitLab, the artefacts of the tag's latest
+successful `release` job. It checks that every artefact the release manifest names is
+there, with its `.sig` and `.att`, and hashes to the recorded digest, and only then
+drafts. No preflight, audit or release job starts in a publish run. A second release
+of the same version could not pass anyway: every signature is fresh, so the Bifrost
+registry refuses the new `.sig` files as conflicting with those it already admitted.
+
+```bash
+gh workflow run release.yml --ref v1.2.3 -f mode=release -f publish=v1.2.3
+```
+
+On GitLab, run a pipeline on the tag with `MIDGARD_RELEASE_MODE=release` and
+`MIDGARD_PUBLISH_TAG` set to it.
 
 ### Cutting the tag
 
@@ -396,10 +416,14 @@ numbers sheet and the claims ledger check, the release notes exist, and
 the tag against the runner's copy of `deploy/trust/allowed_signers` before anything is
 built or signed, so an unsigned tag, a lightweight tag, one signed by a key not listed
 there, one whose commit changed the signers, or one on a commit not on `main` starts no
-release. `tag-release.sh` checks that the commit is the tip of `origin/main` on your
-side; the runner checks again, since a tag can be pushed by other means. With no forge
-to fetch `main` from, `MIDGARD_MAINLINE_REF=refs/heads/main` names it locally for both
-scripts, and the tag is released with `run.sh release-offline` instead of a push.
+release. In a pipeline it judges the tag as origin holds it, fetched afresh: the checkout
+made for a tag's own run holds a lightweight stand-in for an annotated tag, because
+`actions/checkout` fetches the pushed commit over the tag when the tag's object is not
+that commit, which an annotated tag's never is. `tag-release.sh` checks that the commit
+is the tip of `origin/main` on your side; the runner checks again, since a tag can be
+pushed by other means. With no forge to fetch `main` from,
+`MIDGARD_MAINLINE_REF=refs/heads/main` names it locally for both scripts, and the tag is
+released with `run.sh release-offline` instead of a push.
 
 Because the gate record names the commit it gated, the order is: merge to `main`; run
 the gate on that commit and record it (see "The gate record"); write the numbers sheet;
@@ -592,7 +616,6 @@ test. Three things to expect on that first run:
 - The container images named in `.gitlab-ci.yml` are pinned by digest, but still
   pulled from Docker Hub until they are mirrored, and the toolchain image has not yet
   been published to a project registry.
-- `release-images`, `release-bundle` and `release-publish` have never run end to end:
-  they need the signing runner, the service base image and real keys. The image
-  build's reproducibility was checked here on a stand-in base image, not on the real
-  one.
+- `release-images` and `release-bundle` first ran end to end in `v0.1.0-rc.3`'s release,
+  on the signing runner with the real keys. `release-publish` has not yet run in a
+  pipeline: it is tested against a stub `gh` (`tools/ci/tests/release-publish.test.sh`).

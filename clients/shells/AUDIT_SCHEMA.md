@@ -25,10 +25,10 @@ runner by the platform's audit tool and passed every required affordance.
 shell        = "apple"                       # must match the shell directory
 release      = "1.4.0"                        # the release tag this audit gates
 commit       = "<40-hex git sha>"             # the commit audited
-runner       = "macos-14"                     # the REAL runner the audit executed on
-device       = "iPhone 15 (iOS 17.5)"         # concrete device / emulator / browser
+runner       = "macos-15"                     # the REAL runner the audit executed on
+device       = "iPhone 16 (iOS 18.5)"         # concrete device / emulator / browser
 tool         = "XCUITest + XCUIAccessibilityAudit"
-tool_version = "Xcode 15.4"
+tool_version = "Xcode 16.4"
 timestamp    = "2026-09-09T12:00:00Z"         # RFC3339, when the audit ran
 overall      = "pass"                          # pass | fail
 
@@ -73,7 +73,7 @@ be waived**. The list must be empty at GA.
 
 | Shell | Runner | Tool |
 |---|---|---|
-| `apple` | `macos-14` + iOS simulator | XCUITest + `XCUIAccessibilityAudit` |
+| `apple` | `macos-15` + iOS simulator | XCUITest + `XCUIAccessibilityAudit` |
 | `android` | `macos`/`ubuntu` + emulator | Espresso + Accessibility Test Framework / Scanner |
 | `web` | `ubuntu` + Chromium | Playwright + `@axe-core/playwright` (WCAG 2.1 AA) |
 | `extension` | `ubuntu` + Chromium | Playwright + axe (popup + injected UI) |
