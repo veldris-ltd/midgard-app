@@ -6912,3 +6912,25 @@ rc.3 screens.
 - **Export compliance:** the apps use encryption (keys stored at rest, PQ mTLS code in
   the core). `ITSAppUsesNonExemptEncryption` is set only after the owner decides
   whether an exemption applies.
+
+**Three apps per platform (owner, 22 Nov 2026).** This replaces the shared 3D bundle ID
+above.
+
+| Edition | `MidgardEdition` | Mac / iPhone targets | Bundle IDs | Network | Tag |
+|---|---|---|---|---|---|
+| Midgard | `release` | `MidgardMac`, `MidgardiOS` | `io.veldris.midgard.mac`, `.ios` | None | `apple-midgard-v0.1.0-rc.3` |
+| Midgard 3D | `3d` | `MidgardMac3D`, `MidgardiOS3D` | `io.veldris.midgard3d.mac`, `.ios` | **None** | `apple-midgard3d-v0.1.0-rc.3` |
+| Midgard Maps | `maps` | `MidgardMacMaps`, `MidgardiOSMaps` | `io.veldris.midgardmaps.mac`, `.ios` | Client network entitlement, used only by the tile loader | `apple-midgard3dmaps-v0.1.0-rc.3` |
+
+**Where each piece lands:**
+- B7 adds all six targets.
+- I1 puts the globe in both the 3D and Maps apps.
+- I2 adds the tile loader and turns it on only in the Maps apps. The 3D apps never fetch
+  anything.
+
+**`check-edition.sh` asserts:**
+- the release apps have no globe code and no network entitlement;
+- the 3D apps have no network entitlement;
+- only the Maps apps have one.
+
+**App Store Connect** needs six app records, one per bundle ID.
