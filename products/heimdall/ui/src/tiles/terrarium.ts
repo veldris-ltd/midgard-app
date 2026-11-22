@@ -61,6 +61,7 @@ export function resampleGrid(g: HeightGrid, rect: Rect, n: number): Float32Array
   return out;
 }
 
+/** The lowest and highest heights in a tile: a test diagnostic. */
 export function heightRange(g: HeightGrid): { min: number; max: number } {
   let min = Infinity;
   let max = -Infinity;

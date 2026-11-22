@@ -68,3 +68,9 @@ test('anything else is refused', () => {
   ];
   for (const u of refused) assert.equal(allowedTileUrl(u), null, u);
 });
+
+test('the README lists every tile host a CSP must allow', async () => {
+  const { readFileSync } = await import('node:fs');
+  const readme = readFileSync(new URL('../../README.md', import.meta.url), 'utf8');
+  for (const host of TILE_HOSTS) assert.ok(readme.includes(`https://${host}`), host);
+});

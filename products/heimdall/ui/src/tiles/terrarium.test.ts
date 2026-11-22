@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { readPng } from './pngForTests.ts';
+import { readPng } from '../../test-support/png.ts';
 import { type HeightGrid, decodeTerrarium, heightAt, heightRange, resampleGrid } from './terrarium.ts';
 
 const close = (a: number, b: number, eps = 1e-6) => assert.ok(Math.abs(a - b) <= eps, `${a} != ${b}`);

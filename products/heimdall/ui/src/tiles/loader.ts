@@ -49,7 +49,7 @@ interface Pending {
   ctrl: AbortController | null;
 }
 
-export const TILE_FETCH_INIT: Readonly<RequestInit> = {
+const TILE_FETCH_INIT: Readonly<RequestInit> = {
   method: 'GET',
   mode: 'cors',
   credentials: 'omit',

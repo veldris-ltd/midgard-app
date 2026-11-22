@@ -1,6 +1,6 @@
 /* A minimal PNG reader for the tests only: 8-bit RGB or RGBA, not interlaced, which
  * is what the terrarium tiles are. The browser decodes the real tiles itself; this
- * lets node:test read the recorded fixture the same way. Never bundled. [FR-H-1] */
+ * lets node:test read the recorded fixture the same way. Never bundled: it lives outside src/. [FR-H-1] */
 import { inflateSync } from 'node:zlib';
 
 export interface Rgba8 {

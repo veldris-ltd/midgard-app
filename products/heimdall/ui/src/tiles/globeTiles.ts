@@ -35,7 +35,7 @@ const TERRAIN_MIN_ZOOM = 6;
 const MIN_ZOOM = 2;
 const MAX_ZOOM = 14;
 /** Most tiles drawn plus wanted at once. */
-export const TILE_BUDGET = 160;
+const TILE_BUDGET = 160;
 const SEGMENTS = 32;
 /** Time spent building patches per frame, so a burst of arrivals never stalls one. */
 const BUILD_MS_PER_FRAME = 10;

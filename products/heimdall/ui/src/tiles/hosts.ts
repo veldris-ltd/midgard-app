@@ -57,6 +57,7 @@ export const TILE_SOURCES: Readonly<Record<TileSourceId, TileSource>> = {
   },
 };
 
+/** The three hosts, as a set: a test diagnostic (the README's CSP list is checked against it). */
 export const TILE_HOSTS: ReadonlySet<string> = new Set(Object.values(TILE_SOURCES).map((s) => s.host));
 
 export function tileUrl(id: TileSourceId, t: Tile): string {

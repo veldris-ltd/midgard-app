@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { readPng } from './pngForTests.ts';
+import { readPng } from '../../test-support/png.ts';
 import { decodeTerrarium } from './terrarium.ts';
 import { TOPO_DARK, TOPO_LIGHT, contourIntervalM, hillshade, shadeZFactor, tint, topoPixels } from './topo.ts';
 

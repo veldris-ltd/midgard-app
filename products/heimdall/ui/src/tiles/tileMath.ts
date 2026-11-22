@@ -22,7 +22,7 @@ export const MAX_MERCATOR_LAT = 85.0511287798066;
 /** Equatorial circumference of the WGS 84 ellipsoid, the Mercator scale, in km. */
 export const EQUATOR_KM = 40075.016685578485;
 /** The deepest zoom any tile source here serves. */
-export const MAX_TILE_ZOOM = 22;
+const MAX_TILE_ZOOM = 22;
 
 const RAD = Math.PI / 180;
 

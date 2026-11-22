@@ -51,6 +51,7 @@ function marksIn(dir) {
 }
 
 test('with the switch off, dist/ has no tile host, path or code', () => {
+  // The other spellings (no, any case, spaces) are unit-tested in src/tilesEnabled.test.ts.
   for (const value of ['off', 'false', '0']) {
     const out = build(value);
     try {
@@ -58,6 +59,9 @@ test('with the switch off, dist/ has no tile host, path or code', () => {
       assert.deepEqual(Object.fromEntries(found), {}, `VITE_HEIMDALL_TILES=${value}`);
       const names = files(out).map((f) => f.slice(out.length + 1));
       assert.ok(!names.some((n) => /globeTiles|MapView|loader-/.test(n)), names.join(', '));
+      // And it is still the console, with its globe: not an empty or broken build.
+      assert.ok(names.includes('index.html'), names.join(', '));
+      assert.ok(names.some((n) => /^assets\/GlobeView-.*\.js$/.test(n)), names.join(', '));
     } finally {
       rmSync(out, { recursive: true, force: true });
     }
