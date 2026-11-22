@@ -6,12 +6,13 @@ import { Credits } from '../app/Credits';
 import { type Credit, NATURAL_EARTH } from '../app/dataSources.ts';
 import { IMAGERY_CREDIT, TERRAIN_CREDIT } from '../tiles/credits.ts';
 import { TrackTooltip } from '../app/TrackTooltip';
-import { type CameraState, cameraFloorKm, trackFlyAltitudeKm } from './camera.ts';
+import { cameraFloorKm, trackFlyAltitudeKm } from './camera.ts';
 import { parseAltitude } from './altitude.ts';
 import { readGlobeColours } from './colours.ts';
 import { DEFAULT_EXAGGERATION, MAX_EXAGGERATION, MIN_EXAGGERATION, clampExaggeration, tracksToGlobeItems } from './items.ts';
 import { loadOutlines } from './outlineAssets.ts';
-import { type Region, buildRegions, describeCamera, regionAt } from './presets.ts';
+import { type Region, bearingText, buildRegions, describeCamera, regionInView } from './presets.ts';
+import { type ViewState, viewLookingAt } from './view.ts';
 import { type GlobeOutlines, GlobeRenderer, webglAvailable } from './renderer.ts';
 import { GLOBE_STYLES, type GlobeStyle, type GlobeTileLayer } from './tileLayer.ts';
 import './globe.css';
@@ -57,7 +58,7 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
   const paintedMode = React.useRef<string | null>(null);
   const [hover, setHover] = React.useState<string | null>(null);
   const [heights, setHeights] = React.useState(DEFAULT_EXAGGERATION);
-  const [camera, setCamera] = React.useState<CameraState | null>(null);
+  const [camera, setCamera] = React.useState<ViewState | null>(null);
   // Map tiles: the layer, once its module has loaded, and whether the network answers.
   const layerRef = React.useRef<GlobeTileLayer | null>(null);
   const [tileState, setTileState] = React.useState<'online' | 'offline' | null>(null);
@@ -162,19 +163,34 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
     r.setColours(readGlobeColours(hostRef.current));
   }, [mode]);
 
-  const flyTo = (c: CameraState) => rendererRef.current?.flyTo(c, reducedMotion());
+  const flyTo = (c: ViewState) => rendererRef.current?.flyTo(c, reducedMotion());
+  // Keeps the current tilt and heading, and looks at the track from behind it.
   const flyToTrack = (t: HeimdallTrack) => {
     if (typeof t.lat !== 'number' || typeof t.lon !== 'number') return;
-    // Never below the track's own drawn marker (its altitude times HEIGHTS). [FR-H-1]
+    // Never below the track's own drawn marker (its altitude times HEIGHTS), high
+    // enough to keep that marker in the frame with its stem, and keeping the current
+    // tilt and heading. [FR-H-1]
+    const now = rendererRef.current?.cameraState;
     const alt = parseAltitude(t.alt);
     const km = alt ? alt.metres / 1000 : 0;
-    flyTo({ lat: t.lat, lon: t.lon, altKm: trackFlyAltitudeKm(km, clampExaggeration(heights), rendererRef.current?.cameraState.altKm ?? 800) });
+    const k = clampExaggeration(heights);
+    const altKm = Math.max(trackFlyAltitudeKm(km, k, now?.altKm ?? 800), km * k * 3);
+    flyTo(viewLookingAt({ lat: t.lat, lon: t.lon }, altKm, now?.pitch ?? 0, now?.heading ?? 0));
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     const r = rendererRef.current;
     if (!r) return;
     const k = e.key;
+    // Shift and the arrows tilt (up and down) and turn (left and right).
+    const orbits: Record<string, [number, number]> = {
+      ArrowUp: [5, 0], ArrowDown: [-5, 0], ArrowLeft: [0, -10], ArrowRight: [0, 10],
+    };
+    if (e.shiftKey && orbits[k]) {
+      e.preventDefault();
+      r.orbit(orbits[k][0], orbits[k][1]);
+      return;
+    }
     const moves: Record<string, [number, number, number]> = {
       ArrowLeft: [KEY_STEP_PX, 0, 1], ArrowRight: [-KEY_STEP_PX, 0, 1],
       ArrowUp: [0, KEY_STEP_PX, 1], ArrowDown: [0, -KEY_STEP_PX, 1],
@@ -193,7 +209,7 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
     if (style === 'satellite') credits.push(IMAGERY_CREDIT);
   }
 
-  const current: Region | null = camera ? regionAt(camera.lat, camera.lon, regions) : null;
+  const current: Region | null = camera ? regionInView(camera, regions) : null;
   const summary = camera ? describeCamera(camera, regions) : '';
   const hovered = hover ? tracks.find((t) => t.id === hover) : undefined;
 
@@ -227,7 +243,7 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
         tabIndex={0}
         role="application"
         aria-roledescription="3D globe"
-        aria-label="Globe. Arrow keys orbit, plus and minus zoom. The track list reaches each track."
+        aria-label="Globe. Arrow keys pan, Shift and arrows tilt and turn, plus and minus zoom. The track list reaches each track."
         aria-describedby={summaryId}
         onKeyDown={onKeyDown}
       />
@@ -297,7 +313,8 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
               <>
                 <div>ALT {camera.altKm < 10 ? camera.altKm.toFixed(1) : Math.round(camera.altKm).toLocaleString('en-GB')} KM</div>
                 <div>{Math.abs(camera.lat).toFixed(2)}° {camera.lat < 0 ? 'S' : 'N'} · {Math.abs(camera.lon).toFixed(2)}° {camera.lon < 0 ? 'W' : 'E'}</div>
-                <div>OVER {current?.label ?? 'OPEN GLOBE'}</div>
+                <div>TILT {Math.round(camera.pitch)}° · HDG {bearingText(camera.heading)}</div>
+                <div>{camera.pitch >= 1 ? 'TOWARDS' : 'OVER'} {current?.label ?? 'OPEN GLOBE'}</div>
               </>
             ) : '—'}
           </div>
@@ -305,6 +322,22 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
           <div className="hg-globe-zoom">
             <button type="button" aria-label="Zoom in" onClick={() => rendererRef.current?.nudge(0, 0, 0.6)}>+</button>
             <button type="button" aria-label="Zoom out" onClick={() => rendererRef.current?.nudge(0, 0, 1 / 0.6)}>−</button>
+          </div>
+          <div className="hg-globe-zoom hg-globe-tilt">
+            <button type="button" aria-label="Tilt towards the horizon" onClick={() => rendererRef.current?.orbit(10)}>TILT +</button>
+            <button type="button" aria-label="Tilt towards straight down" onClick={() => rendererRef.current?.orbit(-10)}>TILT −</button>
+            <button
+              type="button"
+              className="hg-globe-compass"
+              aria-label={`Heading ${bearingText(camera?.heading ?? 0)}. Reset to north up, looking straight down`}
+              title="North up, straight down"
+              onClick={() => rendererRef.current?.resetOrientation(reducedMotion())}
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" style={{ transform: `rotate(${-(camera?.heading ?? 0)}deg)` }}>
+                <path d="M12 2 L16 12 L12 10 L8 12 Z" fill="var(--warn)" />
+                <path d="M12 22 L8 12 L12 14 L16 12 Z" fill="currentColor" opacity="0.6" />
+              </svg>
+            </button>
           </div>
         </div>
         {__HEIMDALL_TILES__ && (

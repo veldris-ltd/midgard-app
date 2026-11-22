@@ -64,6 +64,16 @@ export function isOccluded(cam: Vec3, p: Vec3, radius = 1): boolean {
   return t > 0 && t < 1 - 1e-7;
 }
 
+/** The unit tangent at (lat, lon) pointing along `bearingDeg` (clockwise from north). */
+export function headingTangent(lat: number, lon: number, bearingDeg: number): Vec3 {
+  const p = lat * RAD, l = lon * RAD, b = bearingDeg * RAD;
+  const cb = Math.cos(b), sb = Math.sin(b);
+  // North is d/dlat of toXyz; east is d/dlon over cos(lat).
+  const n = { x: -Math.sin(p) * Math.cos(l), y: Math.cos(p), z: Math.sin(p) * Math.sin(l) };
+  const e = { x: -Math.sin(l), y: 0, z: -Math.cos(l) };
+  return { x: cb * n.x + sb * e.x, y: cb * n.y + sb * e.y, z: cb * n.z + sb * e.z };
+}
+
 /** Great-circle angle between two positions, in degrees. */
 export function angularDistanceDeg(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
   const p1 = a.lat * RAD;

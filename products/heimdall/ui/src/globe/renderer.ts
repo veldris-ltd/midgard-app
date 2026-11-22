@@ -16,29 +16,30 @@
  * this is as before. */
 import * as THREE from 'three';
 
-import {
-  CAMERA_FOV_DEG,
-  CLOSE_UP_ALTITUDE_KM,
-  type CameraState,
-  MIN_ALTITUDE_KM,
-  clipPlanes,
-  terrainFloorKm,
-  flyDurationMs,
-  interpolateCamera,
-  normaliseCamera,
-  panCamera,
-  zoomCamera,
-} from './camera.ts';
+import { CAMERA_FOV_DEG, CLOSE_UP_ALTITUDE_KM, MIN_ALTITUDE_KM, clipPlanes, terrainFloorKm } from './camera.ts';
 import { type GlobeColours, type Rgba, cssRgba } from './colours.ts';
 import { graticule, lineSegments } from './geometry.ts';
 import type { GlobeItem } from './items.ts';
 import { type OutlineFile, coastFromLand, decodeLine } from './outlines.ts';
-import { EARTH_RADIUS_KM, isOccluded, toXyz } from './projection.ts';
+import { EARTH_RADIUS_KM, headingTangent, isOccluded, toXyz } from './projection.ts';
 import { subsolarPoint } from './sun.ts';
 import type { GlobeTileLayer, TileLayerHost } from './tileLayer.ts';
+import {
+  type ViewState,
+  interpolateView,
+  normaliseView,
+  panView,
+  rotateView,
+  tiltView,
+  viewFlyDurationMs,
+  viewFrame,
+  zoomView,
+} from './view.ts';
 
 /** Below this altitude the 1:50m outlines replace the 1:110m ones. */
 const DETAIL_BELOW_KM = 3000;
+/** Height of the atmosphere shell (1.035 Earth radii): below it the camera sees a sky. */
+const ATMOSPHERE_KM = 0.035 * EARTH_RADIUS_KM;
 /** Above this altitude only the selected and hovered tracks keep their labels. */
 const LABELS_BELOW_KM = 6000;
 const MARKER_PX = 13;
@@ -56,7 +57,7 @@ export interface GlobeCallbacks {
   /** A click on a track. */
   onSelect(id: string): void;
   /** The camera moved; `settled` once a drag, zoom or flight has ended. */
-  onCamera(camera: CameraState, settled: boolean): void;
+  onCamera(camera: ViewState, settled: boolean): void;
   /** WebGL went away after start-up. */
   onContextLost(): void;
 }
@@ -111,10 +112,12 @@ const GLOBE_FRAGMENT = /* glsl */ `
 const ATMOSPHERE_VERTEX = /* glsl */ `
   varying vec3 vNormalV;
   varying vec3 vPosV;
+  varying vec3 vWorldPos;
   void main() {
     vNormalV = normalize(normalMatrix * normal);
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
     vPosV = mv.xyz;
+    vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
     gl_Position = projectionMatrix * mv;
   }
 `;
@@ -122,19 +125,26 @@ const ATMOSPHERE_VERTEX = /* glsl */ `
 const ATMOSPHERE_FRAGMENT = /* glsl */ `
   uniform vec3 glow;
   uniform float strength;
+  uniform float inside;
+  uniform vec3 camUp;
   varying vec3 vNormalV;
   varying vec3 vPosV;
+  varying vec3 vWorldPos;
   void main() {
-    // Seen from inside, the far wall faces away: brightest at the limb of the globe,
+    // From outside, the far wall faces away: brightest at the limb of the globe,
     // fading to nothing at the atmosphere's outer edge.
     float facing = -dot(normalize(vNormalV), normalize(-vPosV));
     float rim = pow(clamp(facing / 0.3, 0.0, 1.0), 1.6);
-    gl_FragColor = vec4(glow, rim * strength);
+    // From inside, a sky: brightest along the horizon, thinning overhead. The globe
+    // hides it below the horizon.
+    float elevation = dot(normalize(vWorldPos - cameraPosition), camUp);
+    float sky = 1.0 - smoothstep(-0.02, 0.45, elevation);
+    gl_FragColor = vec4(glow, mix(rim, sky, inside) * strength);
     #include <colorspace_fragment>
   }
 `;
 
-type Shape = 'circle' | 'square' | 'diamond' | 'ring';
+type Shape = 'circle' | 'square' | 'diamond' | 'ring' | 'arrow' | 'boat' | 'dot';
 
 function shapeTexture(shape: Shape): THREE.CanvasTexture {
   const n = 64;
@@ -148,7 +158,23 @@ function shapeTexture(shape: Shape): THREE.CanvasTexture {
   g.beginPath();
   if (shape === 'circle') g.arc(m, m, m * 0.62, 0, Math.PI * 2);
   else if (shape === 'square') g.rect(m * 0.42, m * 0.42, m * 1.16, m * 1.16);
-  else if (shape === 'diamond') {
+  else if (shape === 'dot') g.arc(m, m, m * 0.4, 0, Math.PI * 2);
+  else if (shape === 'arrow') {
+    // An aircraft: a chevron pointing up the texture, turned to its heading on screen.
+    g.moveTo(m, m * 0.18);
+    g.lineTo(m * 1.62, m * 1.7);
+    g.lineTo(m, m * 1.3);
+    g.lineTo(m * 0.38, m * 1.7);
+    g.closePath();
+  } else if (shape === 'boat') {
+    // A vessel: a square hull with a pointed bow.
+    g.moveTo(m, m * 0.22);
+    g.lineTo(m * 1.5, m * 0.75);
+    g.lineTo(m * 1.5, m * 1.6);
+    g.lineTo(m * 0.5, m * 1.6);
+    g.lineTo(m * 0.5, m * 0.75);
+    g.closePath();
+  } else if (shape === 'diamond') {
     g.moveTo(m, m * 0.24);
     g.lineTo(m * 1.76, m);
     g.lineTo(m, m * 1.76);
@@ -168,17 +194,31 @@ function shapeTexture(shape: Shape): THREE.CanvasTexture {
 }
 
 const SHAPE_FOR_LAYER: Record<string, Shape> = { air: 'circle', maritime: 'square', ground: 'diamond' };
+const POINTED_FOR_LAYER: Record<string, Shape> = { air: 'arrow', maritime: 'boat' };
+
+function shapeFor(item: GlobeItem): Shape {
+  return (item.heading !== null ? POINTED_FOR_LAYER[item.layer] : undefined) ?? SHAPE_FOR_LAYER[item.layer] ?? 'circle';
+}
 
 interface Marker {
   item: GlobeItem;
   sprite: THREE.Sprite;
+  /** The vertical stem to the ground, for airborne tracks. */
   drop: THREE.Line | null;
+  /** The ground shadow under an airborne track. */
+  shadow: THREE.Sprite | null;
+  /** A point a little along the heading, to turn the marker on screen. */
+  ahead: THREE.Vector3 | null;
   label: HTMLDivElement;
   /** Where the marker is drawn: `item.position`, or on the terrain when that is higher. */
   pos: THREE.Vector3;
   /** The ground it stands on, km times HEIGHTS (0 = sea level). */
   groundKm: number;
 }
+
+/** Degrees per pixel of an orbit drag: tilt (vertical) and turn (horizontal). */
+const TILT_PER_PX = 0.25;
+const TURN_PER_PX = 0.3;
 
 export class GlobeRenderer {
   private readonly renderer: THREE.WebGLRenderer;
@@ -200,14 +240,16 @@ export class GlobeRenderer {
   private readonly selectRing: THREE.Sprite;
   private markers: Marker[] = [];
   private colours: GlobeColours;
-  private cam: CameraState = { lat: 54.6, lon: -4, altKm: 2200 };
+  private cam: ViewState = { lat: 54.6, lon: -4, altKm: 2200, pitch: 0, heading: 0 };
   private width = 1;
   private height = 1;
   private frame = 0;
-  private flight: { from: CameraState; to: CameraState; start: number; ms: number } | null = null;
-  private drag: { id: number; x: number; y: number; moved: boolean } | null = null;
+  private flight: { from: ViewState; to: ViewState; start: number; ms: number } | null = null;
+  /** One pointer down: `pan` drags the ground, `orbit` (right button, Ctrl or ⌥) tilts and turns. */
+  private drag: { id: number; x: number; y: number; moved: boolean; mode: 'pan' | 'orbit' } | null = null;
   private readonly pointers = new Map<number, { x: number; y: number }>();
-  private pinch: number | null = null;
+  /** Two fingers down: their spread zooms, their turn turns, and moving both up or down tilts. */
+  private pinch: { d: number; a: number; y: number } | null = null;
   private hovered: string | null = null;
   private selected: string | null = null;
   private tooltip: HTMLElement | null = null;
@@ -255,7 +297,12 @@ export class GlobeRenderer {
     this.scene.add(this.globeMesh);
 
     this.atmosphereMat = new THREE.ShaderMaterial({
-      uniforms: { glow: { value: toColor(colours.atmosphere) }, strength: { value: 0.5 } },
+      uniforms: {
+        glow: { value: toColor(colours.atmosphere) },
+        strength: { value: 0.5 },
+        inside: { value: 0 },
+        camUp: { value: new THREE.Vector3(0, 1, 0) },
+      },
       vertexShader: ATMOSPHERE_VERTEX,
       fragmentShader: ATMOSPHERE_FRAGMENT,
       side: THREE.BackSide,
@@ -273,7 +320,10 @@ export class GlobeRenderer {
     this.addLines('border', 'near', (c.borders ?? []).map((l) => decodeLine(l, c.quantum)), 1.0002);
     this.applyLineColours();
 
-    this.textures = { circle: shapeTexture('circle'), square: shapeTexture('square'), diamond: shapeTexture('diamond'), ring: shapeTexture('ring') };
+    this.textures = {
+      circle: shapeTexture('circle'), square: shapeTexture('square'), diamond: shapeTexture('diamond'), ring: shapeTexture('ring'),
+      arrow: shapeTexture('arrow'), boat: shapeTexture('boat'), dot: shapeTexture('dot'),
+    };
     this.selectRing = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.textures.ring, sizeAttenuation: false, depthTest: false, transparent: true }));
     this.selectRing.visible = false;
     this.selectRing.renderOrder = 3;
@@ -292,7 +342,7 @@ export class GlobeRenderer {
 
   // --- public surface -------------------------------------------------------------
 
-  get cameraState(): CameraState {
+  get cameraState(): ViewState {
     return this.cam;
   }
 
@@ -349,28 +399,44 @@ export class GlobeRenderer {
         m.drop.geometry.dispose();
         (m.drop.material as THREE.LineBasicMaterial).dispose();
       }
+      if (m.shadow) {
+        this.markerGroup.remove(m.shadow);
+        (m.shadow.material as THREE.SpriteMaterial).dispose();
+      }
       m.label.remove();
     }
     this.markers = items.map((item) => {
-      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.textures[SHAPE_FOR_LAYER[item.layer] ?? 'circle'], sizeAttenuation: false, depthTest: false, transparent: true }));
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.textures[shapeFor(item)], sizeAttenuation: false, depthTest: false, transparent: true }));
       sprite.position.set(item.position.x, item.position.y, item.position.z);
       sprite.renderOrder = 2;
       this.markerGroup.add(sprite);
       let drop: THREE.Line | null = null;
-      if (item.altitudeKm > 0) {
+      let shadow: THREE.Sprite | null = null;
+      if (item.stem) {
+        const [top, bottom] = item.stem;
         const g = new THREE.BufferGeometry().setFromPoints([
-          new THREE.Vector3(item.ground.x, item.ground.y, item.ground.z),
-          new THREE.Vector3(item.position.x, item.position.y, item.position.z),
+          new THREE.Vector3(bottom.x, bottom.y, bottom.z),
+          new THREE.Vector3(top.x, top.y, top.z),
         ]);
-        drop = new THREE.Line(g, new THREE.LineBasicMaterial({ transparent: true, opacity: 0.55 }));
+        drop = new THREE.Line(g, new THREE.LineBasicMaterial({ transparent: true, opacity: 0.7 }));
         this.markerGroup.add(drop);
+        shadow = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.textures.dot, sizeAttenuation: false, depthTest: false, transparent: true, opacity: 0.5 }));
+        shadow.position.set(bottom.x, bottom.y, bottom.z);
+        shadow.renderOrder = 1;
+        this.markerGroup.add(shadow);
+      }
+      let ahead: THREE.Vector3 | null = null;
+      if (item.heading !== null) {
+        const t = headingTangent(item.lat, item.lon, item.heading);
+        const step = 1e-3;
+        ahead = new THREE.Vector3(item.position.x + t.x * step, item.position.y + t.y * step, item.position.z + t.z * step);
       }
       const label = document.createElement('div');
       label.className = 'hg-globe-label';
       label.textContent = item.id;
       this.labelLayer.appendChild(label);
       const pos = new THREE.Vector3(item.position.x, item.position.y, item.position.z);
-      const m: Marker = { item, sprite, drop, label, pos, groundKm: 0 };
+      const m: Marker = { item, sprite, drop, shadow, ahead, label, pos, groundKm: 0 };
       this.styleMarker(m);
       return m;
     });
@@ -400,12 +466,15 @@ export class GlobeRenderer {
   /** The lowest the camera may go now, from the highest marker (`cameraFloorKm`). */
   setCameraFloor(km: number): void {
     this.floorKm = Math.max(MIN_ALTITUDE_KM, km);
-    if (this.cam.altKm < this.floorKm) this.applyCamera();
+    if (this.cam.altKm < this.floorKm) {
+      this.cam = this.zoomed(this.cam, 1);
+      this.applyCamera();
+    }
   }
 
-  flyTo(target: CameraState, reducedMotion: boolean): void {
-    const to = normaliseCamera(target, this.minKm);
-    const ms = flyDurationMs(this.cam, to, reducedMotion);
+  flyTo(target: ViewState, reducedMotion: boolean): void {
+    const to = normaliseView({ ...target, altKm: Math.max(target.altKm, this.currentFloor()) }, this.minKm);
+    const ms = viewFlyDurationMs(this.cam, to, reducedMotion);
     if (ms === 0) {
       this.flight = null;
       this.cam = to;
@@ -417,12 +486,32 @@ export class GlobeRenderer {
     this.requestRender();
   }
 
-  /** Keyboard orbit and zoom, for the focusable globe surface. */
+  /** Keyboard pan and zoom, for the focusable globe surface. */
   nudge(dxPx: number, dyPx: number, zoom = 1): void {
     this.flight = null;
-    this.cam = zoomCamera(panCamera(this.cam, dxPx, dyPx, this.height, CAMERA_FOV_DEG, this.minKm), zoom, this.minKm);
+    this.cam = this.zoomed(panView(this.cam, dxPx, dyPx, this.height, CAMERA_FOV_DEG, this.minKm), zoom);
     this.applyCamera();
     this.settleSoon();
+  }
+
+  /** Zoom about the point in view, stopping at the floor, so the point stays put there too. */
+  private zoomed(v: ViewState, factor: number): ViewState {
+    const want = Math.max(v.altKm * factor, this.currentFloor());
+    return zoomView(v, want / v.altKm, this.minKm);
+  }
+
+  /** Tilt by `dDeg` and turn by `turnDeg` about the point in view (buttons and keys). */
+  orbit(dDeg: number, turnDeg = 0): void {
+    this.flight = null;
+    this.cam = rotateView(tiltView(this.cam, dDeg, this.minKm), turnDeg, this.minKm);
+    this.applyCamera();
+    this.settleSoon();
+  }
+
+  /** Back to north up and straight down, over the point in view. */
+  resetOrientation(reducedMotion: boolean): void {
+    const flat = rotateView(tiltView(this.cam, -90, this.minKm), -this.cam.heading, this.minKm);
+    this.flyTo(flat, reducedMotion);
   }
 
   dispose(): void {
@@ -499,6 +588,7 @@ export class GlobeRenderer {
     const c = toColor(m.item.tone === 'warn' ? this.colours.warn : this.colours.accent);
     (m.sprite.material as THREE.SpriteMaterial).color = c;
     if (m.drop) (m.drop.material as THREE.LineBasicMaterial).color = c;
+    if (m.shadow) (m.shadow.material as THREE.SpriteMaterial).color = c;
     m.label.dataset.tone = m.item.tone;
   }
 
@@ -554,14 +644,16 @@ export class GlobeRenderer {
   }
 
   private applyCamera(): void {
+    // The floor is for the point under the camera; the tilt is then held to its limit there.
     const floor = this.currentFloor();
     if (this.cam.altKm < floor) this.cam = { ...this.cam, altKm: floor };
+    this.cam = normaliseView(this.cam, this.minKm);
     const clearance = this.tilesShown ? this.cam.altKm - this.groundUnderCamera() : Infinity;
     const { near, far } = clipPlanes(this.cam.altKm, clearance, this.nearestMarkerKm());
-    const p = toXyz(this.cam.lat, this.cam.lon, this.cam.altKm);
-    this.camera3.position.set(p.x, p.y, p.z);
-    this.camera3.up.set(0, 1, 0);
-    this.camera3.lookAt(0, 0, 0);
+    const f = viewFrame(this.cam);
+    this.camera3.position.set(f.position.x, f.position.y, f.position.z);
+    this.camera3.up.set(f.up.x, f.up.y, f.up.z);
+    this.camera3.lookAt(f.position.x + f.forward.x, f.position.y + f.forward.y, f.position.z + f.forward.z);
     this.camera3.near = near;
     this.camera3.far = far;
     this.camera3.updateProjectionMatrix();
@@ -570,8 +662,13 @@ export class GlobeRenderer {
     const closeIn = this.cam.altKm < DETAIL_BELOW_KM;
     const linesOff = this.tilesShown && this.cam.altKm < LINES_HIDDEN_BELOW_KM;
     for (const l of this.lines) l.obj.visible = !linesOff && (l.detail === 'all' || (l.detail === 'near') === closeIn);
-    // The atmosphere fades out as the camera comes down into it.
-    this.atmosphereMat.uniforms.strength.value = Math.min(0.55, Math.max(0, (this.cam.altKm - 250) / 1500));
+    // Outside the atmosphere shell it is a rim round the globe; inside, a sky above the
+    // horizon, which a tilted camera sees.
+    const inside = this.cam.altKm < ATMOSPHERE_KM;
+    const u = this.atmosphereMat.uniforms;
+    u.inside.value = inside ? 1 : 0;
+    u.strength.value = inside ? 0.42 : Math.min(0.55, Math.max(0.2, (this.cam.altKm - ATMOSPHERE_KM) / 600));
+    (u.camUp.value as THREE.Vector3).set(f.position.x, f.position.y, f.position.z).normalize();
     this.cb.onCamera(this.cam, false);
     this.requestRender();
   }
@@ -588,7 +685,7 @@ export class GlobeRenderer {
     if (this.flight) {
       const f = this.flight;
       const t = Math.min(1, (now - f.start) / f.ms);
-      this.cam = interpolateCamera(f.from, f.to, t, this.minKm);
+      this.cam = interpolateView(f.from, f.to, t, this.minKm);
       if (t >= 1) {
         this.flight = null;
         this.applyCamera();
@@ -631,6 +728,14 @@ export class GlobeRenderer {
       const p = own > ground ? m.item.position : toXyz(m.item.lat, m.item.lon, ground);
       m.pos.set(p.x, p.y, p.z);
       m.sprite.position.copy(m.pos);
+      if (m.shadow) {
+        const g = toXyz(m.item.lat, m.item.lon, ground);
+        m.shadow.position.set(g.x, g.y, g.z);
+      }
+      if (m.ahead && m.item.heading !== null) {
+        const t = headingTangent(m.item.lat, m.item.lon, m.item.heading);
+        m.ahead.set(m.pos.x + t.x * 1e-3, m.pos.y + t.y * 1e-3, m.pos.z + t.z * 1e-3);
+      }
       if (m.drop) {
         const g = toXyz(m.item.lat, m.item.lon, ground);
         const attr = m.drop.geometry.getAttribute('position') as THREE.BufferAttribute;
@@ -648,15 +753,26 @@ export class GlobeRenderer {
     const scale = (2 * MARKER_PX * Math.tan((CAMERA_FOV_DEG * Math.PI) / 360)) / this.height;
     const camPos = this.camera3.position;
     const v = new THREE.Vector3();
+    const a = new THREE.Vector3();
     for (const m of this.markers) {
       const hidden = isOccluded(camPos, m.pos);
       const big = m.item.id === this.hovered ? 1.35 : 1;
       m.sprite.scale.set(scale * big, scale * big, 1);
       m.sprite.visible = !hidden;
       if (m.drop) m.drop.visible = !hidden;
+      if (m.shadow) {
+        m.shadow.scale.set(scale * 0.55, scale * 0.55, 1);
+        m.shadow.visible = !isOccluded(camPos, m.shadow.position);
+      }
       v.copy(m.pos).project(this.camera3);
       const x = ((v.x + 1) / 2) * this.width;
       const y = ((1 - v.y) / 2) * this.height;
+      if (m.ahead) {
+        // Turn the marker to its heading as the heading looks on screen at this tilt.
+        a.copy(m.ahead).project(this.camera3);
+        const sx = (a.x - v.x) * this.width, sy = (a.y - v.y) * this.height;
+        if (Math.hypot(sx, sy) > 1e-9) (m.sprite.material as THREE.SpriteMaterial).rotation = Math.atan2(sy, sx) - Math.PI / 2;
+      }
       const onScreen = !hidden && v.z > -1 && v.z < 1 && x > -40 && x < this.width + 40 && y > -40 && y < this.height + 40;
       const named = this.cam.altKm < LABELS_BELOW_KM || m.item.id === this.selected || m.item.id === this.hovered;
       m.label.style.display = onScreen && named ? '' : 'none';
@@ -685,10 +801,12 @@ export class GlobeRenderer {
       canvas.setPointerCapture(e.pointerId);
       this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       this.flight = null;
-      if (this.pointers.size === 1) this.drag = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: false };
-      else {
+      if (this.pointers.size === 1) {
+        const orbit = e.button === 2 || e.ctrlKey || e.altKey;
+        this.drag = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: false, mode: orbit ? 'orbit' : 'pan' };
+      } else {
         this.drag = null;
-        this.pinch = this.pinchDistance();
+        this.pinch = this.gesture();
       }
     });
     on('pointermove', (e) => {
@@ -699,9 +817,12 @@ export class GlobeRenderer {
       }
       this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (this.pointers.size >= 2 && this.pinch) {
-        const d = this.pinchDistance();
-        if (d > 0) this.cam = zoomCamera(this.cam, this.pinch / d, this.minKm);
-        this.pinch = d;
+        const g = this.gesture();
+        if (g.d > 0 && this.pinch.d > 0) this.cam = this.zoomed(this.cam, this.pinch.d / g.d);
+        // Both fingers up the screen tilt towards the horizon; twisting them turns.
+        const twist = Math.atan2(Math.sin(g.a - this.pinch.a), Math.cos(g.a - this.pinch.a)) * (180 / Math.PI);
+        this.cam = rotateView(tiltView(this.cam, (this.pinch.y - g.y) * TILT_PER_PX, this.minKm), -twist, this.minKm);
+        this.pinch = g;
         this.applyCamera();
         return;
       }
@@ -710,7 +831,9 @@ export class GlobeRenderer {
         const dy = e.clientY - prev.y;
         if (Math.abs(e.clientX - this.drag.x) + Math.abs(e.clientY - this.drag.y) > 4) this.drag.moved = true;
         if (this.drag.moved) {
-          this.cam = panCamera(this.cam, dx, dy, this.height, CAMERA_FOV_DEG, this.minKm);
+          this.cam = this.drag.mode === 'orbit'
+            ? rotateView(tiltView(this.cam, -dy * TILT_PER_PX, this.minKm), -dx * TURN_PER_PX, this.minKm)
+            : panView(this.cam, dx, dy, this.height, CAMERA_FOV_DEG, this.minKm);
           this.applyCamera();
         }
       }
@@ -723,7 +846,7 @@ export class GlobeRenderer {
       if (wasPinch && this.pinch === null) {
         // The pinch is over: settle, and let a finger still down carry on orbiting.
         const rest = [...this.pointers.entries()][0];
-        this.drag = rest ? { id: rest[0], x: rest[1].x, y: rest[1].y, moved: true } : null;
+        this.drag = rest ? { id: rest[0], x: rest[1].x, y: rest[1].y, moved: true, mode: 'pan' } : null;
         this.settled();
         return;
       }
@@ -740,11 +863,13 @@ export class GlobeRenderer {
     on('pointerup', end);
     on('pointercancel', end);
     on('pointerleave', () => { if (!this.drag) this.setHovered(null); });
+    // The right button orbits, so the page's menu stays out of the way.
+    on('contextmenu', (e) => e.preventDefault());
     on('wheel', (e) => {
       e.preventDefault();
       this.flight = null;
       const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? this.height : 1;
-      this.cam = zoomCamera(this.cam, Math.exp(e.deltaY * unit * 0.0015), this.minKm);
+      this.cam = this.zoomed(this.cam, Math.exp(e.deltaY * unit * 0.0015));
       this.applyCamera();
       this.settleSoon();
     }, { passive: false });
@@ -756,9 +881,11 @@ export class GlobeRenderer {
     this.unlisten.push(() => canvas.removeEventListener('webglcontextlost', lost));
   }
 
-  private pinchDistance(): number {
+  /** The two fingers' spread, angle and mean height. */
+  private gesture(): { d: number; a: number; y: number } {
     const [a, b] = [...this.pointers.values()];
-    return a && b ? Math.hypot(a.x - b.x, a.y - b.y) : 0;
+    if (!a || !b) return { d: 0, a: 0, y: 0 };
+    return { d: Math.hypot(a.x - b.x, a.y - b.y), a: Math.atan2(b.y - a.y, b.x - a.x), y: (a.y + b.y) / 2 };
   }
 
   private pickAt(e: { clientX: number; clientY: number }): string | null {

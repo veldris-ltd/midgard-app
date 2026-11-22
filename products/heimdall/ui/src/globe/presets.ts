@@ -2,9 +2,12 @@
  * [FR-H-1]
  *
  * WORLD, UK & IRELAND, NORTH SEA and CHANNEL are fixed. SECTOR NORTH is fitted to the
- * positioned tracks of the picture, so it frames whatever the console is showing. */
-import { CAMERA_FOV_DEG, type CameraState, clampAltitude } from './camera.ts';
+ * positioned tracks of the picture, so it frames whatever the console is showing.
+ * WORLD looks straight down; the others open tilted 45–60°, so the curve of the
+ * Earth, the horizon and the atmosphere show. */
+import { CAMERA_FOV_DEG, clampAltitude } from './camera.ts';
 import { EARTH_RADIUS_KM } from './projection.ts';
+import { type ViewState, lookTarget, viewLookingAt } from './view.ts';
 
 export interface Bounds {
   south: number;
@@ -16,7 +19,7 @@ export interface Bounds {
 export interface Region {
   id: string;
   label: string;
-  camera: CameraState;
+  camera: ViewState;
   /** The area the region names; WORLD has none and never counts as "over" it. */
   bounds?: Bounds;
 }
@@ -25,23 +28,23 @@ const RAD = Math.PI / 180;
 const KM_PER_DEG = (Math.PI * EARTH_RADIUS_KM) / 180;
 
 export const PRESETS: readonly Region[] = [
-  { id: 'world', label: 'WORLD', camera: { lat: 30, lon: -10, altKm: 20000 } },
+  { id: 'world', label: 'WORLD', camera: { lat: 30, lon: -10, altKm: 20000, pitch: 0, heading: 0 } },
   {
     id: 'uk-ireland',
     label: 'UK & IRELAND',
-    camera: { lat: 54.6, lon: -4.0, altKm: 2200 },
+    camera: viewLookingAt({ lat: 54.3, lon: -4.5 }, 1100, 45, 0),
     bounds: { south: 49.5, north: 61.0, west: -11.0, east: 2.5 },
   },
   {
     id: 'north-sea',
     label: 'NORTH SEA',
-    camera: { lat: 56.5, lon: 3.0, altKm: 2000 },
+    camera: viewLookingAt({ lat: 56.5, lon: 2.5 }, 800, 50, 10),
     bounds: { south: 51.0, north: 61.5, west: -3.5, east: 9.0 },
   },
   {
     id: 'channel',
     label: 'CHANNEL',
-    camera: { lat: 50.1, lon: -2.0, altKm: 900 },
+    camera: viewLookingAt({ lat: 50.2, lon: -1.5 }, 350, 55, 75),
     bounds: { south: 48.5, north: 51.2, west: -6.0, east: 2.0 },
   },
 ];
@@ -49,7 +52,7 @@ export const PRESETS: readonly Region[] = [
 const SECTOR_NORTH_FALLBACK: Region = {
   id: 'sector-north',
   label: 'SECTOR NORTH',
-  camera: { lat: 57.0, lon: -1.5, altKm: 900 },
+  camera: viewLookingAt({ lat: 57.0, lon: -1.5 }, 700, 50, 0),
   bounds: { south: 55.0, north: 59.0, west: -5.5, east: 2.5 },
 };
 
@@ -69,7 +72,9 @@ export function sectorNorth(tracks: readonly { lat?: number; lon?: number }[]): 
   const lon = (west + east) / 2;
   const spanKm = Math.max((north - south) * KM_PER_DEG, (east - west) * KM_PER_DEG * Math.cos(lat * RAD));
   const altKm = clampAltitude((spanKm * 1.15) / (2 * Math.tan((CAMERA_FOV_DEG * RAD) / 2)));
-  return { id: 'sector-north', label: 'SECTOR NORTH', camera: { lat, lon, altKm }, bounds: { south, north, west, east } };
+  // Tilted, the view reaches past its centre towards the horizon, so it sits a little lower.
+  const camera = viewLookingAt({ lat, lon }, altKm * 0.9, 50, 0);
+  return { id: 'sector-north', label: 'SECTOR NORTH', camera, bounds: { south, north, west, east } };
 }
 
 /** The REGION list: the fixed presets, then SECTOR NORTH. */
@@ -99,11 +104,25 @@ function grouped(n: number): string {
   return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
-/** One sentence for a screen reader: altitude, position and the region below. */
-export function describeCamera(c: CameraState, regions: readonly Region[]): string {
+/** The heading as a three-digit bearing. */
+export function bearingText(heading: number): string {
+  return String(Math.round(heading) % 360).padStart(3, '0') + '°';
+}
+
+/** The region in the middle of the view: below the camera, or ahead of it when tilted. */
+export function regionInView(c: ViewState, regions: readonly Region[]): Region | null {
+  const t = c.pitch > 0 ? lookTarget(c) ?? c : c;
+  return regionAt(t.lat, t.lon, regions);
+}
+
+/** One sentence for a screen reader: altitude, position, tilt, heading and the region in view. */
+export function describeCamera(c: ViewState, regions: readonly Region[]): string {
   const ns = c.lat < 0 ? 'S' : 'N';
   const ew = c.lon < 0 ? 'W' : 'E';
-  const over = regionAt(c.lat, c.lon, regions)?.label ?? 'open globe';
+  const region = regionInView(c, regions)?.label ?? 'open globe';
+  const tilted = Math.round(c.pitch) >= 1;
+  const look = tilted ? `tilted ${Math.round(c.pitch)}°` : 'looking straight down';
+  const where = tilted ? `looking towards ${region}` : `over ${region}`;
   const alt = c.altKm < 10 ? c.altKm.toFixed(1) : grouped(c.altKm);
-  return `Camera ${alt} km above ${Math.abs(c.lat).toFixed(2)}° ${ns}, ${Math.abs(c.lon).toFixed(2)}° ${ew}, over ${over}.`;
+  return `Camera ${alt} km above ${Math.abs(c.lat).toFixed(2)}° ${ns}, ${Math.abs(c.lon).toFixed(2)}° ${ew}, ${look}, heading ${bearingText(c.heading)}, ${where}.`;
 }

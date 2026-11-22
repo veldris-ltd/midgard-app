@@ -75,3 +75,5 @@
 .hg-globe-styles button[aria-pressed='true'] { border-color: var(--accent); color: var(--accent-hover); background: var(--accent-tint); }
 .hg-globe-styles button[aria-disabled='true'] { cursor: not-allowed; color: var(--text-muted); }
 .hg-globe-hint { margin: 0; font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.1em; color: var(--text-muted); }
+.hg-globe-tilt button { font-size: 9px; letter-spacing: 0.1em; padding: 5px 0; }
+.hg-globe-tilt .hg-globe-compass { flex: none; width: 30px; display: flex; align-items: center; justify-content: center; padding: 2px 0; color: var(--text-muted); }
