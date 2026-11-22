@@ -154,7 +154,7 @@ There are three apps on each platform (owner decision, 22 November 2026), six in
 | Info.plist `MidgardEdition` | `release` | `3d` | `maps` |
 | Links `MidgardGlobeKit` | no | yes | yes |
 | Network entitlement | none | none | the client one, on the Mac (iOS has no such entitlement) |
-| Banners | "No data source connected" | the same, plus "3D edition, not in the signed release" (`mg.banner.edition3d`) | the same, plus "Maps edition, not in the signed release" (`mg.banner.editionmaps`) |
+| Banners | "Demonstration data. …" (the web consoles' notice) | the same, plus "3D edition, not in the signed release" (`mg.banner.edition3d`) | the same, plus "Maps edition, not in the signed release" (`mg.banner.editionmaps`) |
 
 The tile loader itself is Task I2: until then the maps apps are the 3D apps with a
 different edition, banner and entitlements.
@@ -194,22 +194,50 @@ the signed Release archives. `audit.sh` runs it first and records nothing when i
 `tools/ci/tests/apple-edition.test.sh` runs it against bundles it builds with seeded
 failures.
 
-## No data source
+## Sample data
 
-The apps ship with no data (owner decision, 19 November 2026). Each app's `Info.plist`
-has `MidgardDataSource = none`, so:
+The apps show the signed release's own built-in sample data (owner decision, 22
+November 2026): exactly what the `v0.1.0-rc.3` web consoles show in mock mode
+(`sdk/ts/src/mock/`), with no feeds and no network. Each app's `Info.plist` has
+`MidgardDataSource = sample`, so:
 
-- the core signs in one built-in user, `local` (role `operator`, clearance `open`, no
-  compartments), the lowest grant there is;
-- every collection exists and is empty, and every action is refused with "no data
-  source connected";
-- the banner above everything reads "No data source connected" (`mg.banner.nosource`)
-  in place of the demonstration notice.
+- the data is `clients/demo/sample/<release>/sample.json`, compiled into the core
+  (`SampleSource`); the app reads no file for it;
+- it is extracted from the mocks by `clients/demo/tools/extract-sample.sh` (which
+  extracts the fixtures afresh and drops what the mocks do not serve, the synthetic
+  Heimdall hour). `extract-sample.sh --check` is the drift check: the committed copy must
+  match a fresh extraction, and every mock it was read from must be the signed tag's
+  copy. `tools/ci/tests/sample-data.test.sh` runs it in CI;
+- the personas are the ones the mocks name (K. Rao, J. Benjamin, K. Osei, A. Holt), and
+  the core's governance applies as it does to the demo dataset: every row keeps its
+  marking (its own, or the committed overlay's), rows above a persona are withheld by
+  level only, and every action is decided once and audited;
+- actions behave as the web mocks do. So far Heimdall's `heimdall.authoriseWorkflow`
+  (the Operating Picture's Authorise): a human-gated workflow needs a gate token, and
+  its audit row is numbered and stamped as `HeimdallMock` numbers them (`D-4473`, from
+  14:39:04). Its wording stays the core's (`applied · heimdall.authoriseWorkflow`), which
+  the device's audit key checks before signing it. The other consoles' actions come with
+  their phases and are refused as unknown until then;
+- the banner above everything is the web consoles' own demonstration notice,
+  "Demonstration data. This console runs on built-in sample data and is not connected to
+  an enclosure." (`mg.banner.demo`).
 
-The only other accepted value is `bundled` (the signed demo dataset of Phase A, which
-the apps do not bundle). A missing or unknown value is a failed state ("app
-misconfigured"), never a silent switch between modes. Package tests still use the
-Phase A dataset to show rows, withheld rows and markings.
+The other accepted values are `none` (no data, one `local` user, "No data source
+connected", `mg.banner.nosource`; owner decision, 19 November 2026) and `bundled` (the
+signed demo dataset of Phase A, which the apps do not bundle). A missing or unknown value
+is a failed state ("app misconfigured"), never a silent switch between modes.
+
+## Screens matched to the web suite
+
+Screens are native SwiftUI matched to their web console (owner decision, 22 November
+2026), from `Sources/MidgardKit/WebConsole/`: the web design system's components at the
+web's sizes and tokens (`WebComponents.swift`, `WebStyle.swift`), and the reference
+screen, Heimdall's Operating Picture (`Heimdall*.swift`, after
+`products/heimdall/ui/src/screens/OperatingPictureScreen.tsx`). The Mac app shows it in
+the web's frame (classification banner, header with seals, navigation, picture,
+inspector); the iPhone app shows the picture first and the inspector as a sheet. Where the
+web's colours fail WCAG AA they are lifted to the nearest that passes (`MGWeb`), so the
+accessibility audit still holds.
 
 ## Signing
 
