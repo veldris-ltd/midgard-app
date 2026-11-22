@@ -43,7 +43,9 @@ graticule, a soft atmosphere edge, and day and night shading from the subsolar
 point. Coastlines and land borders come from Natural Earth (public domain), 1:110m
 for the world and 1:50m below 3,000 km. Tracks that carry `lat`/`lon` are placed by
 layer at their altitude, read from `alt` (`FL340` is 34,000 ft, `SURFACE` and `GND`
-are 0) and exaggerated ×4 by default (the HEIGHTS slider, ×1–×20); anomalous tracks
+are 0) and exaggerated ×4 by default (the HEIGHTS slider, ×1–×20), with a stem down to
+a shadow on the ground so the height reads at any tilt; aircraft and vessels point
+along their heading; anomalous tracks
 are `--warn`, the rest `--accent`, as in 2D. The mock's tracks sit over northern
 Britain and the North Sea, and the footer still says so: **SYNTHETIC PICTURE ·
 REFERENCE LAYOUT · NOT REAL POSITIONS**. The tooltip's RNG row is the same as in 2D:
@@ -51,13 +53,19 @@ it is measured on the reference layout's x/y, not from the globe positions.
 
 | Control | Mouse or touch | Keyboard |
 |---|---|---|
-| Orbit | drag | arrow keys, with the globe focused |
+| Pan | drag | arrow keys, with the globe focused |
+| Tilt (0° straight down to 75°) and turn | right-drag, or Ctrl/⌥-drag; two fingers up or down to tilt, twist to turn; **TILT +** / **TILT −** | Shift + arrow keys |
+| North up, straight down | the compass button, which shows the heading | Tab to it, Enter |
 | Zoom (50 km to 40,000 km; the floor rises to stay 25 km above the highest marker) | wheel, pinch, **+** / **−** buttons | `+` / `-` |
 | Fly to a region | the REGION list | Tab to it, Enter |
 | Inspect a track | hover, click | the track list: focus shows the tooltip, Enter selects and flies to it |
 
-Fly-to is instant under `prefers-reduced-motion`, and the camera's position and
-region are announced to screen readers when it settles. Without WebGL the view says
+The camera tilts about the point in the middle of the view: fully (75°) close in,
+less far out, so the horizon stays in the frame. WORLD looks straight down; the other
+regions open tilted 45–60°, so the curve of the Earth, the horizon and the sky show.
+
+Fly-to is instant under `prefers-reduced-motion`, and the camera's position, tilt,
+heading and region are announced to screen readers when it settles. Without WebGL the view says
 **3D VIEW UNAVAILABLE · WEBGL** and 2D carries on.
 
 Still no outbound calls: three.js is bundled in the globe's own chunk, and the

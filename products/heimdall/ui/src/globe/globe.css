@@ -65,3 +65,5 @@
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none;
   font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em; color: var(--text-muted);
 }
+.hg-globe-tilt button { font-size: 9px; letter-spacing: 0.1em; padding: 5px 0; }
+.hg-globe-tilt .hg-globe-compass { flex: none; width: 30px; display: flex; align-items: center; justify-content: center; padding: 2px 0; color: var(--text-muted); }
