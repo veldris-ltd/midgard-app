@@ -1,0 +1,63 @@
+/* The 3D globe view: its panels, lists, labels and focus rings. Loaded with the
+ * globe's own chunk. [FR-H-1] */
+.hg-globe { position: absolute; inset: 0; overflow: hidden; background: var(--bg-page); }
+.hg-globe-surface { position: absolute; inset: 0; cursor: grab; }
+.hg-globe-surface:focus-visible { outline: 2px solid var(--accent); outline-offset: -4px; box-shadow: none; }
+.hg-globe-surface:active { cursor: grabbing; }
+.hg-globe-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.hg-globe-label {
+  position: absolute; left: 0; top: 0; white-space: nowrap;
+  font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.08em; color: var(--text-faint);
+  text-shadow: 0 0 3px var(--bg-sunken), 0 0 2px var(--bg-sunken);
+}
+.hg-globe-label[data-selected='true'] { color: var(--grey-100); }
+
+.hg-globe-panel {
+  position: absolute; z-index: 4; display: flex; flex-direction: column; gap: 10px;
+  background: color-mix(in srgb, var(--bg-sunken) 84%, transparent);
+  backdrop-filter: var(--blur-panel); -webkit-backdrop-filter: var(--blur-panel);
+  border: 1px solid var(--divider); border-radius: var(--radius-sm); padding: 10px;
+}
+.hg-globe-nav { top: 12px; left: 12px; width: 196px; max-height: calc(100% - 96px); }
+.hg-globe-side { top: 12px; right: 12px; width: 212px; max-height: calc(100% - 96px); }
+.hg-globe-section { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+.hg-globe-section.grow { flex: 1 1 auto; }
+.hg-globe-heading {
+  font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.16em; color: var(--text-faint);
+  display: flex; justify-content: space-between; gap: 8px;
+}
+.hg-globe-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; min-height: 0; }
+.hg-globe-list button, .hg-globe-zoom button {
+  all: unset; box-sizing: border-box; display: block; width: 100%; cursor: pointer;
+  padding: 5px 8px; border-radius: var(--radius-xs); border: 1px solid transparent;
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; color: var(--text-body);
+}
+.hg-globe-list button:hover, .hg-globe-zoom button:hover { background: var(--surface-raised); color: var(--text-heading); }
+.hg-globe-list button[aria-current='true'] { border-color: var(--accent); color: var(--accent-hover); }
+.hg-globe-list button:disabled { cursor: default; color: var(--text-faint); background: none; }
+.hg-globe-list button:focus-visible, .hg-globe-zoom button:focus-visible, .hg-globe-heights input:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px; box-shadow: none;
+}
+.hg-globe-track { display: flex; gap: 6px; align-items: baseline; }
+.hg-globe-track .tone { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--accent); align-self: center; }
+.hg-globe-track .tone[data-tone='warn'] { background: var(--warn); }
+.hg-globe-track .sub { margin-left: auto; color: var(--text-faint); font-size: 9px; }
+.hg-globe-zoom { display: flex; gap: 4px; }
+.hg-globe-zoom button { text-align: center; font-size: 13px; padding: 3px 0; border-color: var(--border); }
+.hg-globe-heights input { width: 100%; accent-color: var(--accent); }
+.hg-globe-readout { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.08em; color: var(--text-muted); line-height: 1.6; }
+.hg-globe-unavailable {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  font-family: var(--font-mono); letter-spacing: 0.14em; text-align: center; padding: 24px;
+}
+.hg-globe-unavailable strong { font-size: 12px; color: var(--warn); font-weight: 600; }
+.hg-globe-unavailable span { font-size: 10px; color: var(--text-muted); }
+.hg-sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+@media (max-width: 700px) {
+  .hg-globe-nav { width: 156px; max-height: 42%; }
+  .hg-globe-side { top: auto; bottom: 84px; width: 168px; max-height: 38%; }
+}

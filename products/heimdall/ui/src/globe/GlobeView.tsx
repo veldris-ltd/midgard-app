@@ -1,0 +1,227 @@
+import * as React from 'react';
+import type { HeimdallLayerId, HeimdallTrack } from '@midgard/sdk';
+import { useResolvedMode } from '@midgard/ui-shared';
+
+import { TrackTooltip } from '../app/TrackTooltip';
+import { type CameraState, MIN_ALTITUDE_KM } from './camera.ts';
+import { readGlobeColours } from './colours.ts';
+import { DEFAULT_EXAGGERATION, MAX_EXAGGERATION, MIN_EXAGGERATION, tracksToGlobeItems } from './items.ts';
+import { type Region, buildRegions, describeCamera, regionAt } from './presets.ts';
+import { GlobeRenderer, webglAvailable } from './renderer.ts';
+import './globe.css';
+
+/* The operating picture as a 3D globe. Loaded lazily, with three.js and the bundled
+ * outlines, only when 3D is opened. It shares the 2D view's layer switches and
+ * inspector selection: `layerOn` and `selectedId` come in, `onSelect` goes out.
+ * [FR-H-1] [AC-H-1] */
+
+export interface GlobeViewProps {
+  tracks: readonly HeimdallTrack[];
+  layerOn: (layer: HeimdallLayerId) => boolean;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}
+
+const reducedMotion = () =>
+  typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+const KEY_STEP_PX = 60;
+
+export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: GlobeViewProps) {
+  const hostRef = React.useRef<HTMLDivElement>(null);
+  const labelsRef = React.useRef<HTMLDivElement>(null);
+  const tooltipRef = React.useRef<HTMLDivElement>(null);
+  const rendererRef = React.useRef<GlobeRenderer | null>(null);
+  const [failed, setFailed] = React.useState(() => !webglAvailable());
+  const [hover, setHover] = React.useState<string | null>(null);
+  const [heights, setHeights] = React.useState(DEFAULT_EXAGGERATION);
+  const [camera, setCamera] = React.useState<CameraState | null>(null);
+  const mode = useResolvedMode();
+  const summaryId = React.useId();
+
+  const regions = React.useMemo(() => buildRegions(tracks), [tracks]);
+  const sector = regions[regions.length - 1];
+  const items = React.useMemo(() => tracksToGlobeItems(tracks, layerOn, heights), [tracks, layerOn, heights]);
+  const listed = tracks.filter((t) => layerOn(t.layer));
+  const onSelectRef = React.useRef(onSelect);
+  onSelectRef.current = onSelect;
+
+  // Start-up: one renderer per mount, opening on SECTOR NORTH.
+  React.useEffect(() => {
+    if (failed || !hostRef.current || !labelsRef.current) return;
+    let r: GlobeRenderer;
+    try {
+      r = new GlobeRenderer(hostRef.current, labelsRef.current, readGlobeColours(hostRef.current), {
+        onHover: setHover,
+        onSelect: (id) => onSelectRef.current(id),
+        onCamera: (c, settled) => { if (settled) setCamera(c); },
+        onContextLost: () => setFailed(true),
+      });
+    } catch {
+      setFailed(true);
+      return;
+    }
+    rendererRef.current = r;
+    r.flyTo(sector.camera, true);
+    return () => {
+      rendererRef.current = null;
+      r.dispose();
+    };
+    // Mount once per WebGL attempt; the effects below push every later change in.
+  }, [failed]);
+
+  React.useEffect(() => {
+    const r = rendererRef.current;
+    if (!r) return;
+    r.setItems(items);
+    const byId = new Map(tracks.map((t) => [t.id, t]));
+    r.setLabelText((id) => {
+      const t = byId.get(id);
+      return t ? `${t.id}${t.track === 'anomalous' ? ' ⚠' : ''} · ${t.hdg}°` : id;
+    });
+  }, [items, tracks, failed]);
+
+  React.useEffect(() => { rendererRef.current?.setSelected(selectedId); }, [selectedId, items, failed]);
+  React.useEffect(() => { rendererRef.current?.setTooltipAnchor(tooltipRef.current); }, [hover, failed]);
+  React.useEffect(() => {
+    const r = rendererRef.current;
+    if (r && hostRef.current) r.setColours(readGlobeColours(hostRef.current));
+  }, [mode]);
+
+  const flyTo = (c: CameraState) => rendererRef.current?.flyTo(c, reducedMotion());
+  const flyToTrack = (t: HeimdallTrack) => {
+    if (typeof t.lat !== 'number' || typeof t.lon !== 'number') return;
+    const alt = Math.min(rendererRef.current?.cameraState.altKm ?? 800, 800);
+    flyTo({ lat: t.lat, lon: t.lon, altKm: Math.max(MIN_ALTITUDE_KM, alt) });
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    const r = rendererRef.current;
+    if (!r) return;
+    const k = e.key;
+    const moves: Record<string, [number, number, number]> = {
+      ArrowLeft: [KEY_STEP_PX, 0, 1], ArrowRight: [-KEY_STEP_PX, 0, 1],
+      ArrowUp: [0, KEY_STEP_PX, 1], ArrowDown: [0, -KEY_STEP_PX, 1],
+      '+': [0, 0, 0.7], '=': [0, 0, 0.7], '-': [0, 0, 1 / 0.7],
+    };
+    const m = moves[k];
+    if (!m) return;
+    e.preventDefault();
+    r.nudge(m[0], m[1], m[2]);
+  };
+
+  const current: Region | null = camera ? regionAt(camera.lat, camera.lon, regions) : null;
+  const summary = camera ? describeCamera(camera, regions) : '';
+  const hovered = hover ? tracks.find((t) => t.id === hover) : undefined;
+
+  if (failed) {
+    return (
+      <div className="hg-globe" role="status">
+        <div className="hg-globe-unavailable">
+          <strong>3D VIEW UNAVAILABLE · WEBGL</strong>
+          <span>THIS BROWSER GAVE THE GLOBE NO WEBGL CONTEXT · THE 2D VIEW STILL WORKS</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="hg-globe">
+      <div
+        ref={hostRef}
+        className="hg-globe-surface"
+        tabIndex={0}
+        role="application"
+        aria-roledescription="3D globe"
+        aria-label="Globe. Arrow keys orbit, plus and minus zoom. The track list reaches each track."
+        aria-describedby={summaryId}
+        onKeyDown={onKeyDown}
+      />
+      <div ref={labelsRef} className="hg-globe-labels" aria-hidden="true" />
+      {hovered && (
+        <div ref={tooltipRef} style={{ position: 'absolute', left: 0, top: 0, zIndex: 5, pointerEvents: 'none', display: 'none' }}>
+          <TrackTooltip track={hovered} selected={hovered.id === selectedId} style={{ position: 'relative' }} />
+        </div>
+      )}
+
+      <nav className="hg-globe-panel hg-globe-nav" aria-label="Globe regions and tracks">
+        <div className="hg-globe-section">
+          <div className="hg-globe-heading" id={`${summaryId}-regions`}>REGION</div>
+          <ul className="hg-globe-list" aria-labelledby={`${summaryId}-regions`}>
+            {regions.map((r) => (
+              <li key={r.id}>
+                <button type="button" aria-current={current?.id === r.id ? 'true' : undefined} onClick={() => flyTo(r.camera)}>
+                  {r.label}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="hg-globe-section grow">
+          <div className="hg-globe-heading" id={`${summaryId}-tracks`}>
+            <span>TRACKS</span>
+            <span>{items.length} ON GLOBE</span>
+          </div>
+          <ul className="hg-globe-list" aria-labelledby={`${summaryId}-tracks`}>
+            {listed.map((t) => {
+              const placed = typeof t.lat === 'number' && typeof t.lon === 'number';
+              return (
+                <li key={t.id}>
+                  <button
+                    type="button"
+                    disabled={!placed}
+                    aria-current={t.id === selectedId ? 'true' : undefined}
+                    aria-label={`${t.id} · ${t.cls} · ${t.alt}${t.track === 'anomalous' ? ' · anomalous' : ''}${placed ? '' : ' · no position'}`}
+                    onClick={() => { onSelect(t.id); flyToTrack(t); }}
+                    onMouseEnter={() => rendererRef.current?.setHoverFromOutside(t.id)}
+                    onMouseLeave={() => rendererRef.current?.setHoverFromOutside(null)}
+                    onFocus={() => rendererRef.current?.setHoverFromOutside(t.id)}
+                    onBlur={() => rendererRef.current?.setHoverFromOutside(null)}
+                  >
+                    <span className="hg-globe-track">
+                      <span className="tone" data-tone={t.track === 'anomalous' ? 'warn' : 'accent'} />
+                      <span>{t.id}</span>
+                      <span className="sub">{placed ? t.alt : 'NO POSITION'}</span>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      </nav>
+
+      <div className="hg-globe-panel hg-globe-side">
+        <div className="hg-globe-section">
+          <div className="hg-globe-heading">CAMERA</div>
+          <div className="hg-globe-readout" aria-hidden="true">
+            {camera ? (
+              <>
+                <div>ALT {Math.round(camera.altKm).toLocaleString('en-GB')} KM</div>
+                <div>{Math.abs(camera.lat).toFixed(2)}° {camera.lat < 0 ? 'S' : 'N'} · {Math.abs(camera.lon).toFixed(2)}° {camera.lon < 0 ? 'W' : 'E'}</div>
+                <div>OVER {current?.label ?? 'OPEN GLOBE'}</div>
+              </>
+            ) : '—'}
+          </div>
+          <p id={summaryId} className="hg-sr-only" aria-live="polite">{summary}</p>
+          <div className="hg-globe-zoom">
+            <button type="button" aria-label="Zoom in" onClick={() => rendererRef.current?.nudge(0, 0, 0.6)}>+</button>
+            <button type="button" aria-label="Zoom out" onClick={() => rendererRef.current?.nudge(0, 0, 1 / 0.6)}>−</button>
+          </div>
+        </div>
+        <label className="hg-globe-section hg-globe-heights">
+          <span className="hg-globe-heading"><span>HEIGHTS</span><span>×{heights}</span></span>
+          <input
+            type="range"
+            min={MIN_EXAGGERATION}
+            max={MAX_EXAGGERATION}
+            step={1}
+            value={heights}
+            aria-valuetext={`Heights exaggerated ${heights} times`}
+            onChange={(e) => setHeights(Number(e.target.value))}
+          />
+        </label>
+      </div>
+    </div>
+  );
+}

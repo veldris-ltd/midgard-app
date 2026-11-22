@@ -29,6 +29,8 @@ import close50 from './data/ne-50m.json';
 
 /** Below this altitude the 1:50m outlines replace the 1:110m ones. */
 const DETAIL_BELOW_KM = 3000;
+/** Above this altitude only the selected and hovered tracks keep their labels. */
+const LABELS_BELOW_KM = 6000;
 const MARKER_PX = 13;
 const PICK_PX = 14;
 const TEXTURE_WIDTH = 4096;
@@ -457,6 +459,8 @@ export class GlobeRenderer {
     this.camera3.near = Math.max(1e-4, altUnits * 0.25);
     this.camera3.far = altUnits + 2.5;
     this.camera3.updateProjectionMatrix();
+    // Labels and picking project with this camera before the next render updates it.
+    this.camera3.updateMatrixWorld();
     const near = this.cam.altKm < DETAIL_BELOW_KM;
     for (const l of this.lines) l.obj.visible = l.detail === 'all' || (l.detail === 'near') === near;
     // The atmosphere fades out as the camera comes down into it.
@@ -505,7 +509,8 @@ export class GlobeRenderer {
       const x = ((v.x + 1) / 2) * this.width;
       const y = ((1 - v.y) / 2) * this.height;
       const onScreen = !hidden && v.z < 1 && x > -40 && x < this.width + 40 && y > -40 && y < this.height + 40;
-      m.label.style.display = onScreen ? '' : 'none';
+      const named = this.cam.altKm < LABELS_BELOW_KM || m.item.id === this.selected || m.item.id === this.hovered;
+      m.label.style.display = onScreen && named ? '' : 'none';
       m.label.style.transform = `translate(${Math.round(x)}px, ${Math.round(y + MARKER_PX)}px) translateX(-50%)`;
       if (this.tooltip && m.item.id === this.hovered) {
         this.tooltip.style.display = onScreen ? '' : 'none';
