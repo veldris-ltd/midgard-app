@@ -31,6 +31,13 @@ Third-party components:
   (Copyright 2020 The JetBrains Mono Project Authors). The font files and their
   licence texts are in ui/design-system/src/fonts and docs/design/fonts.
 
+  The Heimdall console's 3D globe bundles three.js (Copyright 2010-2026 three.js
+  authors), licensed under the MIT License, and outlines from Natural Earth
+  (naturalearthdata.com, version 5.1.2), which is in the public domain: coastlines,
+  land polygons and land borders at 1:110m and 1:50m, in
+  products/heimdall/ui/src/globe/data, built by tools/heimdall-outlines/build.mjs.
+  Made with Natural Earth.
+
 Post-quantum cryptography implements the NIST FIPS 203 (ML-KEM), FIPS 204
 (ML-DSA), and FIPS 205 (SLH-DSA) standards; AES-256-GCM per FIPS 197. See
 docs/compliance/COMPLIANCE_MATRIX.md for the full standards mapping.
