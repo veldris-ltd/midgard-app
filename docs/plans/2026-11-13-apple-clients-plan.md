@@ -6810,3 +6810,30 @@ the globe without tiles stays checkable on its own.
 
 **Public by choice:** the repository is public. The 3D edition puts a port of the globe
 work, which was taken off it on 27 Oct, back in public. The owner chose this.
+
+### Branch base before publishing (owner decision, 22 Nov 2026)
+
+`dev` is left untouched: nothing merges into it or out of it, and syncing it is deferred.
+
+The work is built from `main`, as `CONTRIBUTING.md` allows ("Branch from `main` (or `dev`)"),
+and as the three release candidates were made. Since `v0.1.0-rc.3`, `main` has one commit,
+PR #97 (`7493bbac`), a CI-only fix with no client code.
+
+**Before the push:**
+- Merge `origin/main` into `clients_shared`, `clients_mac` and `clients_iphone`, with
+  signed merge commits.
+- Run each branch's checks again.
+- Put the three `apple-*` tags on the merged commits.
+
+The release edition's content is still exactly `v0.1.0-rc.3`, because #97 changes nothing
+in the apps.
+
+**Later, not part of this plan:**
+- The `apple-*` tags are labels, not release tags.
+- To make the clients part of a signed release:
+  1. a pull request from each branch into `main`;
+  2. a version bump to `0.2.0` (the clients are new features);
+  3. the release pipeline, then a `v0.2.0-rc.1` tag from `main`.
+- The 3D globe reaches a signed release the same way, from its own feature branch off
+  `main`. It is never a wholesale merge of `md_mixedfeeds_3d` or `dev_mac`.
+- No pull requests are opened without the owner's request.
