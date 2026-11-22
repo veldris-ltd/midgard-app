@@ -90,18 +90,7 @@ the trust boundaries, with each threat mapped to the implemented, tested control
 ### Information disclosure (confidentiality)
 - *Threat:* leaking classified data or secrets; exfiltration; HNDL capture.
 - *Controls:* **no egress** — the enclosure makes no outbound calls; telemetry is
-  zero-dependency and pull-only (RT-33). The Heimdall console's map tiles follow the
-  same rule: none by default, and the build fails on any tile source but `none`,
-  `mirror` (one HTTPS origin inside the enclosure) or an explicitly named `public`
-  demo build; `test:bundle` checks each build's `dist/` holds only its own hosts.
-- *Threat (map tiles, `public` demo build only):* tile requests name the area in view,
-  so a view framed on the tracks would reveal where they are; each request also reveals
-  the console's origin, the client's IP address, the time and a DNS lookup, and leaves
-  the tiles in the browser's HTTP cache. *Controls:* camera moves the tracks decide
-  pause tile loading until the user's own move away from a track; allow-listed URLs
-  only, no cookies, credentials, referrer or redirects; a mirror keeps all of it inside
-  the enclosure. Residual risk register: "Map tile requests reveal the area being
-  viewed". [NFR-PRV-1] Data at rest is AES-256-GCM under an
+  zero-dependency and pull-only (RT-33). Data at rest is AES-256-GCM under an
   ML-KEM-1024-wrapped key sealed to the trust root (`services/kms`). PQ-mTLS record
   layer protects data in transit. Deny-by-default Bell–LaPadula markings + purpose
   gate filter every read (`crypto/policy`, `services/governance`). Key material is
@@ -118,21 +107,36 @@ the trust boundaries, with each threat mapped to the implemented, tested control
   copies the compiler leaves in registers or on the stack, and the internal state of
   the RustCrypto hash and HMAC types, are not wiped; the software KMS root exposes the
   root in memory unless a hardware root is used (`services/kms/RESIDUAL_RISK.md`).
+- *Threat (map tiles):* the Heimdall console's map tiles egressing from the enclosure.
+  *Controls:* the tile source is fixed at build time and fails closed: `none` by
+  default (the signed build), `mirror` (one HTTPS origin inside the enclosure), or an
+  explicitly named `public` demo build; any other setting, or a mirror that names a
+  public tile host, stops the build; `test:bundle` checks each build's `dist/` holds
+  only its own hosts. [NFR-PRV-1]
+- *Threat (map tiles, `public` demo build only):* tile requests name the area in view,
+  so a view framed on the tracks would reveal where they are; each request also reveals
+  the console's origin, the client's IP address, the time and a DNS lookup, and leaves
+  the tiles in the browser's HTTP cache. *Controls:* camera moves the tracks decide
+  pause tile loading until the user's next move (a pause defers the request; a move
+  near a track then loads that area); allow-listed URLs only, no cookies, credentials,
+  referrer or redirects; a mirror keeps all of it inside the enclosure. Residual risk
+  register: "Map tile requests reveal the area being viewed". [NFR-PRV-1]
 
 ### Denial of service
 - *Threat:* exhausting the gateway or a service.
 - *Controls:* per-identity token-bucket rate limiting + per-connection quotas
   (RT-25); readiness gating and SLO breach observability (RT-33); DR restore within
-  RTO/RPO (RT-34).
+  RTO/RPO (RT-34). *Residual:* full multi-node clustering DoS resilience is a
+  deployment-tier concern (RT-40).
 - *Threat:* a hostile or broken tile source exhausting the Heimdall console by
   decoding (an oversize body, an image of huge dimensions, a vector-tile decompression
-  bomb, a body that never ends). *Controls:* streamed bodies capped at 2 MB (1 MB
-  terrain), oversize `Content-Length` refused before reading; raster tiles exactly
-  256 × 256 (512 × 512 terrain) by header before decoding and again after; vector tiles
-  capped in features per layer, features and points, counted before any geometry is
-  built; decoding in a same-origin module worker with about 2 s per tile; 15 s per
-  request. Fuzz-style tests cover each. [FR-H-1] *Residual:* full multi-node clustering DoS resilience is a
-  deployment-tier concern (RT-40).
+  bomb, a body that never ends, or many tiles adding up). *Controls:* streamed bodies
+  capped at 2 MB (1 MB terrain), oversize `Content-Length` refused before reading;
+  raster tiles exactly 256 × 256 (512 × 512 terrain) by header before decoding and
+  again after; vector geometry validated and its points counted, exactly as it will be
+  built, before any is built, with features and points capped; at most 500 labels a
+  tile; the map's decoded tiles held to 64 MB; decoding in a same-origin module worker
+  with about 2 s per tile; 15 s per request. Fuzz-style tests cover each. [FR-H-1]
 
 ### Elevation of privilege
 - *Threat:* gaining capabilities beyond one's role.
