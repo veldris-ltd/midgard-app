@@ -16,7 +16,16 @@ public struct PersonaPickerView: View {
     public init(model: AppModel) { self.model = model }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: MGSpace.s4) {
+        // Scrolls only when it must: four personas at accessibility text sizes are taller
+        // than the iPhone's screen.
+        ViewThatFits(in: .vertical) {
+            picker
+            ScrollView { picker }
+        }
+    }
+
+    private var picker: some View {
+        LazyVStack(alignment: .leading, spacing: MGSpace.s4) {
             Text("Sign in").font(MGFonts.display(.title)).accessibilityAddTraits(.isHeader)
             Text("Demo personas").font(MGFonts.mono(.caption)).foregroundStyle(MGStyle.secondaryText)
             ForEach(Array(model.personas.enumerated()), id: \.element.id) { index, persona in
@@ -35,6 +44,7 @@ public struct PersonaPickerView: View {
             MessageView(message: model.message)
         }
         .padding(MGSpace.s5)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .tint(MGStyle.accent)
     }
 }
