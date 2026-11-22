@@ -1,0 +1,74 @@
+import XCTest
+
+/// The edition the app under test says it is (Task B7), against `Edition`, which each
+/// UI-test target defines for its app (UITests-Release, UITests-3D, UITests-Maps): the
+/// edition banner, Heimdall's "3D view" entry, and About, all of which only the 3D and
+/// maps apps have: the release app shows no visible change. [FR-C-1] [AC-C-13]
+final class EditionTests: XCTestCase {
+    private var app: XCUIApplication!
+
+    override func setUp() {
+        continueAfterFailure = false
+        app = XCUIApplication()
+        app.launchArguments = ["-MidgardUITesting"] + Nav.freshLaunch
+        app.launch()
+    }
+
+    override func tearDown() {
+        app.terminate()
+    }
+
+    func testTheBannersSayWhichEditionThisIs() {
+        Nav.signedIn(app)
+        XCTAssertTrue(Nav.element(app, "mg.banner.nosource").waitForExistence(timeout: 10))
+        for id in ["mg.banner.edition3d", "mg.banner.editionmaps"] where id != Edition.banner?.id {
+            XCTAssertFalse(Nav.element(app, id).exists, "\(id) is not this edition's banner")
+        }
+        if let expected = Edition.banner {
+            let banner = Nav.element(app, expected.id)
+            XCTAssertTrue(banner.waitForExistence(timeout: 5), app.debugDescription)
+            XCTAssertEqual(Nav.text(banner), expected.text)
+        }
+    }
+
+    func testHeimdallOffersThe3DViewOnlyIn3D() {
+        Nav.openConsole(app, 3)
+        XCTAssertTrue(Nav.element(app, "mg.detail.operating-picture").waitForExistence(timeout: 5))
+        let entry = Nav.element(app, "mg.heimdall.3d")
+        if Edition.isThreeD {
+            Nav.openThreeD(app)
+            let view = Nav.element(app, "mg.heimdall.3d.view")
+            XCTAssertTrue((view.label + Nav.text(view)).contains("3D view"), "3D view says: \(view.label)")
+            // Another screen closes it; back on the Operating Picture it opens again.
+            Nav.openScreen(app, "entities")
+            XCTAssertFalse(Nav.element(app, "mg.heimdall.3d").exists, "the entry is on the Operating Picture only")
+            Nav.openScreen(app, "operating-picture")
+            XCTAssertFalse(view.exists)
+            Nav.openThreeD(app)
+        } else {
+            XCTAssertFalse(entry.exists, "the release edition has no 3D entry")
+            XCTAssertFalse(Nav.element(app, "mg.heimdall.3d.view").exists)
+        }
+    }
+
+    func testOnlyThe3DAppsHaveAbout() {
+        Nav.signedIn(app)
+        app.typeKey(",", modifierFlags: .command)
+        XCTAssertTrue(app.toolbars.buttons["General"].firstMatch.waitForExistence(timeout: 10),
+                      "Settings did not open:\n\(app.debugDescription)")
+        let tab = app.toolbars.buttons["About"].firstMatch
+        guard let aboutName = Edition.aboutName, let banner = Edition.banner else {
+            XCTAssertFalse(tab.exists, "the release app's Settings are unchanged: no About tab")
+            XCTAssertFalse(Nav.element(app, "mg.about.name").exists)
+            return
+        }
+        XCTAssertTrue(tab.exists, "no About tab in Settings:\n\(app.debugDescription)")
+        tab.click()
+        let name = Nav.element(app, "mg.about.name")
+        XCTAssertTrue(name.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(Nav.text(name), aboutName)
+        XCTAssertEqual(Nav.text(Nav.element(app, "mg.about.edition")), "Edition: \(aboutName)")
+        let release = Nav.text(Nav.element(app, "mg.about.release"))
+        XCTAssertTrue(release.hasPrefix(banner.text), "About says: \(release)")
+    }
+}

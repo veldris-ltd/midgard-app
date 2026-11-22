@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!-- Midgard Maps, team-signed builds (MIDGARD_TEAM_ID set; Config/Signing.xcconfig,
+     chosen by project.yml's MidgardMacMaps settings). App Sandbox plus the client network
+     entitlement, which only the globe's tile loader will use (Phase I, Task I2): the maps
+     edition is the only one with a network entitlement (tools/check-edition.sh). Its own
+     keychain access group, for its own bundle identifier. [DD-6] [FR-C-9] -->
+<dict>
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)io.veldris.midgardmaps.mac</string>
+	</array>
+</dict>
+</plist>

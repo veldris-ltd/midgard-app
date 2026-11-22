@@ -48,9 +48,10 @@ struct MidgardCommands: Commands {
     }
 }
 
-/// Settings: Reset demo (behind a confirmation) and the acknowledgements. With no data
-/// source, Reset demo empties the local store and forgets this device's key.
-/// [FR-C-9] [DD-6] [DD-7]
+/// Settings: Reset demo (behind a confirmation) and the acknowledgements; in the 3D
+/// edition only, About (the edition, and that it is not the signed release). The release
+/// app's Settings are unchanged. With no data source, Reset demo empties the local store
+/// and forgets this device's key. [FR-C-1] [FR-C-9] [DD-6] [DD-7]
 struct SettingsView: View {
     @ObservedObject var model: AppModel
 
@@ -58,6 +59,10 @@ struct SettingsView: View {
         TabView {
             GeneralSettings(model: model)
                 .tabItem { Label("General", systemImage: "gearshape") }
+            if let about = model.about {
+                NavigationStack { AboutView(about) }
+                    .tabItem { Label("About", systemImage: "info.circle") }
+            }
             NavigationStack { AcknowledgementsView() }
                 .tabItem { Label("Acknowledgements", systemImage: "doc.text") }
         }

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!-- Midgard 3D, ad-hoc builds (no MIDGARD_TEAM_ID): MidgardMac3D.entitlements without
+     keychain-access-groups, as MidgardMac-AdHoc.entitlements is for the release app. No
+     network entitlement. [DD-6] [FR-C-9] -->
+<dict>
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+</dict>
+</plist>

@@ -61,6 +61,17 @@ enum Nav {
                       "the \(slug) detail did not appear", file: file, line: line)
     }
 
+    /// Heimdall's Operating Picture with its 3D view open (the 3D edition only).
+    static func openThreeD(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+        openConsole(app, 3, file: file, line: line)
+        let view = element(app, "mg.heimdall.3d.view")
+        if view.exists { return }
+        let entry = element(app, "mg.heimdall.3d")
+        XCTAssertTrue(entry.waitForExistence(timeout: 5), "no 3D entry in Heimdall", file: file, line: line)
+        entry.click()
+        XCTAssertTrue(view.waitForExistence(timeout: 5), "the 3D view did not open", file: file, line: line)
+    }
+
     /// What a text element says: on macOS static text carries it as its value, and an
     /// element given an accessibility label carries it as the label.
     static func text(_ element: XCUIElement) -> String {

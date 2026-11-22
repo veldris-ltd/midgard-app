@@ -149,11 +149,22 @@ struct WindowSetup: NSViewRepresentable {
 
 /// Signed in: the persona menu above a three-column split view. The sidebar lists the
 /// six consoles (⌘1…⌘6) and, under the selected one, its screens; the content and
-/// detail columns show the screen's placeholder until its phase builds it. [FR-C-1]
+/// detail columns show the screen's placeholder until its phase builds it. In the 3D
+/// edition, Heimdall's Operating Picture also offers the "3D view" entry, which the 3D
+/// library registered at link time (MidgardKit's `HeimdallThreeD`); it opens in the
+/// detail column. [FR-C-1]
 struct ConsoleShell: View {
     @ObservedObject var model: AppModel
     let persona: PersonaInfo
     @Binding var route: ConsoleRoute
+    @State private var showingThreeD = false
+
+    /// The 3D entry, on Heimdall's first screen only, when this app has one.
+    private var threeD: HeimdallThreeDView? {
+        let r = route.clamped
+        guard ConsoleCatalog.console(r).id == "heimdall", r.screen == 0 else { return nil }
+        return model.threeDEntry
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -170,12 +181,24 @@ struct ConsoleShell: View {
                     .accessibilityElement(children: .contain)
                     .accessibilityLabel(Text("Consoles"))
             } content: {
-                ScreenContent(route: route.clamped)
-                    .navigationSplitViewColumnWidth(min: 280, ideal: 360)
+                VStack(alignment: .leading, spacing: 0) {
+                    if let threeD {
+                        ThreeDEntryButton(title: threeD.title, showing: $showingThreeD)
+                            .padding([.horizontal, .top], MGSpace.s5)
+                    }
+                    ScreenContent(route: route.clamped)
+                }
+                .navigationSplitViewColumnWidth(min: 280, ideal: 360)
             } detail: {
-                ScreenDetail(route: route.clamped)
-                    .accessibilityElement(children: .contain)
-                    .accessibilityLabel(Text("Details"))
+                Group {
+                    if showingThreeD, let threeD {
+                        threeD.makeView()
+                    } else {
+                        ScreenDetail(route: route.clamped)
+                    }
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(Text("Details"))
             }
             .accessibilityElement(children: .contain)
             .accessibilityLabel(Text("Console"))
@@ -185,6 +208,21 @@ struct ConsoleShell: View {
         // contrast audit, and the sidebar and the screen heading already say where the
         // window is.
         .navigationTitle(ConsoleCatalog.console(route).name)
+        .onChange(of: route) { showingThreeD = false }
+    }
+}
+
+/// Heimdall's "3D view" entry (3D edition only): opens the 3D view in the detail column,
+/// and closes it again.
+struct ThreeDEntryButton: View {
+    let title: String
+    @Binding var showing: Bool
+
+    var body: some View {
+        Button(showing ? "Close \(title)" : "Open \(title)") { showing.toggle() }
+            .font(MGFonts.sans(.body))
+            .frame(minHeight: 44)
+            .accessibilityIdentifier("mg.heimdall.3d")
     }
 }
 

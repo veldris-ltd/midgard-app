@@ -1,6 +1,16 @@
-# The Midgard macOS app (Task B2). XcodeGen 2.46 spec; the generated MidgardMac.xcodeproj
-# is committed beside it and tools/ci/tests/apple-projects.test.sh holds the two
-# together: after editing this file run `xcodegen generate` here and commit both.
+# The Midgard macOS apps (Task B2; three editions, Task B7). XcodeGen 2.46 spec; the
+# generated MidgardMac.xcodeproj is committed beside it and
+# tools/ci/tests/apple-projects.test.sh holds the two together: after editing this file
+# run `xcodegen generate` here and commit both.
+# Three editions (owner decision 22 Nov 2026), sharing Sources and UITests:
+#   MidgardMac      Midgard, the signed release v0.1.0-rc.3: Info.plist (MidgardEdition
+#                   release), App Sandbox with no network entitlement, no MidgardGlobeKit.
+#   MidgardMac3D    Midgard 3D: Info-3D.plist (MidgardEdition 3d), its own entitlements,
+#                   still with no network entitlement, and MidgardGlobeKit.
+#   MidgardMacMaps  Midgard Maps: Info-Maps.plist (MidgardEdition maps), its own
+#                   entitlements with the client network entitlement (Phase I's map
+#                   tiles; the only edition with one), and MidgardGlobeKit.
+# tools/check-edition.sh checks what each build carries.
 # Signing: Config/Signing.xcconfig (ad hoc without a team; one line in the gitignored
 # Signing.local.xcconfig selects the owner's team). [DD-6] [FR-C-1]
 name: MidgardMac
@@ -41,7 +51,7 @@ targets:
     dependencies:
       - package: MidgardKit
         product: MidgardKit
-    preBuildScripts:
+    preBuildScripts: &preBuildScripts
       - name: Refuse a non-Debug build without a team
         # Any configuration but Debug (Release, or one added later) without
         # MIDGARD_TEAM_ID is signed ad hoc, without the keychain access group: it cannot
@@ -59,10 +69,62 @@ targets:
         # modification times), so it runs on every build.
         script: bash "$SRCROOT/../../tools/ensure-xcframework.sh"
         basedOnDependencyAnalysis: false
+  MidgardMac3D:
+    type: application
+    platform: macOS
+    sources: [Sources]
+    configFiles:
+      Debug: Config/Signing.xcconfig
+      Release: Config/Signing.xcconfig
+    settings:
+      base:
+        PRODUCT_NAME: Midgard3D
+        PRODUCT_BUNDLE_IDENTIFIER: io.veldris.midgard3d.mac
+        INFOPLIST_FILE: Info-3D.plist
+        GENERATE_INFOPLIST_FILE: NO
+        # Its own entitlements, chosen as Config/Signing.xcconfig chooses the release
+        # app's: ad hoc without a team, the full set with one.
+        MIDGARD_ENTITLEMENTS_YES: Config/MidgardMac3D-AdHoc.entitlements
+        MIDGARD_ENTITLEMENTS_: Config/MidgardMac3D.entitlements
+        CODE_SIGN_ENTITLEMENTS: $(MIDGARD_MAC_ENTITLEMENTS)
+        ENABLE_HARDENED_RUNTIME: YES
+        COMBINE_HIDPI_IMAGES: YES
+    dependencies:
+      - package: MidgardKit
+        product: MidgardKit
+      - package: MidgardKit
+        product: MidgardGlobeKit
+    preBuildScripts: *preBuildScripts
+  MidgardMacMaps:
+    type: application
+    platform: macOS
+    sources: [Sources]
+    configFiles:
+      Debug: Config/Signing.xcconfig
+      Release: Config/Signing.xcconfig
+    settings:
+      base:
+        PRODUCT_NAME: MidgardMaps
+        PRODUCT_BUNDLE_IDENTIFIER: io.veldris.midgardmaps.mac
+        INFOPLIST_FILE: Info-Maps.plist
+        GENERATE_INFOPLIST_FILE: NO
+        # Its own entitlements, chosen as Config/Signing.xcconfig chooses the release
+        # app's: ad hoc without a team, the full set with one.
+        MIDGARD_ENTITLEMENTS_YES: Config/MidgardMacMaps-AdHoc.entitlements
+        MIDGARD_ENTITLEMENTS_: Config/MidgardMacMaps.entitlements
+        CODE_SIGN_ENTITLEMENTS: $(MIDGARD_MAC_ENTITLEMENTS)
+        ENABLE_HARDENED_RUNTIME: YES
+        COMBINE_HIDPI_IMAGES: YES
+    dependencies:
+      - package: MidgardKit
+        product: MidgardKit
+      - package: MidgardKit
+        product: MidgardGlobeKit
+    preBuildScripts: *preBuildScripts
   MidgardMacUITests:
     type: bundle.ui-testing
     platform: macOS
-    sources: [UITests]
+    sources: [UITests, UITests-Release]
     configFiles:
       Debug: Config/Signing.xcconfig
       Release: Config/Signing.xcconfig
@@ -73,6 +135,40 @@ targets:
         TEST_TARGET_NAME: MidgardMac
     dependencies:
       - target: MidgardMac
+      - package: MidgardKit
+        product: MidgardAuditKit
+  # The same UI tests, against the 3D app, with its own edition checks.
+  MidgardMac3DUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources: [UITests, UITests-3D]
+    configFiles:
+      Debug: Config/Signing.xcconfig
+      Release: Config/Signing.xcconfig
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.veldris.midgard3d.mac.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: MidgardMac3D
+    dependencies:
+      - target: MidgardMac3D
+      - package: MidgardKit
+        product: MidgardAuditKit
+  # The same UI tests, against the maps app, with its own edition checks.
+  MidgardMacMapsUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources: [UITests, UITests-Maps]
+    configFiles:
+      Debug: Config/Signing.xcconfig
+      Release: Config/Signing.xcconfig
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.veldris.midgardmaps.mac.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: MidgardMacMaps
+    dependencies:
+      - target: MidgardMacMaps
       - package: MidgardKit
         product: MidgardAuditKit
 schemes:
@@ -90,6 +186,44 @@ schemes:
         - name: MidgardMacUITests
           # Dynamic Type is measured on iOS; the macOS test fails by design (A14), so the
           # scheme skips it. audit.sh reads a skipped test as not measured, as before.
+          skippedTests:
+            - AccessibilityAudit/test_affordance_dynamic_type()
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+  MidgardMac3D:
+    build:
+      targets:
+        MidgardMac3D: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: false
+      targets:
+        - name: MidgardMac3DUITests
+          skippedTests:
+            - AccessibilityAudit/test_affordance_dynamic_type()
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+  MidgardMacMaps:
+    build:
+      targets:
+        MidgardMacMaps: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: false
+      targets:
+        - name: MidgardMacMapsUITests
           skippedTests:
             - AccessibilityAudit/test_affordance_dynamic_type()
     profile:

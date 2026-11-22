@@ -36,7 +36,10 @@ MIDGARD_IDENTITY_ = Apple Development
 CODE_SIGN_IDENTITY = $(MIDGARD_IDENTITY_$(MIDGARD_NO_TEAM))
 
 // The app target sets CODE_SIGN_ENTITLEMENTS = $(MIDGARD_MAC_ENTITLEMENTS); the test
-// targets have no entitlements of their own.
+// targets have no entitlements of their own. The 3D and maps apps (MidgardMac3D,
+// MidgardMacMaps) override the two MIDGARD_ENTITLEMENTS_ settings in project.yml with
+// their own files (MidgardMac3D[-AdHoc].entitlements, MidgardMacMaps[-AdHoc].entitlements);
+// only the maps ones add the client network entitlement.
 MIDGARD_ENTITLEMENTS_YES = Config/MidgardMac-AdHoc.entitlements
 MIDGARD_ENTITLEMENTS_ = Config/MidgardMac.entitlements
 MIDGARD_MAC_ENTITLEMENTS = $(MIDGARD_ENTITLEMENTS_$(MIDGARD_NO_TEAM))
