@@ -97,6 +97,11 @@ at build time) the console adds map tiles to the globe and a second 2D mode, **M
 - **Close-up**: with tiles drawn, the camera may come down to 1.5 km, and always
   stays 150 m above the terrain under it; surface tracks stand on the terrain. The
   outline lines hide below 150 km, where the imagery or relief shows the coast.
+- **Relief, tilted**: tilt, turn and zoom pivot on the ground in view, not on sea
+  level under it; the tiles follow a tilted view out towards the horizon, and none
+  are fetched behind the camera; the view tips down rather than look into a hill
+  between the camera and the point in view. The REGION list adds **SNOWDONIA** and
+  **SOUTHERN UPLANDS**, close tilted views of the relief, while tiles are drawn.
 - **MAP**: the tracks on a real map from VersaTiles vector tiles (OpenStreetMap data,
   ODbL), decoded with `@mapbox/vector-tile` and `pbf` and drawn on a canvas in the
   design tokens' colours, over the bundled Natural Earth land. The globe's REGION

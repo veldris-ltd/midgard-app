@@ -27,9 +27,11 @@ import type { GlobeTileLayer, TileLayerHost } from './tileLayer.ts';
 import {
   type ViewState,
   interpolateView,
+  lookTarget,
   normaliseView,
   panView,
   rotateView,
+  sightPitchLimitDeg,
   tiltView,
   viewFlyDurationMs,
   viewFrame,
@@ -233,6 +235,8 @@ export class GlobeRenderer {
   private readonly night = { value: 0.5 };
   private tiles: GlobeTileLayer | null = null;
   private tilesShown = false;
+  /** This layer has drawn tiles at least once, so it is known to be online. */
+  private tilesSeen = false;
   private heights = 4;
   private readonly lines: { mat: THREE.LineBasicMaterial; obj: THREE.LineSegments; kind: 'graticule' | 'coast' | 'border'; detail: 'far' | 'near' | 'all' }[] = [];
   private readonly textures: Record<Shape, THREE.CanvasTexture>;
@@ -358,6 +362,7 @@ export class GlobeRenderer {
       this.tiles.dispose();
     }
     this.tiles = layer;
+    this.tilesSeen = false;
     if (layer) {
       layer.setExaggeration(this.heights);
       layer.setDark(this.isDark());
@@ -497,20 +502,22 @@ export class GlobeRenderer {
   /** Zoom about the point in view, stopping at the floor, so the point stays put there too. */
   private zoomed(v: ViewState, factor: number): ViewState {
     const want = Math.max(v.altKm * factor, this.currentFloor());
-    return zoomView(v, want / v.altKm, this.minKm);
+    return zoomView(v, want / v.altKm, this.minKm, this.pivotGround(v));
   }
 
   /** Tilt by `dDeg` and turn by `turnDeg` about the point in view (buttons and keys). */
   orbit(dDeg: number, turnDeg = 0): void {
     this.flight = null;
-    this.cam = rotateView(tiltView(this.cam, dDeg, this.minKm), turnDeg, this.minKm);
+    const g = this.pivotGround(this.cam);
+    this.cam = rotateView(tiltView(this.cam, dDeg, this.minKm, g), turnDeg, this.minKm, g);
     this.applyCamera();
     this.settleSoon();
   }
 
   /** Back to north up and straight down, over the point in view. */
   resetOrientation(reducedMotion: boolean): void {
-    const flat = rotateView(tiltView(this.cam, -90, this.minKm), -this.cam.heading, this.minKm);
+    const g = this.pivotGround(this.cam);
+    const flat = rotateView(tiltView(this.cam, -90, this.minKm, g), -this.cam.heading, this.minKm, g);
     this.flyTo(flat, reducedMotion);
   }
 
@@ -617,9 +624,18 @@ export class GlobeRenderer {
     this.requestRender();
   }
 
+  /**
+   * Tiles are drawn, or online and between two sets of them (a style switch rebuilds
+   * them all): the close-up stays allowed, so the camera is not thrown up to the 50 km
+   * floor and left there while the new tiles arrive.
+   */
+  private get closeUpAllowed(): boolean {
+    return this.tilesShown || (this.tilesSeen && this.tiles?.online === true);
+  }
+
   /** The absolute minimum altitude: the close-up while tiles are drawn, else 50 km. */
   private get minKm(): number {
-    return this.tilesShown ? CLOSE_UP_ALTITUDE_KM : MIN_ALTITUDE_KM;
+    return this.closeUpAllowed ? CLOSE_UP_ALTITUDE_KM : MIN_ALTITUDE_KM;
   }
 
   /** Distance from the camera to the nearest marker the globe does not hide, in km. */
@@ -633,14 +649,37 @@ export class GlobeRenderer {
     return best * EARTH_RADIUS_KM;
   }
 
+  /** Tilt and turn about the point in view, on the terrain there. */
+  private orbited(dTilt: number, dTurn: number): ViewState {
+    const g = this.pivotGround(this.cam);
+    return rotateView(tiltView(this.cam, dTilt, this.minKm, g), dTurn, this.minKm, g);
+  }
+
+  /**
+   * The terrain's height at the point in the middle of the view, when tiles are drawn:
+   * tilt, turn and zoom pivot on the ground there, not on sea level under it.
+   */
+  private pivotGround(v: ViewState): number {
+    const t = this.tiles;
+    if (!this.closeUpAllowed || !t) return 0;
+    let g = 0;
+    // Twice: the ray meets the ground nearer than sea level, where the ground differs.
+    for (let i = 0; i < 2; i++) {
+      const at = lookTarget(v, g);
+      if (!at) return g;
+      g = t.groundKm(at.lat, at.lon) ?? g;
+    }
+    return g;
+  }
+
   /** The ground under the camera, when tiles are drawn and it is known; else 0. */
   private groundUnderCamera(): number {
-    return this.tilesShown ? (this.tiles?.groundKm(this.cam.lat, this.cam.lon) ?? 0) : 0;
+    return this.closeUpAllowed ? (this.tiles?.groundKm(this.cam.lat, this.cam.lon) ?? 0) : 0;
   }
 
   /** The lowest the camera may go now: over terrain with tiles, else the 1a floor. */
   private currentFloor(): number {
-    return this.tilesShown ? terrainFloorKm(this.groundUnderCamera()) : this.floorKm;
+    return this.closeUpAllowed ? terrainFloorKm(this.groundUnderCamera()) : this.floorKm;
   }
 
   private applyCamera(): void {
@@ -648,7 +687,14 @@ export class GlobeRenderer {
     const floor = this.currentFloor();
     if (this.cam.altKm < floor) this.cam = { ...this.cam, altKm: floor };
     this.cam = normaliseView(this.cam, this.minKm);
-    const clearance = this.tilesShown ? this.cam.altKm - this.groundUnderCamera() : Infinity;
+    // Over terrain the look direction may not drop below the hills: one in the way
+    // tips the view down to look over it.
+    const t = this.tiles;
+    if (this.closeUpAllowed && t && this.cam.pitch > 0) {
+      const limit = sightPitchLimitDeg(this.cam, (lat, lon) => t.groundKm(lat, lon) ?? 0);
+      if (limit < this.cam.pitch) this.cam = { ...this.cam, pitch: limit };
+    }
+    const clearance = this.closeUpAllowed ? this.cam.altKm - this.groundUnderCamera() : Infinity;
     const { near, far } = clipPlanes(this.cam.altKm, clearance, this.nearestMarkerKm());
     const f = viewFrame(this.cam);
     this.camera3.position.set(f.position.x, f.position.y, f.position.z);
@@ -705,6 +751,7 @@ export class GlobeRenderer {
     if (!t) return;
     t.update(this.cam, this.height, this.width / this.height);
     const shown = t.active;
+    if (shown) this.tilesSeen = true;
     if (shown !== this.tilesShown) {
       this.tilesShown = shown;
       this.globeMesh.scale.setScalar(shown ? SPHERE_UNDER_TILES : 1);
@@ -821,7 +868,8 @@ export class GlobeRenderer {
         if (g.d > 0 && this.pinch.d > 0) this.cam = this.zoomed(this.cam, this.pinch.d / g.d);
         // Both fingers up the screen tilt towards the horizon; twisting them turns.
         const twist = Math.atan2(Math.sin(g.a - this.pinch.a), Math.cos(g.a - this.pinch.a)) * (180 / Math.PI);
-        this.cam = rotateView(tiltView(this.cam, (this.pinch.y - g.y) * TILT_PER_PX, this.minKm), -twist, this.minKm);
+        const ground = this.pivotGround(this.cam);
+        this.cam = rotateView(tiltView(this.cam, (this.pinch.y - g.y) * TILT_PER_PX, this.minKm, ground), -twist, this.minKm, ground);
         this.pinch = g;
         this.applyCamera();
         return;
@@ -832,7 +880,7 @@ export class GlobeRenderer {
         if (Math.abs(e.clientX - this.drag.x) + Math.abs(e.clientY - this.drag.y) > 4) this.drag.moved = true;
         if (this.drag.moved) {
           this.cam = this.drag.mode === 'orbit'
-            ? rotateView(tiltView(this.cam, -dy * TILT_PER_PX, this.minKm), -dx * TURN_PER_PX, this.minKm)
+            ? this.orbited(-dy * TILT_PER_PX, -dx * TURN_PER_PX)
             : panView(this.cam, dx, dy, this.height, CAMERA_FOV_DEG, this.minKm);
           this.applyCamera();
         }

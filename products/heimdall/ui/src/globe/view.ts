@@ -7,11 +7,14 @@
  * 75° towards the horizon) and `heading` the bearing the view faces, clockwise from
  * north. Tilt, turn and zoom orbit the point in the middle of the view, so it stays
  * put while the camera moves. `minKm` is the altitude floor in force: 50 km, or the
- * 1.5 km close-up while map tiles are drawn. Pure, so node:test runs it. */
+ * 1.5 km close-up while map tiles are drawn. `groundKm` is the terrain's height at
+ * the point in view (km times HEIGHTS), so over hills the camera pivots on the ground
+ * rather than on sea level under it. Pure, so node:test runs it. */
 import {
   CAMERA_FOV_DEG,
   type CameraState,
   MIN_ALTITUDE_KM,
+  TERRAIN_CLEARANCE_KM,
   clampAltitude,
   easeInOutCubic,
   flyDurationMs,
@@ -87,11 +90,20 @@ export function viewFrame(v: ViewState): { position: Vec3; forward: Vec3; up: Ve
   };
 }
 
-/** The point on the ground in the middle of the view, or null if the view misses the globe. */
-export function lookTarget(v: ViewState): { lat: number; lon: number } | null {
+/** The pivot's height: the ground there, held below the camera so the view still meets it. */
+function pivotGround(altKm: number, groundKm: number): number {
+  return Number.isFinite(groundKm) ? Math.min(Math.max(0, groundKm), 0.8 * altKm) : 0;
+}
+
+/**
+ * The point in the middle of the view, on ground `groundKm` high (0: sea level), or
+ * null if the view misses the globe.
+ */
+export function lookTarget(v: ViewState, groundKm = 0): { lat: number; lon: number } | null {
   const { position: o, forward: d } = viewFrame(v);
+  const r = 1 + pivotGround(v.altKm, groundKm) / EARTH_RADIUS_KM;
   const b = o.x * d.x + o.y * d.y + o.z * d.z;
-  const c = o.x * o.x + o.y * o.y + o.z * o.z - 1;
+  const c = o.x * o.x + o.y * o.y + o.z * o.z - r * r;
   const disc = b * b - c;
   if (disc < 0) return null;
   const t = -b - Math.sqrt(disc);
@@ -118,12 +130,19 @@ function bearing(a: { lat: number; lon: number }, b: { lat: number; lon: number 
  * The camera `altKm` up, tilted `pitch` and facing `heading`, placed so the middle of
  * its view is `target`. The pitch is held to the limit for the altitude.
  */
-export function viewLookingAt(target: { lat: number; lon: number }, altKm: number, pitch: number, heading: number, minKm = MIN_ALTITUDE_KM): ViewState {
+export function viewLookingAt(
+  target: { lat: number; lon: number },
+  altKm: number,
+  pitch: number,
+  heading: number,
+  minKm = MIN_ALTITUDE_KM,
+  groundKm = 0,
+): ViewState {
   const alt = clampAltitude(altKm, minKm);
   const p = Math.min(maxPitchDeg(alt, minKm), Math.max(0, Number.isFinite(pitch) ? pitch : 0));
   const h = wrapHeading(heading);
   // Triangle centre-camera-target: the angle at the camera is the pitch.
-  const k = (1 + alt / EARTH_RADIUS_KM) * Math.sin(p * RAD);
+  const k = ((1 + alt / EARTH_RADIUS_KM) * Math.sin(p * RAD)) / (1 + pivotGround(alt, groundKm) / EARTH_RADIUS_KM);
   const theta = (Math.asin(Math.min(1, k)) - p * RAD) / RAD;
   if (theta < 1e-12) return normaliseView({ lat: target.lat, lon: target.lon, altKm: alt, pitch: p, heading: h }, minKm);
   // Step back from the target; correct the back-bearing until the camera faces `heading`.
@@ -138,24 +157,24 @@ export function viewLookingAt(target: { lat: number; lon: number }, altKm: numbe
   return normaliseView({ lat: n.lat, lon: n.lon, altKm: alt, pitch: p, heading: h }, minKm);
 }
 
-const pivot = (v: ViewState) => lookTarget(v) ?? { lat: v.lat, lon: v.lon };
+const pivot = (v: ViewState, groundKm = 0) => lookTarget(v, groundKm) ?? { lat: v.lat, lon: v.lon };
 
 /** Tilt by `dDeg` about the point in view, at the same altitude. */
-export function tiltView(v: ViewState, dDeg: number, minKm = MIN_ALTITUDE_KM): ViewState {
+export function tiltView(v: ViewState, dDeg: number, minKm = MIN_ALTITUDE_KM, groundKm = 0): ViewState {
   const pitch = Math.min(maxPitchDeg(v.altKm, minKm), Math.max(0, v.pitch + dDeg));
-  return viewLookingAt(pivot(v), v.altKm, pitch, v.heading, minKm);
+  return viewLookingAt(pivot(v, groundKm), v.altKm, pitch, v.heading, minKm, groundKm);
 }
 
 /** Turn by `dDeg` (clockwise) about the point in view. */
-export function rotateView(v: ViewState, dDeg: number, minKm = MIN_ALTITUDE_KM): ViewState {
-  return viewLookingAt(pivot(v), v.altKm, v.pitch, v.heading + dDeg, minKm);
+export function rotateView(v: ViewState, dDeg: number, minKm = MIN_ALTITUDE_KM, groundKm = 0): ViewState {
+  return viewLookingAt(pivot(v, groundKm), v.altKm, v.pitch, v.heading + dDeg, minKm, groundKm);
 }
 
 /** Zoom by a factor of the altitude, keeping the point in view where it is. */
-export function zoomView(v: ViewState, factor: number, minKm = MIN_ALTITUDE_KM): ViewState {
+export function zoomView(v: ViewState, factor: number, minKm = MIN_ALTITUDE_KM, groundKm = 0): ViewState {
   const alt = clampAltitude(v.altKm * factor, minKm);
   if (!(v.pitch > 0)) return normaliseView({ ...v, altKm: alt }, minKm);
-  return viewLookingAt(pivot(v), alt, Math.min(v.pitch, maxPitchDeg(alt, minKm)), v.heading, minKm);
+  return viewLookingAt(pivot(v, groundKm), alt, Math.min(v.pitch, maxPitchDeg(alt, minKm)), v.heading, minKm, groundKm);
 }
 
 /** Drag by (dx, dy) pixels: the ground follows the pointer in the turned, tilted view. */
@@ -188,4 +207,39 @@ export function viewFlyDurationMs(a: ViewState, b: ViewState, reducedMotion: boo
   const turn = Math.abs(b.pitch - a.pitch) + Math.abs(wrapLongitude(b.heading - a.heading));
   if (d === 0 && turn > 0.5) return Math.round(600 + 900 * Math.min(1, turn / 180));
   return d;
+}
+
+/** Whether the sight line from the camera to the point in view clears the terrain. */
+function sightClear(v: ViewState, groundAt: (lat: number, lon: number) => number): boolean {
+  const sea = lookTarget(v);
+  if (!sea) return true;
+  const g = pivotGround(v.altKm, groundAt(sea.lat, sea.lon));
+  const at = lookTarget(v, g) ?? sea;
+  const p = toXyz(v.lat, v.lon, v.altKm);
+  const t = toXyz(at.lat, at.lon, g);
+  const SAMPLES = 24;
+  for (let i = 1; i < SAMPLES; i++) {
+    const f = i / SAMPLES;
+    const s = fromXyz({ x: p.x + (t.x - p.x) * f, y: p.y + (t.y - p.y) * f, z: p.z + (t.z - p.z) * f });
+    // The clearance tapers to nothing at the target, which sits on the ground.
+    if (groundAt(s.lat, s.lon) + TERRAIN_CLEARANCE_KM * (1 - f) > s.altKm) return false;
+  }
+  return true;
+}
+
+/**
+ * The most the camera may tilt where it stands without its line of sight to the point
+ * in view dropping below the terrain: a hill between them tips the view down to look
+ * over it. `groundAt` gives the terrain under a point, km times HEIGHTS. Straight down
+ * nothing is in the way.
+ */
+export function sightPitchLimitDeg(v: ViewState, groundAt: (lat: number, lon: number) => number): number {
+  if (!(v.pitch > 0) || sightClear(v, groundAt)) return v.pitch;
+  let lo = 0, hi = v.pitch;
+  for (let i = 0; i < 14; i++) {
+    const mid = (lo + hi) / 2;
+    if (sightClear({ ...v, pitch: mid }, groundAt)) lo = mid;
+    else hi = mid;
+  }
+  return lo;
 }

@@ -25,6 +25,8 @@ export interface GlobeTileLayer {
   readonly object: THREE.Object3D;
   /** Online and drawing tiles; false falls the globe back to its own sphere. */
   readonly active: boolean;
+  /** The tile hosts answer, whether or not any tile is drawn yet. */
+  readonly online: boolean;
   /** Picks, fetches and swaps tiles for this camera; called once a frame. */
   update(camera: CameraState, viewportPx: number, aspect: number): void;
   /** The ground under a point, km above sea level times HEIGHTS; null when not loaded. */

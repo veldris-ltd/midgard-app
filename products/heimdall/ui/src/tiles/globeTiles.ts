@@ -145,6 +145,10 @@ export class GlobeTiles implements GlobeTileLayer {
     return this.loader.state === 'online' && this.drawn.size > 0;
   }
 
+  get online(): boolean {
+    return this.loader.state === 'online';
+  }
+
   get state(): LoaderState {
     return this.loader.state;
   }

@@ -76,7 +76,9 @@ export default function GlobeView({ tracks, layerOn, selectedId, onSelect }: Glo
   const mode = useResolvedMode();
   const summaryId = React.useId();
 
-  const regions = React.useMemo(() => buildRegions(tracks), [tracks]);
+  // The close, tilted relief views only while the terrain tiles are drawn.
+  const closeUps = __HEIMDALL_TILES__ && tileState === 'online';
+  const regions = React.useMemo(() => buildRegions(tracks, closeUps), [tracks, closeUps]);
   const sector = regions[regions.length - 1];
   const items = React.useMemo(() => tracksToGlobeItems(tracks, layerOn, heights), [tracks, layerOn, heights]);
   const listed = tracks.filter((t) => layerOn(t.layer));

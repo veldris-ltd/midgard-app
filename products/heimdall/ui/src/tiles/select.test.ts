@@ -88,3 +88,30 @@ test('the maximum zoom caps detail', () => {
   assert.ok(draw.every((t) => t.z <= 9));
   assert.ok(draw.some((t) => t.z === 9));
 });
+
+test('tilted, the tiles follow the view out towards the horizon and not behind the camera', async () => {
+  const { lookTarget, viewLookingAt } = await import('../globe/view.ts');
+  const { tileXToLon, tileYToLat } = await import('./tileMath.ts');
+  // Snowdonia from the north, looking south at 65°, 12 km up.
+  const cam = viewLookingAt({ lat: 53.07, lon: -4.08 }, 12, 65, 180, 1.5);
+  const { draw } = selectGlobeTiles(cam, OPTS, all);
+  assert.ok(draw.length > 0 && draw.length <= OPTS.budget);
+  assert.ok(disjoint(draw));
+  const target = lookTarget(cam)!;
+  const atTarget = draw.find((t) => {
+    const b = tileBounds(t);
+    return target.lat <= b.north && target.lat >= b.south && target.lon >= b.west && target.lon <= b.east;
+  });
+  assert.ok(atTarget && atTarget.z >= 10, `the point in view is drawn in detail: ${atTarget?.z}`);
+  // Looking south: nothing well north of the camera is drawn.
+  const centres = draw.map((t) => ({ lat: tileYToLat(t.y + 0.5, t.z), lon: tileXToLon(t.x + 0.5, t.z), z: t.z }));
+  assert.ok(centres.every((c) => c.lat < cam.lat + 1), 'tiles behind the camera');
+  // ...while ground ahead, past the top-down footprint, is.
+  assert.ok(centres.some((c) => c.lat < target.lat - 0.3), 'ground towards the horizon');
+});
+
+test('straight down, a tilt-aware camera selects as before', () => {
+  const plain = selectGlobeTiles({ lat: 56.8, lon: -5.0, altKm: 5 }, OPTS, all);
+  const flat = selectGlobeTiles({ lat: 56.8, lon: -5.0, altKm: 5, pitch: 0, heading: 0 }, OPTS, all);
+  assert.deepEqual(flat.draw.map(tileKey).sort(), plain.draw.map(tileKey).sort());
+});

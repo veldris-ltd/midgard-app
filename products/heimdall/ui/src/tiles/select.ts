@@ -6,8 +6,11 @@
  * of the visible children are ready, so the picture never has holes; until then the
  * parent is drawn and the children are wanted. The budget caps what is drawn plus
  * what is wanted, so detail is fetched only for the area in view, and only so much
- * of it. Pure. */
-import { EARTH_RADIUS_KM, angularDistanceDeg } from '../globe/projection.ts';
+ * of it. A tilted camera sees ground out towards the horizon in front of it, so then a
+ * tile must also lie inside the view's cone, and nothing behind the camera is drawn.
+ * Pure. */
+import { EARTH_RADIUS_KM, angularDistanceDeg, toXyz } from '../globe/projection.ts';
+import { viewFrame } from '../globe/view.ts';
 import { EQUATOR_KM, type Tile, children, tileBounds, tileXToLon, tileYToLat } from './tileMath.ts';
 
 export interface SelectOptions {
@@ -51,6 +54,8 @@ interface Node {
   /** Angle from the camera's ground point to the tile's centre, and the tile's radius. */
   centreDeg: number;
   radiusDeg: number;
+  /** The tile's centre on the unit globe. */
+  centre: { x: number; y: number; z: number };
 }
 
 function node(t: Tile, cam: { lat: number; lon: number }): Node {
@@ -64,21 +69,36 @@ function node(t: Tile, cam: { lat: number; lon: number }): Node {
     { lat: c.lat, lon: b.west }, { lat: c.lat, lon: b.east },
   ];
   const radiusDeg = Math.max(...edge.map((p) => angularDistanceDeg(c, p)));
-  return { t, centreDeg: angularDistanceDeg(cam, c), radiusDeg };
+  return { t, centreDeg: angularDistanceDeg(cam, c), radiusDeg, centre: toXyz(c.lat, c.lon) };
 }
 
 export function selectGlobeTiles(
-  cam: { lat: number; lon: number; altKm: number },
+  cam: { lat: number; lon: number; altKm: number; pitch?: number; heading?: number },
   o: SelectOptions,
   ready: (t: Tile) => boolean,
 ): Selection {
   const tilePx = o.tilePx ?? 256;
   const texelPx = o.texelPx ?? 1;
-  const view = groundViewAngleDeg(cam.altKm, o.fovDeg, o.aspect);
   const d = 1 + cam.altKm / EARTH_RADIUS_KM;
+  const tilted = (cam.pitch ?? 0) > 0;
+  // Straight down the footprint bounds the ground in view; tilted, the horizon does,
+  // and the view's cone (half its diagonal, plus a margin) picks the side in front.
+  const view = tilted ? Math.acos(1 / d) / RAD : groundViewAngleDeg(cam.altKm, o.fovDeg, o.aspect);
   const kmPerPxPerKm = (2 * Math.tan((o.fovDeg * RAD) / 2)) / Math.max(1, o.viewportPx);
+  const frame = tilted ? viewFrame({ lat: cam.lat, lon: cam.lon, altKm: cam.altKm, pitch: cam.pitch ?? 0, heading: cam.heading ?? 0 }) : null;
+  const halfDiag = Math.atan(Math.tan((o.fovDeg * RAD) / 2) * Math.sqrt(1 + o.aspect * o.aspect)) + 2 * RAD;
+  const inCone = (n: Node) => {
+    if (!frame) return true;
+    const p = frame.position, f = frame.forward;
+    const vx = n.centre.x - p.x, vy = n.centre.y - p.y, vz = n.centre.z - p.z;
+    const dist = Math.hypot(vx, vy, vz);
+    const r = n.radiusDeg * RAD;
+    if (dist <= r) return true;
+    const angle = Math.acos(Math.max(-1, Math.min(1, (vx * f.x + vy * f.y + vz * f.z) / dist)));
+    return angle - Math.asin(Math.min(1, r / dist)) < halfDiag;
+  };
 
-  const visible = (n: Node) => n.centreDeg - n.radiusDeg < view;
+  const visible = (n: Node) => n.centreDeg - n.radiusDeg < view && inCone(n);
   const wantsSplit = (n: Node) => {
     if (n.t.z >= o.maxZoom) return false;
     const a = Math.max(0, n.centreDeg - n.radiusDeg) * RAD;

@@ -87,3 +87,19 @@ test('describeCamera reads well aloud, with the tilt and heading', () => {
   const channel = regions.find((r) => r.id === 'channel')!.camera;
   assert.match(describeCamera(channel, regions), /^Camera 350 km above .*, tilted 55°, heading 075°, looking towards CHANNEL\.$/);
 });
+
+test('with map tiles, the REGION list adds close, tilted views of relief: SNOWDONIA and SOUTHERN UPLANDS', async () => {
+  const { CLOSE_UP_ALTITUDE_KM } = await import('./camera.ts');
+  const { CLOSE_UP_PRESETS } = await import('./presets.ts');
+  assert.deepEqual(buildRegions(TRACKS).map((r) => r.label), ['WORLD', 'UK & IRELAND', 'NORTH SEA', 'CHANNEL', 'SECTOR NORTH']);
+  const withTiles = buildRegions(TRACKS, true).map((r) => r.label);
+  assert.deepEqual(withTiles, ['WORLD', 'UK & IRELAND', 'NORTH SEA', 'CHANNEL', 'SNOWDONIA', 'SOUTHERN UPLANDS', 'SECTOR NORTH']);
+  for (const r of CLOSE_UP_PRESETS) {
+    assert.ok(r.camera.altKm >= CLOSE_UP_ALTITUDE_KM && r.camera.altKm < 50, `${r.label}: ${r.camera.altKm}`);
+    assert.ok(r.camera.pitch >= 45 && r.camera.pitch <= 60 && r.camera.pitch <= maxPitchDeg(r.camera.altKm, CLOSE_UP_ALTITUDE_KM));
+    const t = lookTarget(r.camera)!;
+    const b = r.bounds!;
+    assert.ok(t.lat > b.south && t.lat < b.north && t.lon > b.west && t.lon < b.east, `${r.label}: ${t.lat}, ${t.lon}`);
+  }
+  assert.equal(regionAt(53.07, -4.08, buildRegions(TRACKS, true))?.label, 'SNOWDONIA');
+});

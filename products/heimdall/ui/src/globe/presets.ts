@@ -5,7 +5,7 @@
  * positioned tracks of the picture, so it frames whatever the console is showing.
  * WORLD looks straight down; the others open tilted 45–60°, so the curve of the
  * Earth, the horizon and the atmosphere show. */
-import { CAMERA_FOV_DEG, clampAltitude } from './camera.ts';
+import { CAMERA_FOV_DEG, CLOSE_UP_ALTITUDE_KM, clampAltitude } from './camera.ts';
 import { EARTH_RADIUS_KM } from './projection.ts';
 import { type ViewState, lookTarget, viewLookingAt } from './view.ts';
 
@@ -49,6 +49,27 @@ export const PRESETS: readonly Region[] = [
   },
 ];
 
+/**
+ * Close, tilted views of relief, listed only while map tiles are drawn: the terrain
+ * reads there at 12–15 km. Without tiles the camera's 50 km floor would flatten them.
+ */
+export const CLOSE_UP_PRESETS: readonly Region[] = [
+  {
+    id: 'snowdonia',
+    label: 'SNOWDONIA',
+    // Yr Wyddfa from the north-east, up the Llanberis pass.
+    camera: viewLookingAt({ lat: 53.068, lon: -4.076 }, 12, 60, 215, CLOSE_UP_ALTITUDE_KM),
+    bounds: { south: 52.8, north: 53.25, west: -4.35, east: -3.7 },
+  },
+  {
+    id: 'southern-uplands',
+    label: 'SOUTHERN UPLANDS',
+    // The Moffat hills from the south-west, past the Devil's Beef Tub.
+    camera: viewLookingAt({ lat: 55.42, lon: -3.38 }, 15, 58, 40, CLOSE_UP_ALTITUDE_KM),
+    bounds: { south: 55.1, north: 55.9, west: -4.6, east: -2.3 },
+  },
+];
+
 const SECTOR_NORTH_FALLBACK: Region = {
   id: 'sector-north',
   label: 'SECTOR NORTH',
@@ -77,9 +98,9 @@ export function sectorNorth(tracks: readonly { lat?: number; lon?: number }[]): 
   return { id: 'sector-north', label: 'SECTOR NORTH', camera, bounds: { south, north, west, east } };
 }
 
-/** The REGION list: the fixed presets, then SECTOR NORTH. */
-export function buildRegions(tracks: readonly { lat?: number; lon?: number }[]): Region[] {
-  return [...PRESETS, sectorNorth(tracks)];
+/** The REGION list: the fixed presets, the close-ups while tiles are drawn, then SECTOR NORTH. */
+export function buildRegions(tracks: readonly { lat?: number; lon?: number }[], closeUps = false): Region[] {
+  return [...PRESETS, ...(closeUps ? CLOSE_UP_PRESETS : []), sectorNorth(tracks)];
 }
 
 function contains(b: Bounds, lat: number, lon: number): boolean {

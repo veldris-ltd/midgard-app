@@ -156,3 +156,42 @@ test('tilted to the limit, the point in view and the horizon stay inside the far
     assert.ok(horizon < far);
   }
 });
+
+test('over terrain the pivot is on the ground, not under it, and the camera stays above its own ground', () => {
+  // A 4 km-high point (1 km of hill at HEIGHTS x4), seen from 6 km at 60°, as in a close-up.
+  const ground = 4;
+  const v = viewLookingAt({ lat: 53.07, lon: -4.08 }, 6, 60, 200, 1.5, ground);
+  const t = lookTarget(v, ground)!;
+  close(t.lat, 53.07, 1e-6, 'lat');
+  close(t.lon, -4.08, 1e-6, 'lon');
+  // On the sea-level sphere the same ray lands farther on, under the hill.
+  const sea = lookTarget(v)!;
+  assert.ok(Math.abs(sea.lat - 53.07) + Math.abs(sea.lon + 4.08) > 1e-3);
+  const turned = rotateView(v, 40, 1.5, ground);
+  close(lookTarget(turned, ground)!.lat, 53.07, 1e-6);
+  close(lookTarget(turned, ground)!.lon, -4.08, 1e-6);
+  close(turned.altKm, 6, 1e-9);
+  const tilted = tiltView(v, -20, 1.5, ground);
+  close(lookTarget(tilted, ground)!.lat, 53.07, 1e-6);
+  close(tilted.altKm, 6, 1e-9);
+  const z = zoomView(v, 0.5, 1.5, ground);
+  close(lookTarget(z, ground)!.lat, 53.07, 1e-6);
+  // A pivot as high as the camera is held below it, so the ray still meets the ground ahead.
+  const high = viewLookingAt({ lat: 53.07, lon: -4.08 }, 3, 60, 0, 1.5, 10);
+  assert.ok(lookTarget(high, 10 * 0.8 > 3 ? 3 * 0.8 : 10));
+});
+
+test('the look direction never drops below the terrain: a ridge in the way tips the view down over it', async () => {
+  const { sightPitchLimitDeg } = await import('./view.ts');
+  const v = viewLookingAt({ lat: 53.07, lon: -4.08 }, 3, 68, 180, 1.5);
+  assert.equal(sightPitchLimitDeg(v, () => 0), 68);
+  // A 5 km ridge (HEIGHTS included) halfway to the point in view, across the view.
+  const ridgeLat = (v.lat + 53.07) / 2;
+  const ridge = (lat: number) => (Math.abs(lat - ridgeLat) < 0.02 ? 5 : 0);
+  const limit = sightPitchLimitDeg(v, ridge);
+  assert.ok(limit < 68 && limit > 0, `${limit}`);
+  // At the limit the sight line clears it; any more tilt and it does not.
+  assert.equal(sightPitchLimitDeg({ ...v, pitch: limit }, ridge), limit);
+  assert.ok(sightPitchLimitDeg({ ...v, pitch: limit + 2 }, ridge) < limit + 2);
+  assert.equal(sightPitchLimitDeg({ ...v, pitch: 0 }, ridge), 0);
+});
