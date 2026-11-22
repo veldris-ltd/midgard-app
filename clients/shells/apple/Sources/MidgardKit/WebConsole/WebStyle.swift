@@ -36,6 +36,18 @@ public enum MGWeb {
     public static let warnText = Color(mgLight: (MGToken.ToneText.warnLight, 1), dark: (MGToken.warn, 1))
     public static let secureText = Color(mgLight: (MGToken.ToneText.secureLight, 1), dark: (MGToken.secure, 1))
     public static let infoText = Color(mgLight: (MGToken.ToneText.infoLight, 1), dark: (MGToken.ToneText.infoDark, 1))
+
+    /// Whether the picture's smallest readouts (scale, ring and focus labels) are
+    /// decoration, spoken through the picture's own label. On the Mac they stay at the
+    /// web's 7–9 pt, below what the contrast audit reads; on the iPhone they are 11 pt
+    /// and readable, and the audit expects visible text to be accessible.
+    public static let readoutsDecorative: Bool = {
+        #if os(macOS)
+        return true
+        #else
+        return false
+        #endif
+    }()
 }
 
 /// One product's accent scope (`.theme-<product>`). [DD-7]
@@ -71,8 +83,13 @@ public enum MGWebFont {
         .custom(MGFonts.sansFamily, size: size, relativeTo: style)
     }
 
+    /// On iOS no smaller than 11 pt at the default text size: the web's 8–9 px mono labels
+    /// are below what the iPhone's contrast audit reads.
     public static func mono(_ size: CGFloat, _ style: Font.TextStyle = .caption2) -> Font {
-        .custom(MGFonts.monoFamily, size: size, relativeTo: style)
+        #if os(iOS)
+        let size = max(size, 11)
+        #endif
+        return .custom(MGFonts.monoFamily, size: size, relativeTo: style)
     }
 }
 
