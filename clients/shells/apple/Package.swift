@@ -20,8 +20,10 @@ let package = Package(
         // The 3D editions' library (Task B7, owner decision 22 Nov 2026): linked only by
         // the 3D and maps apps (MidgardMac3D, MidgardiOS3D, MidgardMacMaps,
         // MidgardiOSMaps), never by the release apps
-        // (tools/check-edition.sh). Linked in, it registers its Heimdall "3D" view at link
-        // time: its strong `midgard_heimdall_3d_hook` replaces MidgardHooks' weak default.
+        // (tools/check-edition.sh). It holds everything an edition shows (banner, About,
+        // Heimdall's 3D view) and registers it at link time as MidgardKit's
+        // EditionProvider: its strong `midgard_edition_hook` replaces MidgardHooks' weak
+        // default.
         .library(name: "MidgardGlobeKit", targets: ["MidgardGlobeKit"]),
     ],
     targets: [

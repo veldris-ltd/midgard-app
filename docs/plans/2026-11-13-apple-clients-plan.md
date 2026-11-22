@@ -6969,3 +6969,21 @@ above.
    `apple-midgard3dmaps-v0.1.0-rc.3`.
 
 **Superseded:** any earlier mention in this plan of porting from a work branch.
+
+## B7 review notes (22 Nov 2026)
+
+- **Edition code stays out of the release apps.** Everything an edition shows (banner,
+  About, Heimdall's 3D view, the signed tag and commit) lives in `MidgardGlobeKit`, which
+  only the 3D and Maps apps link, and reaches MidgardKit through the link-time hook
+  `midgard_edition_hook` as an `EditionProvider`. The release apps keep only the silent
+  `MidgardEdition` read and the weak hook, which returns nothing.
+- **B4 and B5 run `check-edition.sh` on the signed Release archives**, not only on Debug
+  builds: `check-edition.sh --release <archive app> --3d <app> --maps <app>` for each
+  platform, before notarisation or upload. Release builds strip local symbols, so the
+  hook rule may find no symbol at all there; that is accepted for release apps (weak or
+  absent) and must still find the strong hook in the 3D and Maps apps.
+- **I2, the tile loader, is its own module, `MidgardTileKit`, linked only by the Maps
+  apps.** `check-edition.sh` already refuses, in release and 3D apps on both platforms,
+  any `MidgardTileKit` symbol and the Info.plist keys `NSAppTransportSecurity`,
+  `NSLocalNetworkUsageDescription` and `NSBonjourServices`; I2 must keep those out of
+  them and add no ATS exception to the Maps apps beyond what the four tile hosts need.

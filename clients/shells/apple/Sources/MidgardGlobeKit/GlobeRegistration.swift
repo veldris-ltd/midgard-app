@@ -1,27 +1,46 @@
 import MidgardKit
 import SwiftUI
 
-/// The 3D editions' Heimdall view (Task B7; the globe itself is Phase I). Linked only by
-/// the 3D and maps apps (MidgardMac3D, MidgardiOS3D, MidgardMacMaps, MidgardiOSMaps):
-/// tools/check-edition.sh fails a release app whose binary or bundle carries any of this
-/// library. [FR-C-1]
-public final class GlobeRegistration: HeimdallThreeDView {
-    /// Lives for the whole process: the hook hands out an unretained pointer to it.
+/// Heimdall's 3D view in the 3D and maps editions (Task B7; the globe itself is Phase I).
+/// [FR-C-1]
+public final class GlobeRegistration: HeimdallThreeDProvider {
     public static let shared = GlobeRegistration()
 
     public let title = "3D view"
 
     private init() {}
 
+    @MainActor public func makeEntry(showing: Binding<Bool>) -> AnyView {
+        AnyView(ThreeDEntryButton(title: title, showing: showing))
+    }
+
     @MainActor public func makeView() -> AnyView { AnyView(GlobePlaceholderView()) }
 }
 
-/// The link-time registration: the strong definition of MidgardHooks'
-/// `midgard_heimdall_3d_hook`, whose weak default returns nothing. Linking this library
-/// is what registers it; nothing calls a register function at launch.
-@_cdecl("midgard_heimdall_3d_hook")
-public func midgardHeimdall3DHook() -> UnsafeRawPointer? {
-    UnsafeRawPointer(Unmanaged.passUnretained(GlobeRegistration.shared).toOpaque())
+/// Heimdall's "3D view" entry: opens the 3D view (the Mac's detail column, a pushed
+/// screen on the iPhone), and on the Mac closes it again.
+struct ThreeDEntryButton: View {
+    let title: String
+    @Binding var showing: Bool
+
+    var body: some View {
+        #if os(iOS)
+        Button {
+            showing = true
+        } label: {
+            Text("Open \(title)")
+                .font(MGFonts.sans(.body))
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .accessibilityIdentifier("mg.heimdall.3d")
+        #else
+        Button(showing ? "Close \(title)" : "Open \(title)") { showing.toggle() }
+            .font(MGFonts.sans(.body))
+            .frame(minHeight: 44)
+            .accessibilityIdentifier("mg.heimdall.3d")
+        #endif
+    }
 }
 
 /// Until Phase I: a placeholder that says what will be there.

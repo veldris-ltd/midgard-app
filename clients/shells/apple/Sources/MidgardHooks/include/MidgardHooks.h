@@ -6,8 +6,9 @@
 #ifndef MIDGARD_HOOKS_H
 #define MIDGARD_HOOKS_H
 
-/// Heimdall's 3D view: NULL here; the 3D edition's library returns an unretained
-/// pointer to its registration object, which lives for the whole process.
-const void *_Nullable midgard_heimdall_3d_hook(void);
+/// The edition provider (banner, About, Heimdall's 3D view): NULL here, so a release
+/// app has none; the 3D editions' library returns an unretained pointer to its provider,
+/// which lives for the whole process.
+const void *_Nullable midgard_edition_hook(void);
 
 #endif
