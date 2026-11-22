@@ -6791,16 +6791,18 @@ that final step only; until then, nothing is pushed.
 | Tag | Message names |
 |---|---|
 | `apple-midgard-v0.1.0-rc.3` | Midgard, the release edition; macOS and iOS; built from the signed `v0.1.0-rc.3` (`ea5899ab`); no data source |
-| `apple-midgard3d-v0.1.0-rc.3` | Midgard 3D; macOS and iOS; the same release plus the Heimdall globe ported from `md_mixedfeeds_3d`; online tiles |
+| `apple-midgard3d-v0.1.0-rc.3` | Midgard 3D at Task I1; macOS and iOS; the same release plus the Heimdall globe ported from `md_mixedfeeds_3d`; no tiles and no network use |
+| `apple-midgard3dmaps-v0.1.0-rc.3` | Midgard 3D at Task I2; macOS and iOS; the I1 globe plus online map tiles (EOX imagery, Mapzen and Environment Agency terrain, VersaTiles) |
 
-Each tag points at the commit where both platforms of that edition pass `audit.sh`
-and `check-edition.sh`.
+Each tag points at the commit where both platforms of that stage pass `audit.sh` and
+`check-edition.sh`. The 3D tag is on the I1 commit and the maps tag on the I2 commit, so
+the globe without tiles stays checkable on its own.
 
 **How the push is done:**
 - The checkout's push URL stays blocked. The push names the repository URL and the
   three branches and two tags explicitly, so no other branch can go with it.
 - Before pushing:
-  - verify every commit's signature with `git log --format=%G?`, and both tags with
+  - verify every commit's signature with `git log --format=%G?`, and all three tags with
     `git verify-tag`;
   - confirm that no commit message mentions an AI tool;
   - run gitleaks over the range;
