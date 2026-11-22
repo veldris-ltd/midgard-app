@@ -102,9 +102,16 @@ public struct HeimdallPictureCanvas: View {
                     trackButton(track)
                         .position(x: size.width * track.x / 100, y: size.height * track.y / 100)
                 }
-                if let id = model.hovered, let t = model.visibleTracks.first(where: { $0.id == id }) {
-                    hoverCard(t, in: size)
-                }
+                // In an overlay, so the card never changes the picture's layout: a card
+                // that moved the tracks would move them out from under the pointer.
+                Color.clear
+                    .frame(width: size.width, height: size.height)
+                    .allowsHitTesting(false)
+                    .overlay(alignment: .topLeading) {
+                        if let id = model.hovered, let t = model.visibleTracks.first(where: { $0.id == id }) {
+                            hoverCard(t, in: size)
+                        }
+                    }
                 if showsFooter {
                     HeimdallStatsFooter()
                         .padding(.horizontal, 12)
