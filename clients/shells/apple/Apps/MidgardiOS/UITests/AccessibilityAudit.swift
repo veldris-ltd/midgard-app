@@ -26,7 +26,13 @@ final class AccessibilityAudit: AccessibilityAuditBase {
         let yourData: (XCUIApplication) -> Void = { app in
             AppNavigation.signIn(app)
             if !app.descendants(matching: .any)["mg.yourdata"].exists {
-                AppNavigation.sessionMenu(app, "mg.session.yourdata")
+                // At accessibility text sizes the menu scrolls: Your data is further down.
+                app.buttons["mg.0.session-menu"].firstMatch.tap()
+                let item = app.buttons["mg.session.yourdata"]
+                for _ in 0..<4 where !item.waitForExistence(timeout: 2) {
+                    app.collectionViews.firstMatch.swipeUp()
+                }
+                item.tap()
             }
             XCTAssertTrue(app.descendants(matching: .any)["mg.yourdata"].waitForExistence(timeout: AppNavigation.timeout),
                           "Your Data did not open")

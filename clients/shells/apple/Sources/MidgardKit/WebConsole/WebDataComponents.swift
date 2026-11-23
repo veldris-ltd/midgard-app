@@ -987,12 +987,14 @@ struct WholeElement: ViewModifier {
     let identifier: String
     let action: (() -> Void)?
 
+    /// The drawn area's accessibility is replaced, not hidden (`accessibilityRepresentation`):
+    /// hidden texts inside a wrapping list row were still reported to XCUITest (Phase E's
+    /// first audit pass measured them where the console bar cut a row).
     func body(content: Content) -> some View {
         content
-            .accessibilityHidden(true)
-            .overlay {
+            .modifier(Tappable(action))
+            .accessibilityRepresentation {
                 Color.clear
-                    .modifier(Tappable(action))
                     .accessibilityElement()
                     .accessibilityLabel(Text(label))
                     .accessibilityAddTraits(traits)

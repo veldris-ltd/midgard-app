@@ -78,8 +78,19 @@ struct HeimdallWorkflowsScreen: View {
 
     @ViewBuilder private var aside: some View {
         if let w = model.current {
-            WebInspectorTitle(symbol: "arrow.triangle.branch", title: w.title, mono: false, accent: ctx.accent,
-                              identifier: "mg.heimdall.inspector.title") { EmptyView() }
+            // The web's 15 px title, wrapping in the rail (a long action is two lines).
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Image(systemName: "arrow.triangle.branch").font(MGWebFont.sans(16)).foregroundStyle(ctx.accent.text)
+                    .accessibilityHidden(true)
+                Text(w.title)
+                    .font(MGWebFont.sans(15).weight(.semibold))
+                    .foregroundStyle(MGWeb.textHeading)
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier("mg.heimdall.inspector.title")
+                Spacer(minLength: 0)
+            }
             VStack(alignment: .leading, spacing: 0) {
                 WebLabel("STAGES").padding(.bottom, 8)
                 ForEach(Array(model.stages(w).enumerated()), id: \.offset) { i, stage in

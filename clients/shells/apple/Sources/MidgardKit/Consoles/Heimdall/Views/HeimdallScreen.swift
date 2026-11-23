@@ -111,11 +111,21 @@ public struct HeimdallToolbarItem: View {
     }
 
     private var awaiting: Int { toolbar.awaiting }
+    @Environment(\.dynamicTypeSize) private var typeSize
+    /// At accessibility text sizes the iPhone's header has the room of one line: the
+    /// disabled buttons, which do nothing, give way, and the badge is shortened.
+    private var large: Bool { typeSize.isAccessibilitySize }
 
     public var body: some View {
         switch screen {
         case "Entities":
             EmptyView()
+        case let s where large && ["Feeds", "Picture Sync", "Decision Lineage"].contains(s):
+            EmptyView()
+        case "Workflows" where large:
+            WebBadge("\(awaiting) AWAITING", tone: .warn)
+                .accessibilityLabel(Text("\(awaiting) awaiting authorisation"))
+                .accessibilityIdentifier("mg.heimdall.toolbar.awaiting")
         case "Feeds":
             WebButton("Register feed", symbol: WebIcon.symbol("plus"), size: .sm,
                       disabledReason: "Not available in this app: feeds are registered with the enclosure. Your own feeds are added in Your Data, unverified.",
