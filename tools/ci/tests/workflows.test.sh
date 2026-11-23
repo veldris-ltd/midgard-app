@@ -81,6 +81,17 @@ for job in preflight release; do
         fail "GitHub: the $job job runs in the release environment"
 done
 
+# The advisory refresh's write token reaches only the step that pushes and opens the
+# pull request, not the toolchain build or any other step. [AC-P4.5]
+# (VLD-ANB-MIDGARD-0076)
+token_steps="$(tr -d '\r' < "$workflows/advisory-refresh.yml" | awk '
+    /^      - / { step = $0; sub(/^      - (run: *)?/, "", step) }
+    /^    steps:$/ { in_steps = 1 }
+    /github\.token|secrets\./ { print (in_steps && step != "" ? step : "outside a step") }')"
+[ "$token_steps" = "bash tools/ci/run.sh advisory-refresh" ] &&
+    pass "GitHub: the advisory refresh's token reaches the advisory-refresh step alone" ||
+    fail "GitHub: the advisory refresh's token reaches the advisory-refresh step alone; it reaches:"$'\n'"$token_steps"
+
 # Every job that runs a target which opens a keystore is handed both passphrase files,
 # from the runner secrets docs/ops/PKI.md names; without them the keystores do not open
 # and a tagged release stops at its preflight. On GitHub each such job maps them in its

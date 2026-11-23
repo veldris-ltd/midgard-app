@@ -94,6 +94,8 @@ pushed() { grep -q "^push $REG/toolchain:$KEY$" "$DOCKER_LOG" 2>/dev/null; }
 digest_file "sha256:$D1"
 expect_fail "a pushed digest that differs from the committed one fails, naming the file" \
     "commit the new digest to tools/ci/toolchain.digest" -- toolchain-publish STUB_DIGEST="sha256:$D2"
+expect_fail "the failing job prints the line .gitlab-ci.yml must declare too" \
+    "  MIDGARD_TOOLCHAIN_DIGEST: \"sha256:$D2\"" -- toolchain-publish STUB_DIGEST="sha256:$D2"
 if pushed && grep -q "sha256:$D2" <<<"$(job toolchain-publish STUB_DIGEST="sha256:$D2")"; then
     pass "the failing job pushed the image and printed its digest"
 else

@@ -76,7 +76,8 @@ default-deny, egress-denied, PQ-mTLS on every internal hop. [NFR-AVA-1] [NFR-PRV
   etcd encrypted at rest), the Secrets Store CSI driver, or external-secrets; see
   [helm/midgard/README.md](helm/midgard/README.md).
 - **`k8s/enclosure.yaml`** — the chart rendered for a development cluster
-  (`helm template` with `image.allowTag=true`), for `kubectl apply` without Helm.
+  (`helm template` with `image.allowTag=true`, until releases publish digests, and
+  `secrets.provider=csi`), for `kubectl apply` without Helm.
   Generated: regenerate it when the chart changes.
 - **`acceptance/`** — the offline acceptance harness (`run-airgapped.sh`, the
   `verify-*.sh` suites, and the pinned toolchain `Dockerfile`).

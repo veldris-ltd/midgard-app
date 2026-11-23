@@ -2,7 +2,9 @@
 # The CI tooling never runs a package fetched by name at run time: no `npx --yes`, no
 # `npx -y`, and no `npx <name>` without an exact `@<version>` unless `--no-install`
 # forbids the fetch. Scans tools/, .github/ and .gitlab-ci.yml. [VLD-ANB-MIDGARD-0058]
-# [AC-68.2]
+# [AC-68.2] Nor does it run a dependency's lifecycle scripts: every `pnpm install` it
+# runs passes --ignore-scripts, so an install on the signing runner executes nothing it
+# fetched.
 #
 #   bash tools/ci/tests/npx-pin.test.sh
 set -uo pipefail
@@ -86,6 +88,18 @@ elif out="$(lint "${files[@]}")"; then
 else
     fail "the repository runs an unpinned npx:"
     echo "$out"
+fi
+
+# --- installs run no lifecycle scripts -------------------------------------------------
+installs="$(cd "$repo" && grep -rInE --exclude-dir=node_modules     '^[[:space:]]*(- )?(run: *)?pnpm (install|i)([[:space:]]|$)' tools .github .gitlab-ci.yml 2>/dev/null)"
+unscripted="$(grep -v -e '--ignore-scripts' <<<"$installs")"
+if [ -z "$installs" ]; then
+    fail "the scan finds the js-build job's pnpm install"
+elif [ -z "$unscripted" ]; then
+    pass "every pnpm install the CI runs passes --ignore-scripts ($(wc -l <<<"$installs") found)"
+else
+    fail "a pnpm install runs lifecycle scripts:"$'
+'"$unscripted"
 fi
 
 if [ "$failures" -gt 0 ]; then

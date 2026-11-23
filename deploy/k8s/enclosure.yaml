@@ -1,5 +1,5 @@
 # Midgard enclosure — the Helm chart deploy/helm/midgard rendered with its default
-# values and image.allowTag=true: a default-deny, egress-denied namespace
+# values, image.allowTag=true and secrets.provider=csi: a default-deny, egress-denied namespace
 # (NFR-PRV-1), a resource quota, and one hardened, verify-before-run StatefulSet per
 # service — non-root, read-only rootfs, dropped capabilities, probes, resource limits,
 # its own volume — with per-port ingress and egress NetworkPolicies. [NFR-SEC-1]
@@ -10,13 +10,13 @@
 # is target/release-out/chart/enclosure.yaml, pinned by digest.
 # [VLD-ANB-MIDGARD-0012]
 #
-# Every service expects Secrets "<service>-identity" and
-# "<service>-keystore-passphrase" (and "<service>-seed" where it seeds state) and the
-# forge-jobs ConfigMap to exist; provision them from your key custody. Rendered with
-# secrets.acknowledgeEtcdEncryption=true: apply it only to a cluster whose etcd
-# encrypts Secrets at rest (EncryptionConfiguration with a KMS v2 provider), or render
-# the chart with the csi or externalSecrets provider instead
-# (deploy/helm/midgard/README.md). [VLD-ANB-MIDGARD-0018]
+# Every service mounts its identity, keystore passphrase (and seed where it seeds
+# state) through the Secrets Store CSI driver, from SecretProviderClass objects
+# "<service>-identity", "<service>-keystore-passphrase" and "<service>-seed" that you
+# supply from your key custody, with the forge-jobs ConfigMap; nothing of them is
+# written to etcd. To use Kubernetes Secrets instead, render the chart yourself with
+# secrets.acknowledgeEtcdEncryption=true, and only for a cluster whose etcd encrypts
+# Secrets at rest (deploy/helm/midgard/README.md). [VLD-ANB-MIDGARD-0018]
 # Apply with:  kubectl apply -f deploy/k8s/enclosure.yaml
 #
 # GENERATED — do not edit. Regenerate with:  bash deploy/k8s/render.sh
@@ -583,14 +583,14 @@ spec:
         - name: tmp
           emptyDir: {}
         - name: identity
-          secret: { secretName: http-gateway-identity, defaultMode: 288 }
+          csi: { driver: secrets-store.csi.k8s.io, readOnly: true, volumeAttributes: { secretProviderClass: http-gateway-identity } }
         - name: keystore-passphrase-source
-          secret: { secretName: http-gateway-keystore-passphrase, defaultMode: 288 }
+          csi: { driver: secrets-store.csi.k8s.io, readOnly: true, volumeAttributes: { secretProviderClass: http-gateway-keystore-passphrase } }
         # Memory only, and only the passphrase init container writes it.
         - name: keystore-passphrase
           emptyDir: { medium: Memory, sizeLimit: 1Mi }
         - name: seed
-          secret: { secretName: http-gateway-seed, defaultMode: 288 }
+          csi: { driver: secrets-store.csi.k8s.io, readOnly: true, volumeAttributes: { secretProviderClass: http-gateway-seed } }
         - name: trust
           configMap: { name: midgard-release-trust }
   volumeClaimTemplates:
@@ -742,14 +742,14 @@ spec:
         - name: tmp
           emptyDir: {}
         - name: identity
-          secret: { secretName: mimir-server-identity, defaultMode: 288 }
+          csi: { driver: secrets-store.csi.k8s.io, readOnly: true, volumeAttributes: { secretProviderClass: mimir-server-identity } }
         - name: keystore-passphrase-source
-          secret: { secretName: mimir-server-keystore-passphrase, defaultMode: 288 }
+          csi: { driver: secrets-store.csi.k8s.io, readOnly: true, volumeAttributes: { secretProviderClass: mimir-server-keystore-passphrase } }
         # Memory only, and only the passphrase init container writes it.
         - name: keystore-passphrase
           emptyDir: { medium: Memory, sizeLimit: 1Mi }
         - name: seed
-          secret: { secretName: mimir-server-seed, defaultMode: 288 }
+          csi: { driver: secrets-store.csi.k8s.io, readOnly: true, volumeAttributes: { secretProviderClass: mimir-server-seed } }
         - name: trust
           configMap: { name: midgard-release-trust }
   volumeClaimTemplates:
@@ -901,14 +901,14 @@ spec:
         - name: tmp
           emptyDir: {}
         - name: identity
-          secret: { secretName: bifrost-fleet-identity, defaultMode: 288 }
+          csi: { driver: secrets-store.csi.k8s.io, readOnly: true, volumeAttributes: { secretProviderClass: bifrost-fleet-identity } }
         - name: keystore-passphrase-source
-          secret: { secretName: bifrost-fleet-keystore-passphrase, defaultMode: 288 }
+          csi: { driver: secrets-store.csi.k8s.io, readOnly: true, volumeAttributes: { secretProviderClass: bifrost-fleet-keystore-passphrase } }
         # Memory only, and only the passphrase init container writes it.
         - name: keystore-passphrase
           emptyDir: { medium: Memory, sizeLimit: 1Mi }
         - name: seed
-          secret: { secretName: bifrost-fleet-seed, defaultMode: 288 }
+          csi: { driver: secrets-store.csi.k8s.io, readOnly: true, volumeAttributes: { secretProviderClass: bifrost-fleet-seed } }
         - name: trust
           configMap: { name: midgard-release-trust }
   volumeClaimTemplates:
@@ -1060,14 +1060,14 @@ spec:
         - name: tmp
           emptyDir: {}
         - name: identity
-          secret: { secretName: heimdall-feed-identity, defaultMode: 288 }
+          csi: { driver: secrets-store.csi.k8s.io, readOnly: true, volumeAttributes: { secretProviderClass: heimdall-feed-identity } }
         - name: keystore-passphrase-source
-          secret: { secretName: heimdall-feed-keystore-passphrase, defaultMode: 288 }
+          csi: { driver: secrets-store.csi.k8s.io, readOnly: true, volumeAttributes: { secretProviderClass: heimdall-feed-keystore-passphrase } }
         # Memory only, and only the passphrase init container writes it.
         - name: keystore-passphrase
           emptyDir: { medium: Memory, sizeLimit: 1Mi }
         - name: seed
-          secret: { secretName: heimdall-feed-seed, defaultMode: 288 }
+          csi: { driver: secrets-store.csi.k8s.io, readOnly: true, volumeAttributes: { secretProviderClass: heimdall-feed-seed } }
         - name: trust
           configMap: { name: midgard-release-trust }
   volumeClaimTemplates:
@@ -1191,9 +1191,9 @@ spec:
         - name: tmp
           emptyDir: {}
         - name: identity
-          secret: { secretName: forge-worker-identity, defaultMode: 288 }
+          csi: { driver: secrets-store.csi.k8s.io, readOnly: true, volumeAttributes: { secretProviderClass: forge-worker-identity } }
         - name: keystore-passphrase-source
-          secret: { secretName: forge-worker-keystore-passphrase, defaultMode: 288 }
+          csi: { driver: secrets-store.csi.k8s.io, readOnly: true, volumeAttributes: { secretProviderClass: forge-worker-keystore-passphrase } }
         # Memory only, and only the passphrase init container writes it.
         - name: keystore-passphrase
           emptyDir: { medium: Memory, sizeLimit: 1Mi }

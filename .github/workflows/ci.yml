@@ -43,9 +43,8 @@ jobs:
       - run: bash tools/ci/run.sh provenance
       - run: bash tools/ci/run.sh commits
         env:
-          # Read-only (the workflow's contents: read): GitHub's verdict on a commit
-          # signed by a key it knows but deploy/trust/allowed_signers does not list yet,
-          # and on the merges it signs itself. [VLD-ANB-MIDGARD-0069]
+          # Read-only (the workflow's contents: read): GitHub's verdict on the
+          # merges it signs itself, and on no other commit. [VLD-ANB-MIDGARD-0069]
           GITHUB_TOKEN: ${{ github.token }}
       - run: bash tools/ci/run.sh vendor
       - run: bash tools/ci/run.sh claims

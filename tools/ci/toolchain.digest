@@ -1,11 +1,12 @@
 # The toolchain image GitLab's merge-request jobs run in: the digest of
 # $CI_REGISTRY_IMAGE/toolchain as the toolchain-publish job pushed it, built from
-# deploy/acceptance/Dockerfile. The CI/CD variable MIDGARD_TOOLCHAIN_DIGEST must equal
-# the last line; every .toolchain job checks that first and fails closed when it does
-# not. [VLD-ANB-MIDGARD-0043]
+# deploy/acceptance/Dockerfile. MIDGARD_TOOLCHAIN_DIGEST, declared in .gitlab-ci.yml,
+# must equal the last line (pipelines.test.sh checks); every .toolchain job checks that
+# first and fails closed when it does not. [VLD-ANB-MIDGARD-0043]
 #
 # Not yet published: run toolchain-publish from "Run pipeline" on main (docs/dev/CI.md,
 # "What a GitLab instance needs"), then replace the last two lines with the two it
-# prints. Until then the merge-request jobs on GitLab fail, by design.
+# prints, and MIDGARD_TOOLCHAIN_DIGEST in .gitlab-ci.yml with the line it prints for
+# that. Until then the merge-request jobs on GitLab fail, by design.
 # dockerfile-sha16: none
 unpublished

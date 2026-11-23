@@ -5,10 +5,10 @@
 #   bash tools/ci/tests/verify-commits.test.sh
 #
 # The claim under test: a change set passes only when every commit in it is signed by a
-# key the base's allowed_signers lists, or verified by the forge, or is a merge by the
-# forge that adds nothing of its own; an unsigned commit, one signed by an unlisted key,
-# and one signed by a key the change itself adds are refused and named; with no usable
-# allowed_signers and no forge to ask, nothing passes.
+# key the base's allowed_signers lists, or is a two-parent merge by the forge that the
+# forge verifies or that adds nothing of its own; an unsigned commit, one signed by an
+# unlisted key (whatever the forge says of it), and one signed by a key the change itself
+# adds are refused and named; with no usable allowed_signers, nothing passes.
 set -uo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -120,6 +120,45 @@ if out="$(verify base 2>&1)"; then fail "a forge merge that changes something of
         pass "a forge merge that changes something of its own is refused" || fail "the evil merge is named: $out"
 fi
 g reset -q --hard HEAD^
+# Keeping one parent's side of what the other changed leaves the combined diff empty;
+# the tree is still not the merge of its parents.
+GIT_COMMITTER_EMAIL=noreply@github.com g merge -q --no-ff -s ours -m "Merge evil, dropping it" evil
+if out="$(verify base 2>&1)"; then fail "a forge merge that silently drops a parent's change is refused: $out"; else
+    grep -q "^FAILED  $(short HEAD) Merge evil, dropping it — a merge by noreply@github.com that changes what its parents did not" <<<"$out" &&
+        pass "a forge merge that silently drops a parent's change is refused" || fail "the dropping merge is named: $out"
+fi
+g reset -q --hard HEAD^
+g checkout -q -b clash base && echo theirs > "$repo/README.md" && g add -A &&
+    g -c gpg.format=ssh -c user.signingkey="$work/maintainer" commit -q -S -m clash
+g checkout -q main && echo ours > "$repo/README.md" && g add -A &&
+    g -c gpg.format=ssh -c user.signingkey="$work/maintainer" commit -q -S -m "clash on main"
+GIT_COMMITTER_EMAIL=noreply@github.com g merge -q --no-ff --no-commit clash >/dev/null 2>&1
+echo ours > "$repo/README.md" && g add -A
+GIT_COMMITTER_EMAIL=noreply@github.com g commit -q -m "Merge clash"
+if out="$(verify base 2>&1)"; then fail "a forge merge whose parents conflict is refused: $out"; else
+    grep -q "^FAILED  $(short HEAD) Merge clash — a merge by noreply@github.com whose parents conflict" <<<"$out" &&
+        pass "a forge merge whose parents conflict is refused, whatever its resolution" || fail "the conflicted merge is named: $out"
+fi
+g reset -q --hard HEAD~2
+GIT_COMMITTER_EMAIL=noreply@github.com g merge -q --no-ff -m "Octopus" evil topic >/dev/null
+if out="$(verify base 2>&1)"; then fail "an octopus merge by the forge is refused: $out"; else
+    grep -q "^FAILED  $(short HEAD) Octopus — an octopus merge by noreply@github.com" <<<"$out" &&
+        pass "an octopus merge by the forge is refused" || fail "the octopus merge is named: $out"
+fi
+g reset -q --hard HEAD^
+forge_merge topic
+mkdir -p "$work/oldgit"
+cat > "$work/oldgit/git" <<EOF
+#!/usr/bin/env bash
+case "\$1" in version|--version) echo "git version 2.37.1"; exit 0 ;; esac
+exec "$(command -v git)" "\$@"
+EOF
+chmod +x "$work/oldgit/git"
+if out="$(verify "PATH=$work/oldgit:$PATH" base 2>&1)"; then fail "a git older than 2.38 cannot judge a merge, and says so: $out"; else
+    grep -q 'git 2.37.1 cannot check a merge: .*2.38 or later' <<<"$out" &&
+        pass "a git older than 2.38 cannot judge a merge, and says so" || fail "the old git is named: $out"
+fi
+g reset -q --hard HEAD^
 g merge -q --no-ff -m "Merge evil by hand" evil
 verify base >/dev/null 2>&1 && fail "an unsigned merge by anyone but the forge is refused" ||
     pass "an unsigned merge by anyone but the forge is refused"
@@ -166,19 +205,33 @@ forge=(MIDGARD_FORGE=github GITHUB_REPOSITORY=veldris-ltd/midgard-app GITHUB_TOK
 g reset -q --hard base
 commit_as stranger registered-on-github
 if out="$(verify "${forge[@]}" STUB_VERIFIED=true base 2>&1)"; then
-    grep -q "^ok      $(short HEAD) registered-on-github — verified by GitHub" <<<"$out" && ! grep -q not-a-real-token <<<"$out" &&
-        pass "on GitHub, a commit the forge verifies passes, and the token is not printed" || fail "the forge's verdict is reported: $out"
+    fail "on GitHub, a commit the forge verifies but allowed_signers does not list is refused: $out"
 else
-    fail "on GitHub, a commit the forge verifies passes: $out"
+    grep -q "^FAILED  $(short HEAD) registered-on-github — signed, but not by a key deploy/trust/allowed_signers lists" <<<"$out" &&
+        ! grep -q not-a-real-token <<<"$out" &&
+        pass "on GitHub, a commit the forge verifies but allowed_signers does not list is refused, and the token is not printed" ||
+        fail "the unlisted key is named: $out"
 fi
-verify "${forge[@]}" STUB_VERIFIED=false base >/dev/null 2>&1 && fail "on GitHub, a commit the forge does not verify is refused" ||
-    pass "on GitHub, a commit the forge does not verify is refused"
-if out="$(verify "${forge[@]}" STUB_VERIFIED=true missing-base 2>&1)"; then
-    grep -q 'only GitHub.s verification counts' <<<"$out" &&
-        pass "with no allowed_signers yet, GitHub's verification still counts, with a warning" || fail "the warning is given: $out"
+! grep -q "commits/$(git -C "$repo" rev-parse HEAD)" "$work/gh.log" 2>/dev/null &&
+    pass "the forge is not asked about a commit that is not its own merge" || fail "the forge is asked only about its merges"
+verify "${forge[@]}" STUB_VERIFIED=true missing-base >/dev/null 2>&1 &&
+    fail "with no allowed_signers, GitHub's verification lets no commit through" ||
+    pass "with no allowed_signers, GitHub's verification lets no commit through"
+# A merge GitHub made and signed, with a change of its own (a conflict resolved on the
+# web): only the forge's verdict can pass it.
+g reset -q --hard base
+g checkout -q -b gh-topic && commit_as maintainer gh-topic && g checkout -q main
+GIT_COMMITTER_EMAIL=noreply@github.com g merge -q --no-ff --no-commit gh-topic >/dev/null
+echo resolved > "$repo/README.md" && g add -A
+GIT_COMMITTER_EMAIL=noreply@github.com g commit -q -m "Merge gh-topic"
+if out="$(verify "${forge[@]}" STUB_VERIFIED=true base 2>&1)"; then
+    grep -q "^ok      $(short HEAD) Merge gh-topic — a merge by noreply@github.com, verified by GitHub" <<<"$out" &&
+        pass "on GitHub, a two-parent merge by the forge that it verifies passes" || fail "the forge's verdict on its merge is reported: $out"
 else
-    fail "with no allowed_signers yet, GitHub's verification still counts: $out"
+    fail "on GitHub, a two-parent merge by the forge that it verifies passes: $out"
 fi
+verify "${forge[@]}" STUB_VERIFIED=false base >/dev/null 2>&1 && fail "on GitHub, a merge the forge does not verify is judged as any merge" ||
+    pass "on GitHub, a merge the forge does not verify is judged as any merge"
 verify MIDGARD_FORGE=github GITHUB_REPOSITORY=veldris-ltd/midgard-app "PATH=$work/stubs:$PATH" "STUB_LOG=$work/gh.log" \
     STUB_VERIFIED=true base >/dev/null 2>&1 && fail "without a token the forge is not asked" ||
     pass "without a token the forge is not asked"

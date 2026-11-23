@@ -136,6 +136,42 @@ else
     fail "the repository's own pipeline files are refused: $out"
 fi
 
+# The merge-request jobs' image digest is declared in .gitlab-ci.yml, where a merge
+# request's pipeline can read it, and must be the one tools/ci/toolchain.digest pins.
+repo="$here/../../.."
+declared="$(tr -d '\r' < "$repo/.gitlab-ci.yml" |
+    sed -n 's/^  MIDGARD_TOOLCHAIN_DIGEST: *"\{0,1\}\([^"#[:space:]]*\)"\{0,1\}.*/\1/p' | head -n 1)"
+pinned="$(tr -d '\r' < "$repo/tools/ci/toolchain.digest" | awk 'NF { last = $1 } END { print last }')"
+if [ -z "$declared" ]; then
+    fail ".gitlab-ci.yml declares MIDGARD_TOOLCHAIN_DIGEST in its top-level variables"
+elif [ "$declared" = "$pinned" ]; then
+    pass ".gitlab-ci.yml declares MIDGARD_TOOLCHAIN_DIGEST as the last line of tools/ci/toolchain.digest"
+else
+    fail ".gitlab-ci.yml declares MIDGARD_TOOLCHAIN_DIGEST: $declared, but tools/ci/toolchain.digest ends $pinned; set MIDGARD_TOOLCHAIN_DIGEST in .gitlab-ci.yml to it"
+fi
+
+# gitlab_job NAME: the lines of the top-level job NAME in .gitlab-ci.yml.
+gitlab_job() {
+    tr -d '\r' < "$repo/.gitlab-ci.yml" |
+        awk -v job="$1" '$0 == job ":" { on = 1; print; next } on && /^[^ #]/ { on = 0 } on'
+}
+# The toolchain image is Debian, with no apk: a job running in it installs nothing, and
+# what it needs is baked into deploy/acceptance/Dockerfile. [NFR-PRV-1]
+apk_in_toolchain=""
+for job in $(tr -d '\r' < "$repo/.gitlab-ci.yml" | sed -n 's/^\([a-z.][a-z0-9_.-]*\):$/\1/p'); do
+    block="$(gitlab_job "$job")"
+    { [ "$job" = .toolchain ] || grep -Eq '^  extends:.*[[ ]\.toolchain([],]|$)' <<<"$block"; } &&
+        grep -q 'apk ' <<<"$block" && apk_in_toolchain+=" $job"
+done
+[ -z "$apk_in_toolchain" ] && pass "no GitLab job in the toolchain image runs apk" ||
+    fail "GitLab jobs in the (Debian) toolchain image run apk:$apk_in_toolchain"
+# The advisory refresh's write token is scoped to an environment only that job enters.
+# [AC-P4.5]
+gitlab_job advisory-refresh | grep -A2 '^  environment:$' | tr -d ' ' | tr '\n' ' ' |
+    grep -q 'environment: name:advisory-refresh action:access' &&
+    pass "GitLab: advisory-refresh runs in the advisory-refresh environment, as access only" ||
+    fail "GitLab: advisory-refresh runs in the advisory-refresh environment, as access only"
+
 if [ "$failures" -eq 0 ]; then
     echo "pipelines tests: all passed"
 else
