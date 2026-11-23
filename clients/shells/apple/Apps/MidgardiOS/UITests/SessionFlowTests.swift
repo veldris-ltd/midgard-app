@@ -89,13 +89,14 @@ final class SessionFlowTests: XCTestCase {
                                                         "mg\\.[0-9]+\\.\(AppNavigation.consoles[index].lowercased())\\..*"))
             XCTAssertEqual(rows.count, count, "\(AppNavigation.consoles[index]) lists \(rows.count) screens")
         }
-        // Midgard's and Admin's screens are built (Phases C and D); a later console's
-        // still say when they come.
+        // Midgard's, Admin's and Heimdall's screens are built (Phases C, D and E); a later
+        // console's still say when they come.
         AppNavigation.openDetail(app)
         AppNavigation.openAdmin(app, "overview")
-        AppNavigation.selectConsole(app, 3)
-        AppNavigation.tapClearOfConsoleBar(app, app.buttons["mg.2.heimdall.entities"])
-        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'Phase E'")).firstMatch
+        AppNavigation.open(app, console: 3, "entities")
+        AppNavigation.selectConsole(app, 4)
+        AppNavigation.tapClearOfConsoleBar(app, app.buttons["mg.2.forge.datasets"])
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'Phase F'")).firstMatch
             .waitForExistence(timeout: AppNavigation.timeout))
     }
 

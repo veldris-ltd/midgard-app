@@ -45,7 +45,10 @@ public struct HeimdallAlertsButton: View {
         .accessibilityLabel(Text("Alerts"))
         .accessibilityValue(Text("\(count)"))
         .accessibilityIdentifier("mg.heimdall.alerts")
-        .popover(isPresented: $showing) { list }
+        .popover(isPresented: $showing) {
+            // On the iPhone the popover is a sheet: half height, dragged away.
+            list.presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+        }
     }
 
     private var list: some View {
