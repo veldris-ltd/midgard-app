@@ -69,27 +69,27 @@ const MAX_HOPS: u64 = 4;
 /// The most objects one query page returns (the gateway's own cap).
 const MAX_RESULTS: usize = 500;
 
-fn param<'a>(req: &'a ActionRequest, key: &str) -> Option<&'a str> {
+pub(super) fn param<'a>(req: &'a ActionRequest, key: &str) -> Option<&'a str> {
     req.params
         .iter()
         .find(|(k, _)| k == key)
         .map(|(_, v)| v.as_str())
 }
 
-fn text(item: &Json, key: &str) -> Option<String> {
+pub(super) fn text(item: &Json, key: &str) -> Option<String> {
     item.get(key).and_then(Json::as_str).map(str::to_string)
 }
 
-fn num(n: u64) -> Json {
+pub(super) fn num(n: u64) -> Json {
     Json::Num(n.to_string())
 }
 
-fn obj(pairs: Vec<(&str, Json)>) -> Json {
+pub(super) fn obj(pairs: Vec<(&str, Json)>) -> Json {
     Json::Obj(pairs.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
 }
 
 /// Set `key` of the object `item` to `value`, replacing or adding it.
-fn set(item: &mut Json, key: &str, value: Json) {
+pub(super) fn set(item: &mut Json, key: &str, value: Json) {
     if let Json::Obj(pairs) = item {
         match pairs.iter_mut().find(|(k, _)| k == key) {
             Some((_, v)) => *v = value,
@@ -99,7 +99,7 @@ fn set(item: &mut Json, key: &str, value: Json) {
 }
 
 /// `target` as `(collection, id)` when it names `collection`.
-fn in_collection<'a>(target: &'a str, collection: &str) -> Option<&'a str> {
+pub(super) fn in_collection<'a>(target: &'a str, collection: &str) -> Option<&'a str> {
     target
         .split_once('/')
         .filter(|(c, _)| *c == collection)

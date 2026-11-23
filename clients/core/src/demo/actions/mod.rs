@@ -2,4 +2,5 @@
 //! for that console (Phases C to H, Task 2). Heimdall's one action, from Task R1, is in
 //! `crate::sample_source`. `[FR-C-4]`
 
+pub mod admin;
 pub mod midgard;

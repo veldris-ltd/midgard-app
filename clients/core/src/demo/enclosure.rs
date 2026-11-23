@@ -105,6 +105,8 @@ pub struct DemoState {
     /// The wall clock handlers read (seconds since the epoch); the system clock unless
     /// a test set another ([`DemoState::set_now`]).
     now: Option<fn() -> u64>,
+    /// Counters a console's mock keeps (Admin's config version), by name.
+    counters: BTreeMap<String, u64>,
 }
 
 impl DemoState {
@@ -217,6 +219,14 @@ impl DemoState {
     /// Read the time from `now` instead of the system clock (tests of expiry).
     pub fn set_now(&mut self, now: fn() -> u64) {
         self.now = Some(now);
+    }
+
+    /// The next value of the counter `name`, which starts after `seed` (as a mock's
+    /// `this.cfgVersion += 1` does from its seed).
+    pub fn next_count(&mut self, name: &str, seed: u64) -> u64 {
+        let c = self.counters.entry(name.to_string()).or_insert(seed);
+        *c += 1;
+        *c
     }
 
     /// Whether `target` names a whole collection (`<collection>/*`) of which `grant`

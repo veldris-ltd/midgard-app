@@ -39,12 +39,20 @@
 //!   numbered `AUD-1043`, `AUD-1044`, … from `14:32:10`, as `MockGateway` numbers
 //!   them, and approvals live in the runtime collection `midgard.approvals`.
 //!
-//! The other consoles' actions come with their phases (Phases D to H, Task 2); until
+//! - Admin's, ported from `AdminMock` (`crate::demo::actions::admin`, which lists them
+//!   and where they knowingly differ): the dual-control decision `admin.approve` (the
+//!   approver the persona signed in; self-approval refused and recorded), the config
+//!   lifecycle `admin.simulateConfig`, `admin.commitConfig` and `admin.rollbackConfig`,
+//!   the ledger search `admin.searchLedger` and `admin.requestBreakGlass`. Their rows go
+//!   to the runtime collection `admin.audit`, seeded with the mock stream's three
+//!   records and numbered `A-9111`, `A-9112`, … from `14:02:13`, as `AdminMock` does.
+//!
+//! The other consoles' actions come with their phases (Phases E to H, Task 2); until
 //! then an action on them is refused as unknown ("no such action").
 
 use attest::json::{parse, Json};
 
-use crate::demo::actions::midgard;
+use crate::demo::actions::{admin, midgard};
 use crate::demo::enclosure::{
     ActionRequest, Collection, DemoEnclosure, DemoState, MockAuditClock, Outcome,
 };
@@ -97,6 +105,14 @@ impl SampleSource {
                 rows: Vec::new(),
             },
         );
+        inner
+            .state_mut()
+            .set_mock_clock("admin", admin::ADMIN_CLOCK);
+        // Admin's live ledger starts as the mock's stream does: its three seed records.
+        inner
+            .state_mut()
+            .collections
+            .insert(admin::AUDIT.to_string(), admin::seeded_audit());
         inner.register("heimdall.authoriseWorkflow", authorise_workflow);
         inner.register("midgard.requestApproval", midgard::request_approval);
         inner.register("midgard.decideApproval", midgard::decide_approval);
@@ -104,6 +120,12 @@ impl SampleSource {
         inner.register("midgard.query", midgard::query);
         inner.register("midgard.searchAround", midgard::search_around);
         inner.register("midgard.simulatePolicy", midgard::simulate_policy);
+        inner.register("admin.approve", admin::approve);
+        inner.register("admin.simulateConfig", admin::simulate_config);
+        inner.register("admin.commitConfig", admin::commit_config);
+        inner.register("admin.rollbackConfig", admin::rollback_config);
+        inner.register("admin.searchLedger", admin::search_ledger);
+        inner.register("admin.requestBreakGlass", admin::request_break_glass);
         Ok(Self { inner })
     }
 
