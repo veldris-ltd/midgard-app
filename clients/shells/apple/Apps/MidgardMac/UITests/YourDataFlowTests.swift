@@ -114,6 +114,14 @@ final class YourDataFlowTests: XCTestCase {
         Nav.openConsole(app, 1)
         Nav.openScreen(app, "object-fabric")
         XCTAssertTrue(Nav.element(app, "mg.banner.live").waitForExistence(timeout: 10), "no LIVE banner")
+        // The persona chip names the gateway's signed-in subject, not a sample persona,
+        // and the header claims no seal the app cannot know of.
+        let chip = Nav.element(app, "mg.0.persona-menu")
+        XCTAssertEqual(chip.label, "Signed in as \(user)")
+        for seal in ["PQ-SEALED", "AIR-GAP"] {
+            let shown = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@ OR value == %@", seal, seal))
+            XCTAssertEqual(shown.count, 0, "the sample's \(seal) seal under a live gateway")
+        }
         settle(3)
         keep("live-object-fabric")
         Nav.openScreen(app, "audit")
