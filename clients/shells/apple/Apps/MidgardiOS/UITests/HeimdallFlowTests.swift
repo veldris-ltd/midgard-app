@@ -87,6 +87,10 @@ final class HeimdallFlowTests: XCTestCase {
         AppNavigation.open(app, console: 3, "workflows")
         let row = element("mg.heimdall.workflows.table.row.W-0913")
         reveal(row)
+        // A list row is one element the size of the row, over its drawn text.
+        XCTAssertGreaterThanOrEqual(row.frame.height, 44, "row \(row.frame)")
+        XCTAssertGreaterThan(row.frame.width, 300, "row \(row.frame)")
+        XCTAssertFalse(app.staticTexts["Cross-cue maritime radar sweep on E-0871"].exists, "a row's drawn text is reported")
         row.tap()
         let authoriseWorkflow = element("mg.heimdall.workflows.authorise")
         XCTAssertTrue(authoriseWorkflow.waitForExistence(timeout: AppNavigation.timeout), "no gate for W-0913")

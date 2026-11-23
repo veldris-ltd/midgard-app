@@ -987,14 +987,18 @@ struct WholeElement: ViewModifier {
     let identifier: String
     let action: (() -> Void)?
 
-    /// The drawn area's accessibility is replaced, not hidden (`accessibilityRepresentation`):
-    /// hidden texts inside a wrapping list row were still reported to XCUITest (Phase E's
-    /// first audit pass measured them where the console bar cut a row).
+    /// The drawn area's own accessibility is replaced by nothing
+    /// (`accessibilityRepresentation`), not merely hidden: hidden texts inside a wrapping
+    /// list row were still reported to XCUITest (Phase E's first audit pass measured them
+    /// where the console bar cut a row). The layer on top, the area's size, is the one
+    /// element (a representation of its own measured too small a hit area and left the
+    /// drawn text uncovered, in the second pass).
     func body(content: Content) -> some View {
         content
-            .modifier(Tappable(action))
-            .accessibilityRepresentation {
+            .accessibilityRepresentation { EmptyView() }
+            .overlay {
                 Color.clear
+                    .modifier(Tappable(action))
                     .accessibilityElement()
                     .accessibilityLabel(Text(label))
                     .accessibilityAddTraits(traits)
