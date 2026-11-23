@@ -67,10 +67,39 @@ public struct SessionRootView<Content: View>: View {
         self.content = content
     }
 
+    #if os(iOS)
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @State private var chromeOpen = false
+    #endif
+
+    /// On the iPhone at accessibility text sizes, signed in: the source and edition
+    /// banners and the status chips fold into one header row (opened by a tap), so a
+    /// console's list keeps room above the console bar (Phase D's Policies finding).
+    private var foldsChrome: Bool {
+        #if os(iOS)
+        return typeSize.isAccessibilitySize && model.isUnlocked
+        #else
+        return false
+        #endif
+    }
+
     public var body: some View {
         VStack(spacing: 0) {
+            #if os(iOS)
+            if foldsChrome {
+                FoldedChromeHeader(model: model, open: $chromeOpen)
+                if chromeOpen {
+                    if let banner = model.banner { DemoBannerView(banner) }
+                    if let banner = model.editionBanner { banner }
+                }
+            } else {
+                if let banner = model.banner { DemoBannerView(banner) }
+                if let banner = model.editionBanner { banner }
+            }
+            #else
             if let banner = model.banner { DemoBannerView(banner) }
             if let banner = model.editionBanner { banner }
+            #endif
             switch model.phase {
             case .loading:
                 LoadingView().frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -84,7 +113,7 @@ public struct SessionRootView<Content: View>: View {
                 }
             case let .unlocked(persona):
                 VStack(spacing: 0) {
-                    if let chips = model.chipsPresentation {
+                    if let chips = model.chipsPresentation, !foldsChrome || chromeOpenNow {
                         // On the iPhone a narrower band, so the consoles' lists keep the
                         // room they need above the console bar.
                         #if os(iOS)
@@ -103,6 +132,52 @@ public struct SessionRootView<Content: View>: View {
         }
     }
 }
+
+extension SessionRootView {
+    fileprivate var chromeOpenNow: Bool {
+        #if os(iOS)
+        return chromeOpen
+        #else
+        return true
+        #endif
+    }
+}
+
+#if os(iOS)
+/// The source banner, edition and status chips folded into one row at accessibility
+/// text sizes: what the source is, in its short form, and a button (44 pt) that shows
+/// or hides the rest. The full notice is its spoken label. [RC-49] [AC-C-11]
+struct FoldedChromeHeader: View {
+    @ObservedObject var model: AppModel
+    @Binding var open: Bool
+
+    var body: some View {
+        Button {
+            open.toggle()
+        } label: {
+            HStack(spacing: MGSpace.s2) {
+                Text(model.banner?.compactText ?? "Midgard")
+                    .font(MGFonts.sans(.caption).weight(.semibold))
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.7)
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: MGSpace.s1)
+                Image(systemName: open ? "chevron.up" : "chevron.down").accessibilityHidden(true)
+            }
+            .foregroundStyle(Color(mgHex: MGContrast.ink(on: MGToken.warn)))
+            .padding(.horizontal, MGSpace.s3)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .background(Color(mgHex: MGToken.warn))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(model.banner?.text ?? "Midgard"))
+        .accessibilityValue(Text(open ? "Details shown" : "Details hidden"))
+        .accessibilityHint(Text(open ? "Hides the banners and status" : "Shows the banners and status"))
+        .accessibilityIdentifier("mg.chrome.folded")
+    }
+}
+#endif
 
 /// A button label at least 44 × 44 pt where it can be hit: the frame sits inside the
 /// button, so it is the button's hit region (a `.frame` outside a button only pads it).

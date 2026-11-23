@@ -108,21 +108,26 @@ struct StatusLine: View {
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        // One line, or, at accessibility text sizes, one statement under the other.
-        let layout = typeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: MGSpace.s1))
-            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: MGSpace.s3))
-        layout {
+        // One line. At accessibility text sizes it stays one line, capped at the largest
+        // standard size (a long press shows the large-content viewer): two lines here
+        // left a console's list no room above the console bar.
+        HStack(alignment: .firstTextBaseline, spacing: MGSpace.s3) {
             if let console {
                 Text("Console \(console) of \(ConsoleCatalog.consoles.count): \(ConsoleCatalog.console(number: console).name)")
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
                     .accessibilityValue(Text("\(console)"))
                     .accessibilityIdentifier("mg.console.selected")
             }
-            if !typeSize.isAccessibilitySize { Spacer(minLength: MGSpace.s2) }
+            Spacer(minLength: MGSpace.s2)
             Text(reduced ? "Animations off (Reduce Motion)" : "Animations on")
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
                 .accessibilityValue(Text(reduced ? "reduced" : "full"))
                 .accessibilityIdentifier("mg.motion")
         }
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+        .accessibilityShowsLargeContentViewer()
         .font(MGFonts.sans(.caption))
         .foregroundStyle(Color.primary)
         .padding(.horizontal, MGSpace.s4)
