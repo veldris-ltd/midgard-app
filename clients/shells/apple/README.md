@@ -211,9 +211,10 @@ their own data, a gateway or feeds: [Your data](#your-data-phase-j)). Each app's
   marking (its own, or the committed overlay's), rows above a persona are withheld by
   level only, and every action is decided once and audited;
 - actions behave as the web mocks do. Heimdall's `heimdall.authoriseWorkflow` (the
-  Operating Picture's Authorise): a human-gated workflow needs a gate token, and its
-  audit row is numbered and stamped as `HeimdallMock` numbers them (`D-4473`, from
-  14:39:04). Midgard's, ported from `MockGateway` (Phase C, see
+  Operating Picture's and Workflows' Authorise), ported from `HeimdallMock` (Phase E, see
+  [Heimdall's screens](#heimdalls-screens-phase-e)): a human-gated workflow needs a gate
+  token, and its audit row is numbered and stamped as `HeimdallMock` numbers them
+  (`D-4473`, from 14:39:04). Midgard's, ported from `MockGateway` (Phase C, see
   [Midgard's screens](#midgards-screens-phase-c)), are numbered as it numbers them
   (`AUD-1043`, from 14:32:10), and Admin's, ported from `AdminMock` (Phase D, see
   [Admin's screens](#admins-screens-phase-d)), as it numbers its ledger (`A-9111`, from
@@ -381,6 +382,77 @@ Where the apps knowingly differ from the web console:
 both apps and its Approvals on the Mac; where it stood after Phase D is in the plan's
 "Phase D done" note.
 
+## Heimdall's screens (Phase E)
+
+All six of Heimdall's screens are built on both apps, matched to the rc.3 web console
+(`products/heimdall/ui/src/screens/`) over the release's sample data: the Operating
+Picture (R1, Phase I's MAP and 3D, Phase J's user layers) and, in
+`Sources/MidgardKit/Consoles/Heimdall/` (the screen models and views), Entities, Feeds,
+Picture Sync, Workflows and Decision Lineage, with `HeimdallChrome` (the navigation's
+items, each screen's context line and inspector width) and the picture's Alerts list
+(`HeimdallAlerts.swift`) in `Sources/MidgardKit/WebConsole/`. The Mac shows each screen
+in the web's frame (classification banner, the header with the screen's context line,
+seals and toolbar item, the navigation's PICTURE and DECIDE sections in the web's order,
+words and badges, the screen and its inspector at the web's width); the iPhone lists the
+screens in the same order and words, and shows each under the console's banner and
+header (the toolbar item at the header's end) with its tables as lists and its
+inspector in a sheet.
+
+| Screen | What it does here |
+|---|---|
+| Operating Picture | the picture, its layers and tracks; the inspector's ranked options, each with its citations, the chosen one authorised through the human gate (rank 1 → W-0912, rank 2 → W-0913, rank 3 "hold" opens none); the header's Alerts list |
+| Feeds | the feeds with rate, latency, fusion weight, PQ authentication and state; the quarantined bridge (LEGACY-L16, excluded from fusion) and, listed with them, the user's own feeds (Your Data) as UNVERIFIED and quarantined; the selected feed's authentication and contribution |
+| Entities | the tracked entities with class, confidence, corroborating feeds, first seen, marking and state; the web's filters (all, air, maritime, ground, anomalous, low confidence); the selected entity's classifier and track history, and for the anomalous one "Open picture" |
+| Picture Sync | the four sites as a topology (PQ-mTLS links, the courier to the air-gap) and a table; the selected site's figures, the marking filter on the RESTRICTED replica, its replication |
+| Workflows | the human-gated workflows; the selected one's stages and its gate: Authorise sends `heimdall.authoriseWorkflow` with a gate token made from the press, and the inspector shows the audit id; Reject stays on screen; the toolbar's "N AWAITING AUTHORISATION" |
+| Decision Lineage | the decision records; the selected one's replay evidence and outcome; the live lineage tail (`heimdall.audit`) and the chain verification |
+
+The action is the core's port of `HeimdallMock.authoriseWorkflow`
+(`clients/core/src/demo/actions/heimdall.rs`, which lists where the port knowingly
+differs): refused without a token with `HumanGateRequiredError`'s words ("Human gate
+required for action \"<title>\""), applied with one, audited either way in
+`heimdall.audit` (`D-4473` from 14:39:04), at the workflow's marking. Rows above the
+persona are withheld by count: K. Rao (restricted) sees only the vessel E-0442 among the
+entities and none of the OPS-N workflows, decisions or lineage; A. Holt (internal) sees
+W-0910 only and no sync site.
+
+Where the apps knowingly differ from the web console:
+- **No live stream is invented.** The lineage tail is `heimdall.audit` as the core
+  delivers it (the mock's five seed records, then each authorisation and refusal made
+  on this device), re-read every 4.2 s while the screen is open; the mock's rotating
+  synthetic records are not shown. Signatures are shown as the core checked them: the
+  seed records UNSIGNED, this device's own `ML-DSA ✓` (its audit key). The lineage's
+  signed figure ("TAIL SIGNED · CHECKED", the web's fixed "100% SIGNED + REPLAYABLE") and
+  the chain verification lines count those rows, "—" when none is shown.
+- **No check mark the app did not check.** A decision's signature arrives from the core
+  as "not checked (demo)" and is shown so; a feed's PQ authentication reads
+  "ML-DSA · AUTH" (the web's "ML-DSA ✓"), FAILED, or UNVERIFIED for a user's feed.
+- **Feeds counts the user's feeds**: REGISTERED and QUARANTINED add them (the web's 12 and
+  1 otherwise); a notice says how many were added on this device. The contribution's
+  marking is the feed row's own (the web prints CONFIDENTIAL // OPS-N for every feed).
+- **Reject stays on screen**, as on the web: the operator's own decision, not sent and
+  not audited (raised in R1).
+- **Alerts**: the web's bell has no list behind it; here it opens one built from the
+  picture's own rows the persona may see (the anomalous track first, then the
+  quarantined and stale feeds), and choosing the track selects it for the inspector.
+- **No time scrubber.** The web console has none, and the sample has no synthetic hour
+  (`heimdall.motion` is not served, owner decision 22 November 2026), so there is nothing
+  to replay.
+- **Controls the web leaves without a handler are disabled with a reason**: Register
+  feed, Re-key bridge, Cut picture snapshot, Export for review and Replay picture at
+  decision time. "Open picture" (Entities) opens the Operating Picture.
+- **Connected to a gateway** Heimdall is not served by it: its screens keep the sample
+  data and say so ("NOT SERVED BY <host>"), and its action stays on the sample data.
+- **Fixed figures** are the web's: 1,204 tracked, 96.8% mean confidence, 4 sites, 0.8s,
+  216 filtered, 312 decisions, 0 chain breaks.
+
+`HeimdallFlowTests` on each app opens all six screens and the Alerts list, authorises
+option 01 on the picture (D-4473) and W-0913 on Workflows (D-4474), and finds both at
+the head of the lineage tail; `HeimdallConsoleTests` covers the screen models against
+the core and `clients/core/tests/heimdall_actions.rs` the action. The audit covers
+Heimdall's Workflows and Decision Lineage on the Mac and its Feeds and Workflows on the
+iPhone, beside the Operating Picture, and the Your Data screen on both.
+
 ## Heimdall's MAP and 3D views (Phase I)
 
 The Operating Picture has the web console's view switch, **2D / MAP / 3D** (the Mac's
@@ -494,7 +566,11 @@ tab, and files dropped on any window are imported; on the iPhone the session men
   screens read this gateway…", Midgard's eleven screens read the gateway (its answers
   checked strictly against the console's read models, the keys a gateway adds beyond
   them left out), its actions and computed reads go to it, and Admin's screens say
-  they are not served by it and stay empty. Other consoles keep the sample data under
+  they are not served by it and stay empty. The persona chip names the gateway's
+  signed-in subject (its `/whoami`), never a sample persona, and Midgard's header shows
+  only what the app knows of the connection, its transport ("LIVE · HTTPS", or
+  "LIVE · LOOPBACK" for plain HTTP to this device), in place of the sample's PQ-SEALED
+  and AIR-GAP seals; an audit with no records shows "—" for its signed share. Other consoles keep the sample data under
   their own banners. The token is held in memory only, never written, logged or sent
   elsewhere; Disconnect revokes it (`/logout`) and returns to the sample and imported
   data.

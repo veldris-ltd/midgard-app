@@ -7221,3 +7221,56 @@ contract (the audit row's `outcome`) are left out before the strict decode; the 
 reference layout places user points by a fit of the sample tracks' two layouts (MAP
 and 3D place them exactly); the system file pickers are not driven by the UI tests
 (their files come from the launch environment).
+
+## Phase E done (23 Nov 2026)
+
+Heimdall's six screens are built on both apps, matched to the rc.3 web console over the
+release's sample data: the Operating Picture (R1, Phase I, Phase J) and, following the
+Phase C and D pattern (`Sources/MidgardKit/Consoles/Heimdall/`), Entities, Feeds,
+Picture Sync, Workflows and Decision Lineage. The plan's MapKit note is superseded by
+Phase I's own MAP view; no MapKit is used.
+
+- **Action:** `HeimdallMock.authoriseWorkflow`, moved into its own port
+  (`clients/core/src/demo/actions/heimdall.rs`): refused without a gate token in
+  `HumanGateRequiredError`'s words, applied with one, audited either way in
+  `heimdall.audit` in the mock's numbering (`D-4473` from 14:39:04), at the workflow's
+  marking; a workflow above the persona is not there for them. The mock's other methods
+  are reads; its `auditStream` is not synthesised. The module lists where the port
+  differs from the mock.
+- **Operating Picture:** the inspector's ranked options with their citations, each
+  authorised through the human gate (rank 1 → W-0912, rank 2 → W-0913, rank 3 opens
+  none), were in place from R1; added here, the header's Alerts list (from the
+  picture's own rows: the anomalous track, the quarantined and stale feeds). No time
+  scrubber: the web has none and the sample serves no synthetic hour.
+- **Feeds** lists the user's feeds (Phase J) as UNVERIFIED and quarantined out of
+  fusion, from `heimdall.feeds`.
+- **Phase J follow-ups:** connected to a gateway the persona chip names its `/whoami`
+  subject; Midgard's header shows the connection's transport (`LIVE · HTTPS` or
+  `LIVE · LOOPBACK`) instead of the sample's PQ-SEALED and AIR-GAP seals; Audit lineage's
+  signed share reads "—" with no records; only Midgard's and Admin's actions go to the
+  gateway. The MAP view's missing markers: the controller placed them for its initial
+  1 × 1 viewport and never republished the real size, so they were hidden until the
+  camera moved; the size is now published once layout sets it. `HeimdallMapsFlowTests`
+  on the Mac also read the readouts by label only, where a Mac static text carries its
+  words as its value; it now reads either, and checks the E-0871 marker is on the map.
+  It passes.
+- **Tests:** `clients/core/tests/heimdall_actions.rs` (5); `HeimdallConsoleTests` (9);
+  one `HeimdallFlowTests` per app (six screens, the Alerts list, option 01 authorised on
+  the picture as D-4473 and W-0913 on Workflows as D-4474, both at the head of the
+  lineage tail). The audit adds Heimdall's Workflows and Decision Lineage (Mac), Feeds
+  and Workflows (iPhone), and Your Data on both.
+- **Audit (two passes, `MIDGARD_AUDIT_KBD=keep`):** the Mac was locked during both
+  passes, so nothing was measured there ("Failed to activate application"). On the
+  iPhone: pass 1 failed contrast on list rows the console bar cut (their hidden texts
+  were still reported; Midgard's Object Fabric and Policies too) and Dynamic Type on
+  Heimdall's toolbar items clipped in the header; pass 2, after replacing a row's
+  accessibility rather than hiding its texts, passed contrast but its replacement
+  element measured too small (hit targets, and the drawn text uncovered for the
+  screen-reader check). That is fixed after pass 2 (the drawn area's accessibility
+  removed, the full-size layer kept as the element; the iPhone flow checks a row's
+  frame) but not re-measured. Dynamic Type still fails on the "partially unsupported"
+  findings that were there in Phase J (the status line and console bar capped at
+  XXXL, small mono labels); keyboard navigation is not measured (setting kept).
+
+The README's "Heimdall's screens (Phase E)" section lists where the apps knowingly differ
+from the web.
