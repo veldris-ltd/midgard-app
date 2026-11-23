@@ -664,7 +664,10 @@ struct FlowRow: Layout {
         var x = bounds.minX, y = bounds.minY, line: CGFloat = 0
         for s in subviews {
             let size = s.sizeThatFits(.unspecified)
-            if x > bounds.minX && x + size.width > bounds.maxX {
+            // A point's grace: the bounds can come back a fraction narrower than the
+            // width measured (rounding to pixels), and a line that fitted when measured
+            // must not wrap when placed, over what follows it.
+            if x > bounds.minX && x + size.width > bounds.maxX + 1 {
                 y += line + spacing
                 x = bounds.minX
                 line = 0
