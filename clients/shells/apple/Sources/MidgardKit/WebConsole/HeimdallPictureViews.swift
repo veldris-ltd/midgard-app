@@ -29,7 +29,7 @@ public struct HeimdallHeader<Trailing: View>: View {
             if !compact {
                 Text(HeimdallChrome.context)
                     .font(MGWebFont.mono(11))
-                    .mgTracking(0.14, size: 11)
+                    .mgTracking(0.14, size: MGWebFont.monoSize(11))
                     .foregroundStyle(MGWeb.textFaint)
                     .lineLimit(1)
                     .layoutPriority(-1)
@@ -61,7 +61,7 @@ public struct HeimdallLayersList: View {
         VStack(alignment: .leading, spacing: 9) {
             Text("LAYERS")
                 .font(MGWebFont.mono(11))
-                .mgTracking(0.14, size: 11)
+                .mgTracking(0.14, size: MGWebFont.monoSize(11))
                 .foregroundStyle(MGWeb.textFaint)
                 .accessibilityAddTraits(.isHeader)
             ForEach(model.layers, id: \.id) { layer in
@@ -79,10 +79,12 @@ public struct HeimdallLayersList: View {
 
 /// The picture: grid, the accent glow, range rings, the north arrow and scale, the
 /// focus readout, the feed coverage (when its layer is on), the tracks and, on the Mac,
-/// the hover card.
+/// the hover card. With `readoutsInPicture` false (the iPhone) the readouts are not
+/// drawn over the picture: the app shows them as `HeimdallPictureReadoutStrip` beside it.
 public struct HeimdallPictureCanvas: View {
     @ObservedObject var model: HeimdallPictureModel
     let showsFooter: Bool
+    let readoutsInPicture: Bool
     let onSelect: (String) -> Void
     @Environment(\.dynamicTypeSize) private var typeSize
     private let accent = MGWebAccent.heimdall
@@ -92,9 +94,11 @@ public struct HeimdallPictureCanvas: View {
     /// under the picture (`HeimdallTrackList`).
     private var large: Bool { typeSize.isAccessibilitySize }
 
-    public init(model: HeimdallPictureModel, showsFooter: Bool = true, onSelect: @escaping (String) -> Void = { _ in }) {
+    public init(model: HeimdallPictureModel, showsFooter: Bool = true, readoutsInPicture: Bool = true,
+                onSelect: @escaping (String) -> Void = { _ in }) {
         self.model = model
         self.showsFooter = showsFooter
+        self.readoutsInPicture = readoutsInPicture
         self.onSelect = onSelect
     }
 
@@ -104,9 +108,9 @@ public struct HeimdallPictureCanvas: View {
             ZStack(alignment: .topLeading) {
                 background(size)
                 rings(size)
-                if !large {
-                    // Side by side where they fit (the Mac); where they would overlap (an
-                    // iPhone's width) the focus readout starts under the left one.
+                if !large && readoutsInPicture {
+                    // Side by side where they fit (the Mac); where they would overlap the
+                    // focus readout starts under the left one.
                     PictureReadoutsLayout(spacing: 6) {
                         readout
                         if let focus = model.selectedTrack { focusReadout(focus) }
@@ -116,8 +120,10 @@ public struct HeimdallPictureCanvas: View {
                 }
                 if model.isOn("feeds") { coverage(size) }
                 ForEach(model.visibleTracks, id: \.id) { track in
+                    let at = HeimdallPictureGeometry.point(x: track.x, y: track.y, in: size)
                     trackButton(track)
-                        .position(x: size.width * track.x / 100, y: size.height * track.y / 100)
+                        .position(at)
+                    if !large { trackLabel(track, at: at, in: size) }
                 }
                 // In an overlay, so the card never changes the picture's layout: a card
                 // that moved the tracks would move them out from under the pointer.
@@ -190,14 +196,21 @@ public struct HeimdallPictureCanvas: View {
                     .accessibilityHidden(true)
                 let at = ringLabelPoint(r, in: size)
                 if !large, at.x < size.width - 24, at.y > 12 {
-                    Text(label)
-                        .font(MGWebFont.mono(8))
-                        .mgTracking(0.12, size: 8)
-                        .foregroundStyle(MGWeb.textFaint)
-                        .padding(.horizontal, 5)
-                        .background(MGWeb.bgSunken)
-                        .position(at)
-                        .accessibilityHidden(MGWeb.readoutsDecorative)
+                    // Kept inside the picture: at an iPhone SE's width and large text the
+                    // 20 NM label centred on the ring ran past the right edge.
+                    PinnedLabelLayout(point: at, centredVertically: true) {
+                        Text(label)
+                            .font(MGWebFont.mono(8))
+                            .mgTracking(0.12, size: MGWebFont.monoSize(8))
+                            .foregroundStyle(MGWeb.textFaint)
+                            .lineLimit(1)
+                            .fixedSize()
+                            .padding(.horizontal, 5)
+                            .background(MGWeb.bgSunken)
+                            .accessibilityHidden(MGWeb.readoutsDecorative)
+                    }
+                    .frame(width: size.width, height: size.height)
+                    .allowsHitTesting(false)
                 }
             }
         }
@@ -207,8 +220,9 @@ public struct HeimdallPictureCanvas: View {
     private var readout: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("N ↑").accessibilityHidden(MGWeb.readoutsDecorative)
+                .accessibilityLabel(Text("North up"))
                 .font(MGWebFont.mono(11))
-                .mgTracking(0.14, size: 11)
+                .mgTracking(0.14, size: MGWebFont.monoSize(11))
                 .foregroundStyle(MGWeb.textMuted)
                 .readoutPlate()
             HStack(spacing: 6) {
@@ -224,19 +238,19 @@ public struct HeimdallPictureCanvas: View {
                 .accessibilityHidden(true)
                 Text("10 NM").accessibilityHidden(MGWeb.readoutsDecorative)
                     .font(MGWebFont.mono(8))
-                    .mgTracking(0.12, size: 8)
+                    .mgTracking(0.12, size: MGWebFont.monoSize(8))
                     .foregroundStyle(MGWeb.textFaint)
                 .readoutPlate()
             }
             Text("VECTOR · 1 MIN PROJECTION").accessibilityHidden(MGWeb.readoutsDecorative)
                 .font(MGWebFont.mono(8))
-                .mgTracking(0.12, size: 8)
+                .mgTracking(0.12, size: MGWebFont.monoSize(8))
                 .foregroundStyle(MGWeb.textFaint)
                 .readoutPlate()
             if model.withheld > 0 {
                 Text("\(model.withheld) TRACK\(model.withheld == 1 ? "" : "S") WITHHELD · ABOVE YOUR CLEARANCE")
                     .font(MGWebFont.mono(8))
-                    .mgTracking(0.12, size: 8)
+                    .mgTracking(0.12, size: MGWebFont.monoSize(8))
                     .foregroundStyle(MGWeb.warnText)
                 .readoutPlate()
                     .accessibilityIdentifier("mg.heimdall.withheld")
@@ -245,17 +259,15 @@ public struct HeimdallPictureCanvas: View {
         .padding(.leading, 14)
     }
 
-    /// What the readouts say, for VoiceOver: the picture's own label carries it, and the
-    /// readouts themselves (7–9 pt mono, as the web draws them, below what the contrast
-    /// audit can read) are decoration. The focused track's details are also the
-    /// inspector's.
+    /// What the readouts say, for VoiceOver, where they are not readable text: on the
+    /// Mac (7–9 pt mono, as the web draws them, below what the contrast audit can read,
+    /// so decoration) and at accessibility text sizes (not drawn). Where they are text
+    /// (the iPhone, in the readout strip) the picture's label does not repeat them.
     private var pictureLabel: String {
-        var text = "Operating picture, \(model.visibleTracks.count) tracks shown. North up, scale 10 nautical miles, "
-            + "vectors show a one minute projection."
-        if let t = model.selectedTrack {
-            text += " Focus \(t.id): heading \(Int(t.hdg)) degrees, \(Int(t.spd)) knots, \(t.alt), "
-                + "\(HeimdallPictureModel.range(t)) nautical miles, \(Int(t.feeds)) feeds, \(t.track)."
-        }
+        let count = "Operating picture, \(model.visibleTracks.count) tracks shown."
+        guard MGWeb.readoutsDecorative || large else { return count }
+        var text = count + " North up, scale 10 nautical miles, vectors show a one minute projection."
+        if let t = model.selectedTrack { text += " " + HeimdallPictureReadoutStrip.focusSentence(t) }
         return text
     }
 
@@ -263,7 +275,7 @@ public struct HeimdallPictureCanvas: View {
         VStack(alignment: .trailing, spacing: 3) {
             Text("FOCUS · \(t.id)")
                 .font(MGWebFont.mono(8))
-                .mgTracking(0.14, size: 8)
+                .mgTracking(0.14, size: MGWebFont.monoSize(8))
                 .foregroundStyle(accent.text)
                 .readoutPlate()
             Text("\(HeimdallPictureModel.heading(t.hdg))° · \(Int(t.spd)) KT · \(t.alt)")
@@ -289,7 +301,7 @@ public struct HeimdallPictureCanvas: View {
                 .accessibilityHidden(true)
             Text("NORTH-2 · RADAR · 4 HZ · R 60 NM")
                 .font(MGWebFont.mono(8))
-                .mgTracking(0.12, size: 8)
+                .mgTracking(0.12, size: MGWebFont.monoSize(8))
                 .foregroundStyle(accent.text)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 1)
@@ -299,43 +311,54 @@ public struct HeimdallPictureCanvas: View {
         .frame(width: size.width, height: size.height, alignment: .topLeading)
     }
 
-    /// A track: its symbol is the button (44 pt where it can be hit), and its label a
-    /// separate text under it, so neither the contrast audit nor VoiceOver reads the
-    /// label against the symbol's colours. The label is decorative on the Mac (the button
-    /// speaks it) and readable text on the iPhone.
+    /// A track: its symbol is the button (44 pt where it can be hit), centred on the
+    /// track's point; its label is drawn apart (`trackLabel`), so neither the contrast
+    /// audit nor VoiceOver reads the label against the symbol's colours.
     private func trackButton(_ t: HeimdallTrack) -> some View {
         let anomalous = t.track == "anomalous"
         let selected = t.id == model.selected
-        // The symbol's 44 pt frame is 15 pt taller each way than the 14 pt dot: the label
-        // sits where the web puts it, 5 pt under the dot.
-        return VStack(spacing: -10) {
-            Button {
-                model.select(t.id)
-                onSelect(t.id)
-            } label: {
-                TrackGlyph(track: t, selected: selected, accent: accent)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .onHover { inside in
-                if inside { model.hovered = t.id } else if model.hovered == t.id { model.hovered = nil }
-            }
-            .accessibilityLabel(Text("\(t.id) · \(t.cls) · heading \(Int(t.hdg)) degrees\(anomalous ? ", anomalous" : "")"))
-            .accessibilityAddTraits(selected ? [.isSelected] : [])
-            .accessibilityIdentifier("mg.heimdall.track.\(t.id)")
-            if !large {
+        return Button {
+            model.select(t.id)
+            onSelect(t.id)
+        } label: {
+            TrackGlyph(track: t, selected: selected, accent: accent)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { inside in
+            if inside { model.hovered = t.id } else if model.hovered == t.id { model.hovered = nil }
+        }
+        .accessibilityLabel(Text("\(t.id) · \(t.cls) · heading \(Int(t.hdg)) degrees\(anomalous ? ", anomalous" : "")"))
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
+        .accessibilityIdentifier("mg.heimdall.track.\(t.id)")
+    }
+
+    /// A track's label, where the web puts it: 5 pt under the 14 pt dot, centred on it,
+    /// and kept inside the picture (on an iPhone SE's width the rightmost labels would
+    /// otherwise run past the edge at large text). VoiceOver does not read it: the
+    /// track's button says the same. It stays in the accessibility tree as an empty
+    /// container named `mg.heimdall.tracklabel.<id>`, so the UI tests can find its frame.
+    private func trackLabel(_ t: HeimdallTrack, at point: CGPoint, in size: CGSize) -> some View {
+        let anomalous = t.track == "anomalous"
+        let selected = t.id == model.selected
+        return PinnedLabelLayout(point: CGPoint(x: point.x, y: point.y + HeimdallPictureGeometry.labelGap)) {
+            ZStack {
                 Text("\(t.id)\(anomalous ? " ⚠\u{FE0E}" : "") · \(Int(t.hdg))°")
                     .font(MGWebFont.mono(9))
-                    .mgTracking(0.08, size: 9)
+                    .mgTracking(0.08, size: MGWebFont.monoSize(9))
                     .foregroundStyle(selected ? MGWeb.grey100 : MGWeb.textFaint)
                     .lineLimit(1)
+                    .fixedSize()
                     .padding(.horizontal, 2)
                     .background(MGWeb.bgPage)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(MGWeb.readoutsDecorative)
+                    .accessibilityHidden(true)
             }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("mg.heimdall.tracklabel.\(t.id)")
         }
+        .frame(width: size.width, height: size.height)
+        .allowsHitTesting(false)
     }
 
 
@@ -353,7 +376,7 @@ public struct HeimdallPictureCanvas: View {
         return VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(t.id).font(MGWebFont.mono(11).weight(.semibold)).foregroundStyle(MGWeb.textHeading)
-                Text(t.cls).font(MGWebFont.mono(9)).mgTracking(0.1, size: 9).foregroundStyle(MGWeb.textFaint)
+                Text(t.cls).font(MGWebFont.mono(9)).mgTracking(0.1, size: MGWebFont.monoSize(9)).foregroundStyle(MGWeb.textFaint)
                 Spacer(minLength: 8)
                 Text("\(Int((t.conf * 100).rounded()))%")
                     .font(MGWebFont.mono(10))
@@ -362,7 +385,7 @@ public struct HeimdallPictureCanvas: View {
             .padding(.bottom, 6)
             ForEach(rows, id: \.0) { k, v in
                 HStack(spacing: 10) {
-                    Text(k).mgTracking(0.08, size: 9).foregroundStyle(MGWeb.textFaint).frame(width: 62, alignment: .leading)
+                    Text(k).mgTracking(0.08, size: MGWebFont.monoSize(9)).foregroundStyle(MGWeb.textFaint).frame(width: 62, alignment: .leading)
                     Text(v).foregroundStyle(MGWeb.textBody)
                 }
                 .font(MGWebFont.mono(9))
@@ -371,7 +394,7 @@ public struct HeimdallPictureCanvas: View {
             if t.id == model.selected {
                 Text("FOCUSED · OPTIONS IN INSPECTOR →")
                     .font(MGWebFont.mono(8))
-                    .mgTracking(0.14, size: 8)
+                    .mgTracking(0.14, size: MGWebFont.monoSize(8))
                     .foregroundStyle(accent.text)
                     .padding(.top, 5)
             }
@@ -458,7 +481,7 @@ public struct HeimdallStatsFooter: View {
             WebStatBlock(value: "1", label: "ANOMALIES", accent: accent)
             Text("SYNTHETIC PICTURE · REFERENCE LAYOUT ONLY")
                 .font(MGWebFont.mono(9))
-                .mgTracking(0.14, size: 9)
+                .mgTracking(0.14, size: MGWebFont.monoSize(9))
                 .foregroundStyle(MGWeb.textFaint)
                 .accessibilityIdentifier("mg.heimdall.honesty")
         }
@@ -627,7 +650,7 @@ public struct HeimdallInspector: View {
         } else {
             Text("HOLD · NO ACTION · PASSIVE FUSION CONTINUES")
                 .font(MGWebFont.mono(9))
-                .mgTracking(0.12, size: 9)
+                .mgTracking(0.12, size: MGWebFont.monoSize(9))
                 .foregroundStyle(MGWeb.textFaint)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
@@ -736,7 +759,7 @@ public struct HeimdallTrackList: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("TRACKS")
                 .font(MGWebFont.mono(11))
-                .mgTracking(0.14, size: 11)
+                .mgTracking(0.14, size: MGWebFont.monoSize(11))
                 .foregroundStyle(MGWeb.textFaint)
                 .accessibilityAddTraits(.isHeader)
             ForEach(model.visibleTracks, id: \.id) { t in
@@ -754,6 +777,186 @@ public struct HeimdallTrackList: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("mg.heimdall.list.\(t.id)")
             }
+        }
+    }
+}
+
+/// Where the picture puts a track: its point, its symbol's 44 pt hit frame centred on
+/// the point, and its label 5 pt under the 14 pt dot, kept inside the picture. The
+/// views and the geometry tests use the same rules. [FR-H-4] [DD-7] [RC-49]
+enum HeimdallPictureGeometry {
+    /// The symbol's hit frame (the 14 pt dot at its centre).
+    static let hitSize: CGFloat = 44
+    /// From the dot's centre to its label's top: half the 14 pt dot and the web's 5 pt.
+    static let labelGap: CGFloat = 12
+    /// How close a label may come to the picture's edge.
+    static let edgeInset: CGFloat = 2
+
+    /// A track's point: `x` and `y` in percent of the picture, as the web places it.
+    static func point(x: Double, y: Double, in size: CGSize) -> CGPoint {
+        CGPoint(x: size.width * x / 100, y: size.height * y / 100)
+    }
+
+    static func symbolFrame(at point: CGPoint) -> CGRect {
+        CGRect(x: point.x - hitSize / 2, y: point.y - hitSize / 2, width: hitSize, height: hitSize)
+    }
+
+    static func labelFrame(at point: CGPoint, label: CGSize, in size: CGSize) -> CGRect {
+        pinned(CGPoint(x: point.x, y: point.y + labelGap), size: label, centredVertically: false, in: size)
+    }
+
+    /// A label of `size` centred across `point` (and on it vertically, or with its top
+    /// there), moved the least it takes to keep `edgeInset` from every edge of `bounds`.
+    static func pinned(_ point: CGPoint, size: CGSize, centredVertically: Bool, in bounds: CGSize) -> CGRect {
+        var x = point.x - size.width / 2
+        var y = centredVertically ? point.y - size.height / 2 : point.y
+        x = max(edgeInset, min(x, bounds.width - edgeInset - size.width))
+        y = max(edgeInset, min(y, bounds.height - edgeInset - size.height))
+        return CGRect(x: x, y: y, width: size.width, height: size.height)
+    }
+}
+
+/// One label over the picture, at its ideal size, placed by
+/// `HeimdallPictureGeometry.pinned` in the whole picture's frame.
+struct PinnedLabelLayout: Layout {
+    var point: CGPoint
+    var centredVertically = false
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        proposal.replacingUnspecifiedDimensions()
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            let frame = HeimdallPictureGeometry.pinned(point, size: size, centredVertically: centredVertically,
+                                                       in: bounds.size)
+            subview.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
+                          proposal: ProposedViewSize(size))
+        }
+    }
+}
+
+/// The iPhone's picture readouts, as a strip directly above the picture instead of over
+/// it: north, scale and vector, the withheld count, and the focus track. Over the
+/// picture at an iPhone's width they came over the tracks and their labels (the vector
+/// line over E-2231's symbol even at the default text size, the focus lines over
+/// E-2231's label), more so with larger text. Readable text, each line its own element;
+/// the focus track's lines are one element that says them as a sentence. Not shown at
+/// accessibility text sizes, where the picture's label says them. [FR-H-4] [DD-7]
+/// [RC-49] [AC-C-11]
+public struct HeimdallPictureReadoutStrip: View {
+    @ObservedObject var model: HeimdallPictureModel
+    private let accent = MGWebAccent.heimdall
+
+    public init(model: HeimdallPictureModel) { self.model = model }
+
+    static func focusSentence(_ t: HeimdallTrack) -> String {
+        "Focus \(t.id): heading \(Int(t.hdg)) degrees, \(Int(t.spd)) knots, \(t.alt), "
+            + "\(HeimdallPictureModel.range(t)) nautical miles, \(Int(t.feeds)) feeds, \(t.track)."
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            FlowRow(spacing: 12) {
+                Text("N ↑")
+                    .font(MGWebFont.mono(11))
+                    .mgTracking(0.14, size: MGWebFont.monoSize(11))
+                    .foregroundStyle(MGWeb.textMuted)
+                    .accessibilityLabel(Text("North up"))
+                    .accessibilityIdentifier("mg.heimdall.readout.north")
+                HStack(spacing: 6) {
+                    ZStack {
+                        Rectangle().fill(MGWeb.decorFaint).frame(width: 80, height: 2)
+                        HStack {
+                            Rectangle().fill(MGWeb.decorFaint).frame(width: 2, height: 6)
+                            Spacer()
+                            Rectangle().fill(MGWeb.decorFaint).frame(width: 2, height: 6)
+                        }
+                        .frame(width: 80)
+                    }
+                    .accessibilityHidden(true)
+                    Text("10 NM")
+                        .font(MGWebFont.mono(8))
+                        .mgTracking(0.12, size: MGWebFont.monoSize(8))
+                        .foregroundStyle(MGWeb.textFaint)
+                        .accessibilityLabel(Text("Scale 10 nautical miles"))
+                        .accessibilityIdentifier("mg.heimdall.readout.scale")
+                }
+                Text("VECTOR · 1 MIN PROJECTION")
+                    .font(MGWebFont.mono(8))
+                    .mgTracking(0.12, size: MGWebFont.monoSize(8))
+                    .foregroundStyle(MGWeb.textFaint)
+                    .accessibilityIdentifier("mg.heimdall.readout.vector")
+            }
+            if model.withheld > 0 {
+                Text("\(model.withheld) TRACK\(model.withheld == 1 ? "" : "S") WITHHELD · ABOVE YOUR CLEARANCE")
+                    .font(MGWebFont.mono(8))
+                    .mgTracking(0.12, size: MGWebFont.monoSize(8))
+                    .foregroundStyle(MGWeb.warnText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("mg.heimdall.withheld")
+            }
+            if let t = model.selectedTrack {
+                FlowRow(spacing: 12) {
+                    Text("FOCUS · \(t.id)")
+                        .font(MGWebFont.mono(8))
+                        .mgTracking(0.14, size: MGWebFont.monoSize(8))
+                        .foregroundStyle(accent.text)
+                    Text("\(HeimdallPictureModel.heading(t.hdg))° · \(Int(t.spd)) KT · \(t.alt)")
+                        .font(MGWebFont.mono(9))
+                        .foregroundStyle(MGWeb.textMuted)
+                    Text("\(HeimdallPictureModel.range(t)) NM · \(Int(t.feeds)) FEEDS · \(t.track.uppercased())")
+                        .font(MGWebFont.mono(9))
+                        .foregroundStyle(MGWeb.textFaint)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text(Self.focusSentence(t)))
+                .accessibilityIdentifier("mg.heimdall.readout.focus")
+            }
+        }
+        .lineLimit(1)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(MGWeb.bgSunken)
+        .overlay(alignment: .bottom) { Rectangle().fill(MGWeb.border).frame(height: 1).accessibilityHidden(true) }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("mg.heimdall.readouts")
+    }
+}
+
+/// The iPhone's readout strip and picture, stacked: the strip at its height, the picture
+/// under it with what is left of `total` (520 pt, the picture's height before the strip),
+/// but never less than `minPicture`. The picture's lowest track label then stays about
+/// where it was above the console bar. A single subview is the picture alone, at
+/// `total`. [FR-H-4] [DD-7] [RC-49]
+struct PictureStripLayout: Layout {
+    var total: CGFloat = 520
+    var minPicture: CGFloat = 440
+
+    func pictureHeight(strip: CGFloat) -> CGFloat { max(minPicture, total - strip) }
+
+    private func heights(width: CGFloat, subviews: Subviews) -> (strip: CGFloat, picture: CGFloat) {
+        guard subviews.count > 1 else { return (0, total) }
+        let strip = subviews[0].sizeThatFits(ProposedViewSize(width: width, height: nil)).height
+        return (strip, pictureHeight(strip: strip))
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? 390
+        let h = heights(width: width, subviews: subviews)
+        return CGSize(width: width, height: h.strip + h.picture)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let h = heights(width: bounds.width, subviews: subviews)
+        if subviews.count > 1 {
+            subviews[0].place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: h.strip))
+        }
+        if let picture = subviews.last {
+            picture.place(at: CGPoint(x: bounds.minX, y: bounds.minY + h.strip),
+                          proposal: ProposedViewSize(width: bounds.width, height: h.picture))
         }
     }
 }

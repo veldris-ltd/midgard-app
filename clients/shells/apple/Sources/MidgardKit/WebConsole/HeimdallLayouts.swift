@@ -44,9 +44,9 @@ public struct HeimdallConsoleFrame<Nav: View, Main: View, Aside: View, Trailing:
 }
 
 /// The Operating Picture on the iPhone: the classification banner and the header's
-/// first seal, then the picture first, the stats and the layer switches under it; the
-/// inspector opens as a sheet when a track is chosen (or from the inspect button).
-/// [FR-H-4] [FR-H-5] [DD-7] [RC-49] [AC-C-11]
+/// first seal, then the picture's readouts as a strip and the picture, the stats and the
+/// layer switches under it; the inspector opens as a sheet when a track is chosen (or
+/// from the inspect button). [FR-H-4] [FR-H-5] [DD-7] [RC-49] [AC-C-11]
 public struct HeimdallOperatingPictureCompact: View {
     @StateObject private var model: HeimdallPictureModel
     @State private var inspecting = false
@@ -63,8 +63,15 @@ public struct HeimdallOperatingPictureCompact: View {
             VStack(spacing: 0) {
                 WebClassificationBanner(level: HeimdallChrome.banner.level, text: HeimdallChrome.banner.text, compact: true)
                 HeimdallHeader(compact: true) { EmptyView() }
-                HeimdallPictureCanvas(model: model, showsFooter: false) { _ in inspecting = true }
-                    .frame(height: 520)
+                // The readouts as a strip directly above the picture, not over it, at
+                // an iPhone's width (except at accessibility sizes, where the picture's
+                // label says them).
+                PictureStripLayout {
+                    if !typeSize.isAccessibilitySize { HeimdallPictureReadoutStrip(model: model) }
+                    HeimdallPictureCanvas(model: model, showsFooter: false, readoutsInPicture: false) { _ in
+                        inspecting = true
+                    }
+                }
                 VStack(alignment: .leading, spacing: 14) {
                     if typeSize.isAccessibilitySize {
                         HeimdallTrackList(model: model) { _ in inspecting = true }

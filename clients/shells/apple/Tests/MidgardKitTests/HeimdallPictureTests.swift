@@ -1,3 +1,4 @@
+import CoreText
 import MidgardCore
 import SwiftUI
 import XCTest
@@ -131,5 +132,75 @@ final class HeimdallPictureTests: XCTestCase {
         XCTAssertEqual(narrow[1].maxX, 380)
         XCTAssertFalse(narrow[0].intersects(narrow[1]))
         XCTAssertEqual(layout.frames(width: 380, sizes: [left]).count, 1)
+    }
+    /// The size a one-line mono label draws at, as iOS draws it: JetBrains Mono at
+    /// `points`, `tracking` pt between letters, `padding` pt each side.
+    private func monoLabel(_ text: String, points: CGFloat, tracking: CGFloat, padding: CGFloat) -> CGSize {
+        let descriptor = CTFontDescriptorCreateWithAttributes([kCTFontFamilyNameAttribute: MGFonts.monoFamily] as CFDictionary)
+        let font = CTFontCreateWithFontDescriptor(descriptor, points, nil)
+        XCTAssertEqual(CTFontCopyFamilyName(font) as String, MGFonts.monoFamily, "measured in another font")
+        let string = NSAttributedString(string: text, attributes: [
+            NSAttributedString.Key(kCTFontAttributeName as String): font,
+            NSAttributedString.Key(kCTKernAttributeName as String): tracking,
+        ])
+        let line = CTLineCreateWithAttributedString(string)
+        let width = CTLineGetTypographicBounds(line, nil, nil, nil)
+        let height = CTFontGetAscent(font) + CTFontGetDescent(font) + CTFontGetLeading(font)
+        return CGSize(width: ceil(width) + 2 * padding, height: ceil(height))
+    }
+
+    /// The iPhone layout (I1): the readouts are a strip above the picture, so none lies
+    /// over a track's symbol or label; every track's 44 pt symbol frame and label lie
+    /// wholly inside the picture, and no two labels overlap, at an iPhone SE's and an
+    /// iPhone 17's width, at the default text size (11 pt) and at XXXL (caption 2 at
+    /// 17 pt), at the tallest and the shortest picture the strip leaves. [FR-H-4]
+    /// [DD-7] [RC-49] [AC-C-11]
+    func testTheCompactPictureKeepsTracksClearOfTheReadoutsAndInside() async throws {
+        MGFonts.registerAll()
+        let model = HeimdallPictureModel(app: try await signedIn("k.osei"))
+        await model.load()
+        XCTAssertEqual(model.visibleTracks.count, 5)
+        let stack = PictureStripLayout()
+        XCTAssertEqual(stack.pictureHeight(strip: 0), 520)
+        XCTAssertEqual(stack.pictureHeight(strip: 60), 460)
+        XCTAssertEqual(stack.pictureHeight(strip: 200), 440)
+        for width in [375.0, 402.0] {
+            for points in [11.0, 17.0] {
+                for strip in [0.0, 84.0, 160.0] {
+                    let size = CGSize(width: width, height: stack.pictureHeight(strip: strip))
+                    // The strip's frame, and the picture's frame under it, in the stack.
+                    let readouts = CGRect(x: 0, y: 0, width: width, height: strip)
+                    var labels: [(String, CGRect)] = []
+                    for t in model.visibleTracks {
+                        let at = HeimdallPictureGeometry.point(x: t.x, y: t.y, in: size)
+                        let text = "\(t.id)\(t.track == "anomalous" ? " ⚠\u{FE0E}" : "") · \(Int(t.hdg))°"
+                        let label = HeimdallPictureGeometry.labelFrame(
+                            at: at, label: monoLabel(text, points: points, tracking: 0.08 * 11, padding: 2), in: size)
+                        let symbol = HeimdallPictureGeometry.symbolFrame(at: at)
+                        let picture = CGRect(origin: .zero, size: size)
+                        let context = "\(t.id) at \(width)×\(size.height), \(points) pt"
+                        XCTAssertTrue(picture.contains(symbol), "symbol outside the picture: \(context) \(symbol)")
+                        XCTAssertTrue(picture.insetBy(dx: 1, dy: 1).contains(label),
+                                      "label clipped by the picture: \(context) \(label)")
+                        for (name, frame) in [("symbol", symbol), ("label", label)] {
+                            let inStack = frame.offsetBy(dx: 0, dy: strip)
+                            XCTAssertFalse(inStack.intersects(readouts),
+                                           "\(name) under the readouts: \(context) \(inStack) \(readouts)")
+                        }
+                        labels.append((t.id, label))
+                    }
+                    for (i, a) in labels.enumerated() {
+                        for b in labels[(i + 1)...] {
+                            XCTAssertFalse(a.1.intersects(b.1), "labels \(a.0) and \(b.0) overlap at \(width) pt, \(points) pt")
+                        }
+                    }
+                }
+            }
+        }
+        // A label wider than the room left of the right edge is moved in, not cut.
+        let pinned = HeimdallPictureGeometry.pinned(CGPoint(x: 360, y: 100), size: CGSize(width: 80, height: 16),
+                                                    centredVertically: true, in: CGSize(width: 375, height: 440))
+        XCTAssertEqual(pinned.maxX, 373)
+        XCTAssertEqual(pinned.midY, 100)
     }
 }
