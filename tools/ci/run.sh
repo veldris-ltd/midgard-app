@@ -67,7 +67,8 @@ release-tag|host|the release tag is annotated, signed, and verifies against depl
 release|toolchain|gate every binary, admit each to Bifrost, account for all of them
 release-images|host|build the verify-before-run images from the gated binaries
 release-bundle|toolchain|pack the signed air-gap bundle
-release-publish|host|attach the release to a draft pre-release
+release-publish|host|publish the release: a draft pre-release on the forge, or with no forge a local directory with SHA256SUMS
+release-offline|host|the whole release, in order, with no forge: release-offline <tag>
 shell-audit|host|build one client shell and audit it on this runner: shell-audit <shell> <release>
 shell-audit-gate|host|every shell has a fresh passing audit record: shell-audit-gate <release>
 '
@@ -510,8 +511,28 @@ job_release_preflight() { bash tools/ci/release-preflight.sh; }
 # A release is built from a signed tag, verified here before anything is built or signed.
 job_release_tag() { bash tools/ci/verify-tag.sh "$@"; }
 
+# The tag a release run here is for: the one named, or the release tag on the commit
+# checked out. Empty when there is none.
+release_tag_here() {
+    local tag="${1:-${MIDGARD_RELEASE_TAG:-$(ci_tag)}}"
+    [ -n "$tag" ] || tag="$(git tag --points-at HEAD --list 'v*' | head -n 1)"
+    echo "$tag"
+}
+
 job_release() {
-    local mounts
+    local mounts tag
+    # In a pipeline the preflight job has verified the tag, from a checkout of main. With
+    # no forge nothing has, so the signed tag is verified here, on the host, before
+    # anything is signed: a release is never made from an unverified commit.
+    # [VLD-ANB-MIDGARD-0035]
+    if [ "$(ci_platform)" = local ]; then
+        tag="$(release_tag_here "${1:-}")"
+        [ -n "$tag" ] || {
+            ci_error "release: no release tag on this commit; make one with tools/ci/tag-release.sh"
+            exit 1
+        }
+        bash tools/ci/verify-tag.sh "$tag" || exit 1
+    fi
     signing_mounts mounts
     in_toolchain "${mounts[@]}" -- bash tools/ci/release.sh
 }
@@ -549,26 +570,96 @@ job_release_images() {
                         just sbom \$f && just sign \$f && just verify \$f || exit 1; done"
 }
 
-# Every gated binary with its signature and provenance, packed and signed for import
-# on the far side of an air gap.
+# Everything an install from the bundle alone needs, packed and signed for import on
+# the far side of an air gap (deploy/air-gap-bundle/README.md): every gated binary with
+# its signature and provenance; the service images release-images built, with the
+# signed images.lock; the signed chart values and rendering; the chart itself, packaged
+# by helm; the deploy kit (install.sh and what it runs); and every image in
+# deploy/images/externals.lock, as an OCI archive that keeps its pinned digest, from the
+# directory `deploy/images/externals.sh fetch` filled while the release machine was
+# connected (MIDGARD_EXTERNAL_IMAGES, outside the checkout). Nothing is fetched here. It
+# refuses, packing nothing, when any part is missing or an external archive is not as
+# pinned. MIDGARD_RELEASE_OUT names the release directory, as for release-publish, and
+# EXTERNALS_LOCK another lock (its tests use both); the kit carries the lock packed.
+# [FR-B-5] [VLD-ANB-MIDGARD-0035]
 job_release_bundle() {
-    local version out=target/release-out mounts specs=() component
+    local version out="${MIDGARD_RELEASE_OUT:-target/release-out}" mounts specs=() component
+    local externals="${MIDGARD_EXTERNAL_IMAGES:-}" missing=() id file f part ref digest name member use
     version="$(release_name)"
     [ -s "$out/release-manifest.txt" ] || {
         ci_error "release-bundle: $out holds no completed release; run the release job first"
         exit 1
     }
-    local id file
+    [ -n "$externals" ] || {
+        ci_error "release-bundle: MIDGARD_EXTERNAL_IMAGES is not set; it names the directory deploy/images/externals.sh fetch filled (docs/ops/PKI.md, \"Releasing without a forge\")"
+        exit 1
+    }
+    bash deploy/images/externals.sh check "$externals" || {
+        ci_error "release-bundle: the external images in $externals are not all there as pinned"
+        exit 1
+    }
+    for f in images/images.lock chart/values.yaml chart/enclosure.yaml; do
+        for part in "$f" "$f.sig" "$f.att"; do
+            [ -s "$out/$part" ] || missing+=("$out/$part")
+        done
+    done
+    while read -r ref digest; do
+        [ -n "$ref" ] || continue
+        name="${ref##*/}"
+        name="${name%:*}"
+        [ -s "$out/images/$name.oci.tar" ] || missing+=("$out/images/$name.oci.tar")
+    done < <(tr -d '\r' < "$out/images/images.lock" 2>/dev/null)
+    [ "${#missing[@]}" -eq 0 ] || {
+        ci_error "release-bundle: an install needs what is missing here; run release-images first: ${missing[*]}"
+        exit 1
+    }
+
+    # The release's own chart, which install.sh deploys instead of a checkout's.
+    need "${HELM:-helm}" "release-bundle: helm is not on PATH; it packages the release chart"
+    mkdir -p "$out/bundle"
+    rm -f "$out/bundle/"midgard-*.tgz
+    "${HELM:-helm}" package deploy/helm/midgard --destination "$out/bundle" >/dev/null
+    local chart
+    chart="$(ls "$out/bundle/"midgard-*.tgz 2>/dev/null | head -1)"
+    [ -n "$chart" ] && [ "$(tar -xzOf "$chart" midgard/Chart.yaml | tr -d '\r' \
+        | sed -n 's/^appVersion: *"\{0,1\}\([^"]*\)"\{0,1\}$/\1/p')" = "$version" ] || {
+        ci_error "release-bundle: the chart's appVersion is not $version"
+        exit 1
+    }
+    bash deploy/air-gap-bundle/kit.sh "$out/bundle/deploy-kit.tar"
+
+    # Inside the toolchain container the release directory is /release-out and the
+    # external images /externals, read-only.
+    local o=/release-out
     # id version component file — what the release gated, binaries and JS alike.
     while read -r id _ component file; do
         [ -n "$id" ] || continue
-        specs+=("$component=$id:$version:$out/$file"
-                "attestation=$id.sig:$version:$out/$file.sig"
-                "attestation=$id.att:$version:$out/$file.att")
+        specs+=("$component=$id:$version:$o/$file"
+                "attestation=$id.sig:$version:$o/$file.sig"
+                "attestation=$id.att:$version:$o/$file.att")
     done < "$out/artefacts.txt"
+    while read -r ref digest; do
+        [ -n "$ref" ] || continue
+        name="${ref##*/}"
+        name="${name%:*}"
+        specs+=("image=$name.oci.tar:$version:$o/images/$name.oci.tar")
+    done < <(tr -d '\r' < "$out/images/images.lock")
+    for f in images.lock:images/images.lock chart-values.yaml:chart/values.yaml \
+        enclosure.yaml:chart/enclosure.yaml; do
+        specs+=("deploy=${f%%:*}:$version:$o/${f#*:}"
+                "attestation=${f%%:*}.sig:$version:$o/${f#*:}.sig"
+                "attestation=${f%%:*}.att:$version:$o/${f#*:}.att")
+    done
+    specs+=("deploy=helm-chart.tgz:$version:$o/bundle/$(basename "$chart")"
+            "deploy=deploy-kit.tar:$version:$o/bundle/deploy-kit.tar")
+    while read -r ref digest member use; do
+        specs+=("image=$member:$version:/externals/$member")
+    done < <(tr -d '\r' < "${EXTERNALS_LOCK:-deploy/images/externals.lock}" | sed 's/#.*//' | awk 'NF')
+
     signing_mounts mounts
+    mounts+=(--mount "$(cd "$out" && pwd):$o" --mount "$(cd "$externals" && pwd):/externals:ro")
     in_toolchain "${mounts[@]}" -- bash deploy/air-gap-bundle/produce.sh \
-        "$out/midgard-$version.mgbundle" "midgard-$version" "v$version" \
+        "$o/midgard-$version.mgbundle" "midgard-$version" "v$version" \
         /keys/admission.keystore "${specs[@]}"
 }
 
@@ -714,10 +805,63 @@ job_release_publish() {
             echo "release-publish: ${#files[@]} file(s) are in the package registry as midgard/${tag#v}; no release entry was created"
             ;;
         *)
-            ci_error "release-publish: only runs in a pipeline; ${#files[@]} file(s) are ready in $out"
-            exit 1
+            # No forge: the same files, in a directory of their own with a checksum list,
+            # ready to carry to the enclosure or to put wherever releases are kept. Nothing
+            # here needs a forge, and an existing release is never written over.
+            # [VLD-ANB-MIDGARD-0035]
+            local dest="${MIDGARD_RELEASE_DIR:-target/release-publish}/$tag"
+            [ ! -e "$dest" ] || {
+                ci_error "release-publish: $dest already exists; a published release is never replaced"
+                exit 1
+            }
+            local staging="$dest.partial"
+            rm -rf "$staging"
+            mkdir -p "$staging"
+            for f in "${files[@]}"; do
+                [ ! -e "$staging/$(basename "$f")" ] || {
+                    ci_error "release-publish: two files are named $(basename "$f")"
+                    rm -rf "$staging"
+                    exit 1
+                }
+                cp -p "$f" "$staging/"
+            done
+            (cd "$staging" && find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\n' | LC_ALL=C sort |
+                xargs sha256sum > SHA256SUMS)
+            mv "$staging" "$dest"
+            echo "release-publish: ${#files[@]} file(s) and SHA256SUMS are in $dest"
             ;;
     esac
+}
+
+# The whole release, in the order a forge's release pipeline runs it, on this machine
+# and with no forge: the signed tag, the preflight, the gate record, the numbers, the
+# JavaScript build, the gate and admission, the images, the air-gap bundle, and a local
+# publish. Each step stops the rest when it fails. The signing runner's settings are
+# the same as a pipeline's (docs/ops/PKI.md, "Releasing without a forge").
+# [VLD-ANB-MIDGARD-0035]
+job_release_offline() {
+    local tag
+    tag="$(release_tag_here "${1:-}")"
+    [ -n "$tag" ] || {
+        ci_error "release-offline: name the tag, or check out the commit it is on (make it with tools/ci/tag-release.sh)"
+        exit 1
+    }
+    [ "$(git rev-parse --verify --quiet "refs/tags/$tag^{commit}" || true)" = "$(git rev-parse HEAD)" ] || {
+        ci_error "release-offline: check out $tag first; a release is built from exactly the commit its tag names"
+        exit 1
+    }
+    local step
+    for step in "release-tag $tag" release-preflight "gate-record --release" numbers js-build \
+        "release $tag" release-images release-bundle "release-publish $tag"; do
+        ci_group "release-offline: $step"
+        # shellcheck disable=SC2086 # a step and its arguments, split on purpose
+        bash tools/ci/run.sh $step || {
+            ci_error "release-offline: $step failed; the release stops here"
+            exit 1
+        }
+        ci_endgroup
+    done
+    echo "release-offline: $tag is released, with no forge involved"
 }
 
 # Build one shell and audit it on this runner, writing the record the release gate

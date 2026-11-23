@@ -9,6 +9,62 @@ CONTRIBUTING.md for the version policy.
 
 ## [Unreleased]
 
+### Added
+- **Midgard installs from its air-gap bundle alone.** `run.sh release-bundle` now packs
+  everything an install needs: the release's service images with the signed
+  `images.lock`, the signed chart values and rendering, the chart (`helm package`), a
+  deploy kit holding `install.sh`, and the images Midgard runs but does not build (the
+  seed image, the Granite llama.cpp server, the HAProxy egress broker and the kind node
+  image), as OCI archives that keep their pinned index digests. It refuses, packing
+  nothing, when any of them is missing or not as pinned. `deploy/images/externals.lock`
+  pins those images; `deploy/images/externals.sh` fetches them once, while the release
+  machine is connected, into `MIDGARD_EXTERNAL_IMAGES`, and checks them offline; and
+  `tools/ci/tests/externals-lock.test.sh` requires the lock to agree with every pin in
+  the chart, compose and kind. `mg-bundle` accepts the `image` and `deploy` components,
+  and `deploy/kind/cluster.yaml` pins `kindest/node` by digest. [FR-B-5]
+  [VLD-ANB-MIDGARD-0035]
+
+### Changed
+- **`install.sh` installs from the bundle alone, and no longer rebuilds the images on
+  site.** It runs from a directory holding only the bundle, the operator's anchors and
+  the tools, and refuses, having changed nothing, when a member is missing, an image
+  archive is not its pin in `images.lock` or `externals.lock`, the bundled release anchor
+  is not the operator's (`--release-trust FILE` or `sha256:<hex>`, now required), the
+  script is not the installer the bundle carries, or a registry install has neither
+  skopeo nor crane. It pushes with skopeo or crane, which keep each digest, and checks
+  the digest the registry reports (`docker push` is no longer used), or loads into kind
+  under the names the chart resolves, and deploys the bundled chart with the seed, model
+  and egress images at the enclosure's registry by their pinned digests. `--rebuild`
+  keeps the on-site build as an opt-in, and its comparison with the signed chart values
+  now always runs. The release preflight checks the external images instead of a pulled
+  seed image (`MIDGARD_EXTERNAL_IMAGES_PATH`, docs/ops/PKI.md). [FR-B-5]
+  [VLD-ANB-MIDGARD-0035]
+
+### Security
+- **The release workflows' passphrase mappings are held by tests on both forges.**
+  [VLD-ANB-MIDGARD-0007] (The mappings themselves shipped in 0.1.0-rc.2.)
+  `workflows.test.sh` fails if a job that opens a keystore loses either passphrase
+  mapping in `release.yml`, if such a GitLab job does not extend `.signing`, or if
+  `.gitlab-ci.yml` sets either variable, which would shadow the CI/CD variable; and
+  `release-preflight.test.sh` covers a passphrase file that is absent or inside the
+  workspace, and checks the preflight never prints one.
+- **A release needs no forge.** [VLD-ANB-MIDGARD-0035] Signing, releasing and
+  publishing Midgard no longer depend on GitHub or GitLab being reachable, or existing.
+  - `verify-tag.sh` and `tag-release.sh` check that a tag is on `main` without having to
+    fetch it: a failed fetch is a warning, and with no forge `MIDGARD_MAINLINE_REF`
+    (`refs/heads/main`) names `main` locally. A pipeline may not set it.
+  - `run.sh release`, run outside a pipeline, verifies the signed release tag itself
+    before anything is signed; in a pipeline the preflight job has already done so.
+  - `run.sh release-publish` outside a pipeline checks the release as a pipeline's
+    publish does (every artefact the manifest names, with its `.sig` and `.att`, at the
+    recorded digest), then copies it, and the gate run it rests on, to `target/release-publish/<tag>/` (or `MIDGARD_RELEASE_DIR`) with a
+    `SHA256SUMS`, and never writes over a published release. It used to fail there.
+  - `run.sh release-offline <tag>` runs every release step in the release workflow's
+    order on one machine. `workflows.test.sh` fails if the two orders drift apart.
+  - `docs/ops/PKI.md` gains "Releasing without a forge". `docs/ops/KEY_CEREMONY.md`
+    describes a ceremony with this repository's own tools, with Dvalin as the
+    enterprise option; without a forge, `allowed_signers` alone decides who may release.
+
 ### Fixed
 - **Publishing a tag no longer releases it again.** A manual release run with `publish`
   set ran the whole release job before drafting, and the Bifrost registry refuses a

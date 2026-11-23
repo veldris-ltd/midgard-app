@@ -7,7 +7,9 @@
 # The tag is named from the workspace version (`[workspace.package] version` in
 # Cargo.toml): v0.1.0-rc.1 for 0.1.0-rc.1. It is made only when, on the commit checked
 # out,
-#   - the tree is clean, and the commit is the tip of origin/main;
+#   - the tree is clean, and the commit is the tip of main: origin/main, fetched where a
+#     forge can be reached, or without one the local ref MIDGARD_MAINLINE_REF names
+#     (refs/heads/main);
 #   - the gate record covers the commit: gate-record.sh --check --release;
 #   - the numbers sheet is the tree's and every document agrees with it: numbers.sh --check;
 #   - the claims ledger checks, strictly: claims.sh --check --strict;
@@ -15,16 +17,19 @@
 #   - deploy/trust/allowed_signers exists, so the tag can be verified once made.
 # Then it makes an annotated tag signed with your configured signing key (git's
 # user.signingkey; an SSH key listed in allowed_signers), verifies it with
-# verify-tag.sh, and prints the push command. It does not push: publishing the tag
-# starts the release, and that is a decision to take with the output in front of you.
+# verify-tag.sh, and prints the next step: the push that starts a forge's release
+# pipeline, or the offline release (run.sh release-offline). It does not push or
+# release: that is a decision to take with the output in front of you. No forge is
+# needed to tag or to release (docs/ops/PKI.md, "Releasing without a forge").
 set -uo pipefail
 
 cd "$(dirname "$0")/../.." || exit 2
+. tools/ci/lib.sh
 check_only=0
 case "${1:-}" in
     --check) check_only=1 ;;
     "") ;;
-    -h | --help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h | --help) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "tag-release: unknown argument '$1'" >&2; exit 2 ;;
 esac
 
@@ -43,11 +48,14 @@ if git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; then
     bad "$tag already exists, on $(git rev-parse --short "refs/tags/$tag^{commit}"). A tag is never moved."
 fi
 [ -z "$(git status --porcelain)" ] && ok "the tree is clean" || bad "the tree has uncommitted changes"
-git fetch --quiet origin main 2>/dev/null || bad "could not fetch origin/main to compare with"
-if [ "$(git rev-parse --verify --quiet origin/main || true)" = "$commit" ]; then
-    ok "the commit is the tip of origin/main"
+refresh_mainline "tag-release"
+main="$(mainline_ref)"
+if ! git rev-parse --verify --quiet "$main" >/dev/null; then
+    bad "there is no $main to compare with; without a forge, name main locally: MIDGARD_MAINLINE_REF=refs/heads/main"
+elif [ "$(git rev-parse "$main")" = "$commit" ]; then
+    ok "the commit is the tip of main ($main)"
 else
-    bad "the commit is not the tip of origin/main; a release is tagged on main as pushed"
+    bad "the commit is not the tip of main ($main); a release is tagged on main"
 fi
 bash tools/ci/gate-record.sh --check --release && ok "the gate record covers this commit" || bad "the gate record does not cover this commit"
 bash tools/ci/numbers.sh --check && ok "the numbers sheet is this tree's" || bad "the numbers sheet or a document disagrees with the tree"
@@ -81,5 +89,6 @@ if ! bash tools/ci/verify-tag.sh "$tag"; then
     exit 1
 fi
 echo
-echo "tag-release: $tag is made and verifies. Publishing it starts the release workflow:"
-echo "  git push origin $tag"
+echo "tag-release: $tag is made and verifies. Next, one of:"
+echo "  git push origin $tag                          start a forge's release pipeline"
+echo "  bash tools/ci/run.sh release-offline $tag     release here, with no forge (docs/ops/PKI.md)"

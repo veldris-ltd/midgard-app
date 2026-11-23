@@ -7,7 +7,10 @@
 //!     where SPEC = [<component>=]<id>:<version>:<path>
 //!     <component> is service (the default), tool, client, model-bundle, attestation,
 //!     ui-bundle or npm-package (the release's JavaScript artefacts,
-//!     tools/ci/js-artefacts.sh). An adjacent <path>.sbom.cdx.json is bundled as the artefact's SBOM if present.
+//!     tools/ci/js-artefacts.sh), image (an OCI image archive) or deploy (what an
+//!     offline install needs besides the images: the chart, its values, images.lock and
+//!     the deploy kit). An adjacent <path>.sbom.cdx.json is bundled as the artefact's
+//!     SBOM if present.
 //!
 //! Consumer (air-gapped site, fully offline):
 //!   mg-bundle import (--trust-anchor ANCHORS | --trust-key TRUSTFILE) [--out-dir DIR] FILE
@@ -45,8 +48,10 @@ use pqc_agility::{SecretBytes, SigId, SigningKey, VerifyingKey};
 /// admits (supply-chain/release-artefacts.txt and tools/ci/js-artefacts.sh), so the
 /// bundle carries each artefact as the registry recorded it, and the kinds that travel
 /// only in bundles. tools/ci/tests/release-artefacts.test.sh checks the release's
-/// kinds against this list.
-const COMPONENTS: [&str; 7] = [
+/// kinds against this list. `image` and `deploy` carry what an install from the bundle
+/// alone needs: the release's image archives, and its chart, values, images.lock and
+/// deploy kit. [VLD-ANB-MIDGARD-0035]
+const COMPONENTS: [&str; 9] = [
     "service",
     "tool",
     "client",
@@ -54,6 +59,8 @@ const COMPONENTS: [&str; 7] = [
     "attestation",
     "ui-bundle",
     "npm-package",
+    "image",
+    "deploy",
 ];
 
 fn main() -> ExitCode {
@@ -416,6 +423,16 @@ mod tests {
         assert_eq!(sig.component, "attestation");
         assert_eq!(sig.id, "mg-verify.sig");
         assert_eq!(sig.path, r"C:\out\mg-verify.sig");
+        assert_eq!(
+            parse_spec("image=http-gateway.oci.tar:1:p")
+                .unwrap()
+                .component,
+            "image"
+        );
+        assert_eq!(
+            parse_spec("deploy=deploy-kit.tar:1:p").unwrap().component,
+            "deploy"
+        );
         // An `=` in the path is not a component.
         assert_eq!(parse_spec("a:1:/x=y/a").unwrap().component, "service");
         // The release's JavaScript artefacts keep the kind the registry admitted them as.

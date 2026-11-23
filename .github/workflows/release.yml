@@ -108,6 +108,9 @@ jobs:
       MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE: ${{ secrets.MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE }}
       MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE: ${{ secrets.MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE }}
       MIDGARD_BIFROST_REGISTRY: ${{ secrets.MIDGARD_BIFROST_REGISTRY_PATH }}
+      # The external images, fetched while connected (deploy/images/externals.sh), which
+      # the air-gap bundle carries; a directory outside the workspace. [VLD-ANB-MIDGARD-0035]
+      MIDGARD_EXTERNAL_IMAGES: ${{ secrets.MIDGARD_EXTERNAL_IMAGES_PATH }}
       # The runner's own copy of allowed_signers, outside the workspace: the tag is
       # verified against it, not against the tagged commit's (docs/ops/PKI.md).
       MIDGARD_ALLOWED_SIGNERS_PATH: ${{ secrets.MIDGARD_ALLOWED_SIGNERS_PATH }}
@@ -154,6 +157,9 @@ jobs:
       MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE: ${{ secrets.MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE }}
       MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE: ${{ secrets.MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE }}
       MIDGARD_BIFROST_REGISTRY: ${{ secrets.MIDGARD_BIFROST_REGISTRY_PATH }}
+      # The external images, fetched while connected (deploy/images/externals.sh), which
+      # the air-gap bundle carries; a directory outside the workspace. [VLD-ANB-MIDGARD-0035]
+      MIDGARD_EXTERNAL_IMAGES: ${{ secrets.MIDGARD_EXTERNAL_IMAGES_PATH }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:

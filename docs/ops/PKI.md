@@ -139,9 +139,10 @@ the handoff. Neither has a default; a runner missing either fails the release.
 
 ## HSM key ceremony (CA + release signing key)
 
-**To hold the ceremony, use Dvalin** (veldris-ltd/dvalin-app), and
-follow its `docs/KEY_CEREMONY.md`, step by step; [KEY_CEREMONY.md](KEY_CEREMONY.md)
-here says what it leaves in this repository. It is a guided Windows (and Linux) app
+**To hold the ceremony**, follow [KEY_CEREMONY.md](KEY_CEREMONY.md): with this
+repository's own tools ("Your own ceremony"), or with Dvalin where you have it (Veldris's
+ceremony application, available internally and to enterprise customers, with its own
+procedure). Neither needs a forge or a network. Dvalin is a guided Windows (and Linux) app
 that generates the release signing key (ML-DSA-87) and the Bifrost admission key
 (ML-DSA-65) into sealed keystores outside the checkout, proves each signs and verifies
 through this repository's `attest`, writes `deploy/trust/release-trust.pub`,
@@ -255,11 +256,20 @@ here if any is missing:
    `deploy/acceptance/Dockerfile` (Rust `1.82.0` and `just`, on a digest-pinned base),
    and pull both bases `deploy/images/service.Dockerfile` names: `BASE`, the toolchain
    image its prep stage lays files out on, and `RUNTIME`, the distroless
-   `cc-debian12:nonroot` image it runs on. Pull the chart's seed image too
-   (`seedImage` in `deploy/helm/midgard/values.yaml`, distroless
-   `base-debian12:debug-nonroot`, by digest), which the enclosure's registry must
-   carry for first start. Do all of this while connected. Every build and signing step runs in that image with
-   `--network none`. The runner itself only reaches GitHub.
+   `cc-debian12:nonroot` image it runs on. Do all of this while connected. Every build
+   and signing step runs in that image with `--network none`. The runner itself only
+   reaches GitHub.
+
+   **The external images, for the air-gap bundle** (VLD-ANB-MIDGARD-0035). Also while
+   connected, fetch every image in `deploy/images/externals.lock` (the chart's seed
+   image, the Granite llama.cpp server, the HAProxy egress broker and the kind node
+   image) by digest, every platform, as OCI archives that keep their index digests,
+   into a directory outside every checkout, with skopeo or crane:
+   `bash deploy/images/externals.sh fetch /srv/midgard-images`. Name it with the runner
+   secret `MIDGARD_EXTERNAL_IMAGES_PATH` (on GitLab, the CI/CD variable of that name).
+   The preflight checks that every archive is there with its pinned digest, offline
+   (`externals.sh check`); `release-bundle` packs them, so the enclosure needs no
+   registry outside it. Fetch again whenever a pin in `externals.lock` changes.
 2. **Offline advisory database.** The RustSec database is vendored at
    `vendor/advisory-db`, with the licence policy and exception tables in
    `supply-chain/`. The scan stage (`mg-scan`) reads nothing else.
@@ -275,7 +285,14 @@ here if any is missing:
    - `MIDGARD_BIFROST_REGISTRY_PATH`: the registry directory.
 
    Each keystore file and its passphrase file is mounted read-only into the container
-   that uses it.
+   that uses it. A passphrase file is a separate secret from its keystore: on GitHub a
+   repository secret, on GitLab a protected CI/CD variable, each of exactly the name
+   above, holding only the file's path on the runner. The workflows map the path and
+   nothing else; no workflow, script or log prints a passphrase, and the preflight
+   checks only that each file is readable and outside the job's workspace. A Dvalin
+   ceremony hands the two passphrases over as `release.passphrase` and
+   `bifrost.passphrase`; put them on the runner owner-only, outside every checkout
+   (for example `/srv/midgard-passphrases/`), and point the two secrets at them.
 4. **Pinned trust anchors.** The public halves from the ceremony, committed as
    `deploy/trust/release-trust.pub` and `deploy/trust/bifrost-trust.pub` (see
    `deploy/trust/README.md`).
@@ -317,7 +334,9 @@ here if any is missing:
    `release-managers` team as its only bypass actor; on GitLab, `v*` protected so that
    only maintainers create one (`tools/ci/gitlab-rules.sh`). Nothing on the runner can
    check this; the exported ruleset evidence in `docs/compliance/evidence/` is the
-   record.
+   record. Without a forge there is no ruleset, and the control is `allowed_signers`
+   itself: list only release managers' keys in it, and `verify-tag.sh` refuses a tag
+   anyone else signed ([Releasing without a forge](#releasing-without-a-forge)).
 
 If any is absent, the preflight **fails closed**, so a release never ships unsigned,
 unscanned, or from a half-provisioned runner.
@@ -348,6 +367,61 @@ release, admission and model-signing keystores, a mesh service's identity keysto
 `keys/*.keystore` and a mesh service's `<service>.audit.keystore` seal the enclosure's
 data (identity directory, ledgers, object store) under their root, so `rotate-root`
 refuses them; re-initialise the enclosure instead. [VLD-ANB-MIDGARD-0007]
+
+## Releasing without a forge
+
+No step of signing or releasing Midgard needs a forge: not a connection to one, not
+its API, not a signature or a "verified" mark it makes, and not its pipeline. GitHub
+and GitLab are conveniences that run the same scripts; with neither, or with both
+offline, a release is made on one machine. [VLD-ANB-MIDGARD-0035]
+
+**The machine** is provisioned as the signing runner above, without the forge's runner:
+the toolchain image built locally (`bash tools/ci/run.sh toolchain`), the vendored
+advisory database, pnpm with its store filled (or the `js-build` output carried in),
+the external images fetched into a directory of their own (item 1: the one step that
+needs a network, done once while provisioning),
+each keystore and passphrase file outside every checkout, and its own copy of
+`allowed_signers` outside the checkout. Set the same variables a pipeline maps from its
+secrets, and name `main` locally, since there is no remote to fetch it from:
+
+```bash
+export MIDGARD_SIGNING_KEYSTORE=/srv/midgard-keys/release.keystore
+export MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE=/srv/midgard-passphrases/release.passphrase
+export MIDGARD_BIFROST_KEYSTORE=/srv/midgard-keys/bifrost.keystore
+export MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE=/srv/midgard-passphrases/bifrost.passphrase
+export MIDGARD_BIFROST_REGISTRY=/srv/midgard-registry
+export MIDGARD_ALLOWED_SIGNERS_PATH=/srv/midgard-trust/allowed_signers
+export MIDGARD_EXTERNAL_IMAGES=/srv/midgard-images
+export MIDGARD_MAINLINE_REF=refs/heads/main
+```
+
+**Then**, on the commit to release, checked out:
+
+```bash
+bash tools/ci/tag-release.sh                    # the signed tag, verified
+bash tools/ci/run.sh release-offline v1.2.3     # every release step, in order
+```
+
+`release-offline` runs what the release workflow's `preflight`, `release` and `publish`
+jobs run, in their order: the tag gate, the preflight, the gate record, the numbers, the
+JavaScript build, the gate and Bifrost admission, the images, the air-gap bundle, and a
+local publish. It stops at the first step that fails. The publish writes every file a
+forge would attach, with a `SHA256SUMS`, to `target/release-publish/<tag>/` (or
+`MIDGARD_RELEASE_DIR`), and never writes over a release already there. Carry that
+directory to the enclosure; `mg-verify` checks each binary against
+`deploy/trust/release-trust.pub` there, again with no forge. Its air-gap bundle,
+`midgard-<version>.mgbundle`, is all an enclosure needs to install from: the release's
+images, the external images, the chart, its signed values and the installer. The
+operator brings the two anchors by another route, and `install.sh` checks the
+bundle's copy against them (`deploy/air-gap-bundle/README.md`).
+
+**What changes without one.** `MIDGARD_MAINLINE_REF` names `main` locally, so "on
+`main`" means the `main` of that machine: keep it the reviewed history. Who may release
+is decided by `allowed_signers` alone (item 8 above). There is no runner to clean up
+after a job, so the preflight's job-completed hook check does not apply: use a machine
+for nothing else, and remove the checkout's `target/` when the release has been copied
+off. Publishing the same release on a forge later is optional: push the tag and let its
+pipeline run, or attach the published directory's files by hand.
 
 ## Tested
 

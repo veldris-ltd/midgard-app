@@ -72,7 +72,7 @@ tr -d '\r' < "$gitlab" | grep -q '^    - git clone --branch main --depth [0-9]* 
 # environment, so only a v* tag reaches them, and only once a second maintainer has
 # approved the deployment. [VLD-ANB-MIDGARD-0035]
 for job in preflight release; do
-    tr -d '' < "$workflows/release.yml" | awk -v job="$job" '
+    tr -d '\r' < "$workflows/release.yml" | awk -v job="$job" '
         $0 ~ "^  " job ":$" { on = 1; next }
         on && /^  [a-z]/ { on = 0 }
         on && /^    environment: release$/ { found = 1 }
@@ -81,17 +81,80 @@ for job in preflight release; do
         fail "GitHub: the $job job runs in the release environment"
 done
 
+# Every job that runs a target which opens a keystore is handed both passphrase files,
+# from the runner secrets docs/ops/PKI.md names; without them the keystores do not open
+# and a tagged release stops at its preflight. On GitHub each such job maps them in its
+# env:. On GitLab they are CI/CD variables of the names run.sh reads, which reach every
+# job as they are, so each such job runs on the signing runner (extends .signing) and
+# nothing in .gitlab-ci.yml sets them, which would shadow or empty them.
+# [VLD-ANB-MIDGARD-0007]
+keystore_targets='release-preflight|release|release-images|release-bundle'
+passphrases='MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE'
+# keystore_jobs FILE: the top-level jobs that run one of those targets through run.sh.
+keystore_jobs() {
+    tr -d '\r' < "$1" | awk -v t="$keystore_targets" '
+        /^jobs:$/ { gh = 1; next }
+        gh && /^  [a-z][a-z0-9_-]*:$/ { job = $1; sub(/:$/, "", job) }
+        !gh && /^[a-z][a-z0-9_-]*:$/ { job = $1; sub(/:$/, "", job) }
+        job && $0 ~ ("run[.]sh (" t ")( |$)") { print job }' | sort -u
+}
+# job_block FILE JOB [INDENT]: the lines of JOB, a key at INDENT spaces (default two,
+# a GitHub job), up to the next key at that indent.
+job_block() {
+    tr -d '\r' < "$1" | awk -v job="$2" -v ind="${3-  }" '
+        $0 ~ ("^" ind job ":$") { on = 1; next }
+        on && $0 ~ ("^" ind "[^ #]") { on = 0 }
+        on'
+}
+gh_jobs="$(keystore_jobs "$workflows/release.yml" | tr '
+' ' ')"
+[ "$gh_jobs" = "preflight release " ] &&
+    pass "GitHub: the jobs that open a keystore are preflight and release" ||
+    fail "GitHub: the jobs that open a keystore are preflight and release, found: $gh_jobs"
+for job in $gh_jobs; do
+    block="$(job_block "$workflows/release.yml" "$job" "  ")"
+    for var in $passphrases; do
+        grep -qx "      $var: \${{ secrets.$var }}" <<<"$block" &&
+            pass "GitHub: the $job job maps $var from its runner secret" ||
+            fail "GitHub: the $job job maps $var from its runner secret"
+    done
+done
+gl_jobs="$(keystore_jobs "$gitlab" | tr '
+' ' ')"
+[ "$gl_jobs" = "release release-preflight " ] &&
+    pass "GitLab: the jobs that open a keystore are release-preflight and release" ||
+    fail "GitLab: the jobs that open a keystore are release-preflight and release, found: $gl_jobs"
+for job in $gl_jobs; do
+    job_block "$gitlab" "$job" "" | grep -qE '^  extends: \[?[^]]*\.signing' &&
+        pass "GitLab: the $job job runs on the signing runner (extends .signing)" ||
+        fail "GitLab: the $job job runs on the signing runner (extends .signing)"
+done
+for var in $passphrases; do
+    tr -d '\r' < "$gitlab" | grep -qE "^ +$var:" &&
+        fail "GitLab: nothing sets $var, which would shadow the CI/CD variable" ||
+        pass "GitLab: nothing sets $var, so the CI/CD variable reaches the release jobs"
+    tr -d '\r' < "$gitlab" | grep -q "^#.*$var" &&
+        pass "GitLab: the header lists $var among the release runner's variables" ||
+        fail "GitLab: the header lists $var among the release runner's variables"
+done
+# A release needs no forge: run.sh release-offline runs, on one machine, the same steps
+# in the same order as the release workflow's preflight, release and publish jobs, so
+# the two paths cannot drift apart. [VLD-ANB-MIDGARD-0035]
+want_steps="$(for job in preflight release publish; do job_runs "$workflows/release.yml" "$job"; done |
+    sed -n 's#^bash \(\.ci-trusted/\)\{0,1\}tools/ci/run\.sh \([a-z-]*\).*#\2#p' | tr '\n' ' ')"
+run_sh="$workflows/../../tools/ci/run.sh"
+# The list after `for step in`, split as the shell splits it; each step's first word.
+step_list="$(awk '/^job_release_offline\(\)/ { on = 1 } on && /for step in/ { s = 1 }
+    s { print } s && /; do/ { exit }' "$run_sh" | tr '\\\n' '  ' | sed 's/.*for step in//; s/; do.*//')"
+got_steps="$(xargs printf '%s\n' <<<"$step_list" | awk '{ print $1 }' | tr '\n' ' ')"
+[ -n "$want_steps" ] && [ "$got_steps" = "$want_steps" ] &&
+    pass "release-offline runs the release workflow's steps in its order: $got_steps" ||
+    fail "release-offline runs the release workflow's steps in its order: want '$want_steps', got '$got_steps'"
 # The release goes by the shell-audit gate's verdict, not by the audit jobs' results: a
 # waived pre-release has audits that failed, or that GitHub cancelled before they
 # started, and its release must still run once the gate passes; with no verdict of
 # "pass" it must not. [RC-49] [AC-C-11]
-# job_block FILE JOB: the job's lines, up to the next job.
-job_block() {
-    tr -d '\r' < "$1" | awk -v job="$2" '
-        $0 ~ "^  " job ":$" { on = 1; next }
-        on && /^  [a-z]/ { on = 0 }
-        on'
-}
+# job_block (above) gives a GitHub job's lines, up to the next job.
 release_if="$(job_block "$workflows/release.yml" release | sed -n 's/^    if: *//p')"
 for part in '!cancelled()' "needs.preflight.result == 'success'" "needs.shell-audits.outputs.verdict == 'pass'"; do
     grep -qF -- "$part" <<<"$release_if" &&

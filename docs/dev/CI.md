@@ -324,7 +324,7 @@ touches the release machinery, and by hand on any branch.
 ### A real release
 
 Needs a signing runner provisioned as [docs/ops/PKI.md](../ops/PKI.md) describes —
-labelled `[self-hosted, kms]` on GitHub, tagged `kms` on GitLab — with four settings
+labelled `[self-hosted, kms]` on GitHub, tagged `kms` on GitLab — with these settings
 naming files on that runner, all outside the job's workspace:
 
 | Setting | What |
@@ -333,8 +333,13 @@ naming files on that runner, all outside the job's workspace:
 | `MIDGARD_BIFROST_KEYSTORE_PATH` | the Bifrost admission keystore (ML-DSA-65) |
 | `MIDGARD_BIFROST_REGISTRY_PATH` | the Bifrost registry directory |
 | `MIDGARD_ALLOWED_SIGNERS_PATH` | the runner's own copy of `deploy/trust/allowed_signers`, which release tags are verified against |
+| `MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE` | the passphrase the release keystore's root is wrapped under, a secret of its own |
+| `MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE` | the passphrase the admission keystore's root is wrapped under, a secret of its own |
+| `MIDGARD_EXTERNAL_IMAGES_PATH` | a directory: the external images the air-gap bundle carries, as `deploy/images/externals.sh fetch` left them |
 
-On GitHub these are repository secrets; on GitLab, CI/CD variables. The public halves
+On GitHub these are repository secrets; on GitLab, CI/CD variables. None of this needs a
+forge: the same release runs on one machine with `bash tools/ci/run.sh release-offline
+<tag>` ([PKI.md, "Releasing without a forge"](../ops/PKI.md#releasing-without-a-forge)). The public halves
 are committed as `deploy/trust/release-trust.pub` and `deploy/trust/bifrost-trust.pub`,
 beside `deploy/trust/model-signing.pub`, the model-signing key's public half. The
 preflight (`release-preflight`) refuses a release unless all three are committed, each
@@ -416,7 +421,9 @@ made for a tag's own run holds a lightweight stand-in for an annotated tag, beca
 `actions/checkout` fetches the pushed commit over the tag when the tag's object is not
 that commit, which an annotated tag's never is. `tag-release.sh` checks that the commit
 is the tip of `origin/main` on your side; the runner checks again, since a tag can be
-pushed by other means.
+pushed by other means. With no forge to fetch `main` from,
+`MIDGARD_MAINLINE_REF=refs/heads/main` names it locally for both scripts, and the tag is
+released with `run.sh release-offline` instead of a push.
 
 Because the gate record names the commit it gated, the order is: merge to `main`; run
 the gate on that commit and record it (see "The gate record"); write the numbers sheet;

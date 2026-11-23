@@ -1,0 +1,594 @@
+# Running Midgard
+
+This guide covers every way to run Midgard from a checkout: the gateway edge in development mode, a real enclosure from a state directory, all five services under docker compose, and the Helm chart on a local kind cluster. The [README](../../README.md) has the short version. To install on a server with a guided installer, see [the installer guide](../../deploy/installer/README.md).
+
+## Development mode: the gateway edge and console
+
+This brings up the HTTP/JSON gateway edge and the Midgard console against it. Five steps.
+
+> **Read this first.** These steps start the gateway edge in **development mode**, for trying the consoles. For your own users and no demo data, see [Run a real enclosure](#run-a-real-enclosure-no-demo-data). Development mode means illustrative data seeded into an in-memory object fabric, one built-in credential, and an ephemeral identity key. It is genuinely the real Rust service, with real PQ-signed token issuance, real per-object policy evaluation and a real signed audit ledger, but it is **not** a production deployment, and it refuses to listen beyond loopback. The gap, and what closing it requires, is spelled out in [What is not yet runnable](#what-is-not-yet-runnable).
+
+### 1. Install the console dependencies
+
+```bash
+pnpm install
+```
+
+### 2. Build the gateway edge
+
+With a local Rust 1.82 toolchain:
+
+```bash
+cargo build --release -p http-gateway
+```
+
+Without one, use the pinned container (deps resolve offline from `vendor/`):
+
+```bash
+docker build -t midgard-acceptance:1.82.0 - < deploy/acceptance/Dockerfile   # one-time, online
+docker run --rm -v "$PWD":/work -w /work midgard-acceptance:1.82.0 \
+  cargo build --offline --release -p http-gateway
+```
+
+### 3. Start the gateway edge
+
+```bash
+just gateway-http                 # equivalent to: cargo run -p http-gateway -- --dev 127.0.0.1:7710
+```
+
+Development mode needs the explicit `--dev` flag. Started with no arguments, or with only an address, the gateway refuses to start: it serves a state directory (`--state-dir`, see [Run a real enclosure](#run-a-real-enclosure-no-demo-data)) or nothing. `--dev` listens on a loopback address only and refuses any other, such as `0.0.0.0`, with no override. [MG-SEC-06]
+
+A state-directory gateway also binds loopback only by default. Because the edge speaks plaintext HTTP, binding another interface needs `--allow-non-loopback`, and production must front it with PQ-mTLS or TLS 1.3 termination. The console likewise refuses `VITE_GATEWAY_URL` when it is plaintext `http://` to anything but loopback, both when it is built and when it starts: use `https://` for any other edge. [VLD-ANB-MIDGARD-0014] [VLD-ANB-MIDGARD-0032]
+
+It prints `http-gateway (secured) listening on http://127.0.0.1:7710`. Confirm it is up:
+
+```bash
+curl -s http://127.0.0.1:7710/api/v1/health
+# {"status":"ok","service":"http-gateway","transport":"HTTP/JSON edge → enclosure"}
+```
+
+> Because development mode binds loopback only, it cannot be published from a container: a `docker run -p 7710:7710` reaches nothing. Without a local Rust toolchain, run the enclosure with [docker compose](#run-the-services-with-docker-compose) instead, which serves a state directory with your own users.
+
+### 4. Start the Midgard console
+
+In a second terminal:
+
+```bash
+just console-midgard-http         # VITE_GATEWAY=http pnpm --filter @midgard/console-midgard dev
+```
+
+Open **http://localhost:5173**. It must be this port: the edge's CORS allowlist contains `http://localhost:5173` and nothing else.
+
+### 5. Log in
+
+The console presents an auth gate. The edge provisions two logins at startup:
+
+| Username | Password | Role |
+|---|---|---|
+| `operator` | `midgard-demo` | reads and runs actions |
+| `approver` | `midgard-approve` | approves the operator's human-gated actions; cannot run them |
+
+These are compile-time constants (`DEMO_USERNAME` / `DEMO_PASSWORD` and `DEMO_APPROVER_USERNAME` / `DEMO_APPROVER_PASSWORD` in `services/http-gateway/src/lib.rs`), published deliberately because this mode is for local development only. There is no user-provisioning interface.
+
+A human-gated action needs a second person. The operator requests approval for one action on one object, the approver approves it (sign in as `approver` in another browser or a private window), and the operator then runs it. The approval is good once, for that action on that object, for 15 minutes.
+
+Credentials are exchanged at `POST /api/v1/login` for an **ML-DSA-signed bearer token**, which authorises every subsequent request. A wrong password, a missing token and a forged token all return a uniform `401`. After five wrong passwords in a row a username is locked: the sixth attempt and any made while the lock holds get `429` with `Retry-After`, even with the right password. The first lock is 30 seconds and each further failure doubles it, up to 15 minutes.
+
+You can drive the same flow without a browser:
+
+```bash
+TOKEN=$(curl -s -X POST http://127.0.0.1:7710/api/v1/login \
+  -H 'content-type: application/json' \
+  -d '{"username":"operator","password":"midgard-demo"}' \
+  | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+
+curl -s -X POST http://127.0.0.1:7710/api/v1/query \
+  -H "authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"objectType":"aircraft"}'
+# {"results":[{"id":"aircraft/AC-2198","typeId":"aircraft","propertyValues":{…},"markings":[…]}, …],"auditId":"AUD-…"}
+```
+
+The operator is cleared to `confidential` with compartment `OPS-N`, so the four aircraft come back. Objects the caller can't read are filtered out per object (the `SIG`-compartment sensor feed never appears). Every response carries the `auditId` of the signed ledger entry that authorised it; `GET /api/v1/audit` lists those entries, each re-verified (`ML-DSA-65 ✓`).
+
+### What you get
+
+Authenticated requests are authorised through the real policy PDP and audited through the governance spine before anything is served. Available on the edge:
+
+| Endpoint | Serves |
+|---|---|
+| `GET /api/v1/health` · `/api/v1/ready` · `/metrics` | liveness, readiness, in-enclosure Prometheus metrics |
+| `GET /api/v1/object-types` | the object-type registry |
+| `POST /api/v1/query` · `/api/v1/search-around` | object-fabric query and link traversal |
+| `POST /api/v1/actions` | an action on one object; a human-gated one needs an approval |
+| `GET /api/v1/approvals` · `POST /api/v1/approvals` · `POST /api/v1/approvals/{id}/approve` · `/reject` | human-gate approvals, decided by a second person |
+| `GET /api/v1/policies` · `POST /api/v1/policy/simulate` | policy set and dry-run evaluation |
+| `GET /api/v1/audit` | audit lineage |
+| `GET /api/v1/identities` · `/keys` · `/compute` · `/observability` | IAM, KMS, compute and observability views |
+
+### Known limits of this mode
+
+| Limit | Detail |
+|---|---|
+| **Illustrative data, real enforcement** | At startup, `Enclosure::seed_dev` (`services/http-gateway/src/enclosure.rs`) registers a small aviation ontology and seeds its objects into the real object fabric. Markings are enforced per object, and gated actions really mutate the fabric. The platform read views (identities, keys, compute, observability, resilience) are still fixed data in `data.rs`. |
+| **Two credentials** | `operator` / `midgard-demo` and `approver` / `midgard-approve`, hard-coded. No sign-up, no user management, no rotation. Approvals are held in memory and lost on restart. |
+| **Ephemeral identity** | The IdP keypair is generated fresh on every start, so all tokens are invalidated by a restart. |
+| **Reduced work factor** | PBKDF2 runs at 4 096 iterations for a fast dev login, far below a production figure. |
+| **Built-in policy** | The dev policy is compiled in (`dev_login_policy()`): role `operator` may read and apply each registered action, and role `approver` may read and approve human gates. Mandatory access control (clearance and compartments) and the purpose gate still run first, and anything not granted is denied. There is no policy file yet. |
+| **One console** | Only `console-midgard` (port 5173) is in the CORS allowlist. The other six consoles are mock-only; see below. |
+| **No persistence** | Everything is in memory and lost on exit. |
+
+### Troubleshooting
+
+**The console loads but logging in does nothing.** Almost always the port. Vite falls back to the next free port when 5173 is taken, printing only `Port 5173 is in use, trying another one...`, and the edge's CORS allowlist contains `http://localhost:5173` and nothing else. The request still succeeds server-side (`200`), but the response carries no `Access-Control-Allow-Origin` header, so the browser discards it and the UI reports nothing useful. Free port 5173, or start Vite with `--strictPort` so a clash fails loudly instead of drifting:
+
+```bash
+VITE_GATEWAY=http pnpm --filter @midgard/console-midgard dev -- --strictPort
+```
+
+**`Connection refused` on 7710.** The edge isn't running. Development mode listens on loopback only, so a gateway started with `--dev` inside a container cannot be reached from outside it.
+
+**`401` when logging in again straight after a successful login.** A one-time code is accepted once. Logging in a second time within the same 30 seconds (from a second console, say) with the code just used is refused like a wrong code; wait for your authenticator app to show the next code and use that.
+
+**`429 Too Many Requests` when logging in.** Too many wrong passwords for that username. Wait the number of seconds the message gives (also sent as `Retry-After`), then log in with the right one. Restarting the gateway also clears it.
+
+**The console went back to sign-in saying "Your session has ended".** Either the token's hour ran out or the gateway was restarted: its IdP keypair is generated fresh on every start, so earlier tokens no longer verify. The console returns to sign-in on any `401`. Sign in again. **Account → Sign out** ends a session on purpose, at the server: the gateway revokes the token (`POST /api/v1/logout`), so a copy of it is refused too. The console keeps its token in memory only, so reloading the page also returns to sign-in.
+
+**`401` on every login attempt.** The credentials are exactly `operator` / `midgard-demo` or `approver` / `midgard-approve`; there are no other accounts and no way to add one in this mode.
+
+### The other consoles
+
+Six more consoles exist and run, but only against their in-browser mock gateways (`@midgard/sdk/mock`), under a demonstration banner and with no sign-in: the edge exposes neither their routes nor their origins:
+
+```bash
+VITE_GATEWAY=mock pnpm --filter @midgard/console-forge    dev   # :5174
+VITE_GATEWAY=mock pnpm --filter @midgard/console-mimir    dev   # :5175
+VITE_GATEWAY=mock pnpm --filter @midgard/console-heimdall dev   # :5176
+VITE_GATEWAY=mock pnpm --filter @midgard/console-bifrost  dev   # :5177
+VITE_GATEWAY=mock pnpm --filter @midgard/console-admin    dev   # :5178
+VITE_GATEWAY=mock pnpm --filter @midgard/client-shells    dev   # :5179
+```
+
+---
+
+## Run a real enclosure (no demo data)
+
+This serves an enclosure from a **state directory**: persisted issuer and audit keys, a durable, encrypted object store, audit ledger and identity directory, a policy file and principals you enrol. Nothing is seeded, and there is no built-in login.
+
+### 1. Build the gateway and the admin tool
+
+```bash
+cargo build --release -p http-gateway -p mg-admin
+```
+
+(Or through the pinned container, as in [step 2 above](#2-build-the-gateway-edge), with `-p http-gateway -p mg-admin`.)
+
+### 2. Create the state directory
+
+Make a keystore passphrase first, somewhere other than the state directory, and point `MIDGARD_KEYSTORE_PASSPHRASE_FILE` at it:
+
+```bash
+(umask 077; head -c 32 /dev/urandom | base64 > "$HOME/.midgard-passphrase")
+export MIDGARD_KEYSTORE_PASSPHRASE_FILE="$HOME/.midgard-passphrase"
+./target/release/mg-admin init --state-dir ./enclosure
+```
+
+Every command that opens a keystore (`mg-admin`, `http-gateway`, the mesh services, `mg-sign`, `mg-register`, `mg-bundle`, `mg-model`) reads its passphrase from `--keystore-passphrase-file FILE`, or from the file `MIDGARD_KEYSTORE_PASSPHRASE_FILE` names, and refuses to run with neither. The file must be at least 16 bytes and readable by its owner only. Never pass a passphrase on the command line, and never keep the file beside the keystore. A keystore written by an earlier release (format version 1, which held the root in the clear, or version 2, whose header was not authenticated) is refused until `mg-admin keystore migrate --keystore FILE` converts it to version 3; `mg-admin keystore verify --keystore FILE` checks one unlocks, and `mg-admin keystore rotate-root --keystore FILE` gives a release, model-signing or mesh identity keystore a new custody root after a version 1 copy may have been exposed ([docs/ops/UPGRADING.md](../ops/UPGRADING.md)).
+
+This writes:
+
+| Path | What it is |
+|---|---|
+| `keys/idp.keystore`, `keys/audit.keystore` | the ML-DSA-65 issuer and audit keys, each sealed under its own ML-KEM-1024 custody root. The root is in the file only wrapped under the keystore passphrase (PBKDF2-HMAC-SHA256, 600,000 iterations, AES-256-GCM; keystore format version 3). `keys/` is created 0700 and each keystore 0600. **Keep the passphrase apart from `keys/` and its backups**: the passphrase and the file together sign as the enclosure and read its data, and a lost passphrase is a lost enclosure. |
+| `trust/idp.pub`, `trust/audit.pub` | their verifying keys, safe to distribute. Keep a copy of `trust/audit.pub` **outside** the state directory: it is the key the gateway checks the audit ledger with (`--audit-pin`). |
+| `governance.ledger`, `governance.ledger.checkpoint` | the audit ledger, created empty, and the signed checkpoint of its length and last entry |
+| `policy.json` | the discretionary rules the PDP enforces. The starter file lets role `operator` Read and Apply. |
+| `ontology.json` | the object types, link types and actions the enclosure serves. The starter file declares none. |
+
+`init` refuses a directory that already has anything in it.
+
+### Declare an ontology and import data
+
+Before serving, write the enclosure's schema into `ontology.json`: its object types, link types and actions. The gateway registers it on every start and refuses to start if it is invalid. Then load data, with the gateway stopped, from a JSON Lines file of objects and links:
+
+```json
+{ "version": 1,
+  "objectTypes": [ { "id": "aircraft", "title": "Aircraft",
+                     "properties": [ { "name": "tail", "type": "text", "required": true } ] } ] }
+```
+
+```bash
+./target/release/mg-admin import --state-dir ./enclosure --file ./fleet.jsonl
+```
+
+```text
+{"object":"aircraft","key":"AC-2214","marking":"internal","purposes":["operations"],"properties":{"tail":"MG-404"}}
+```
+
+An import is all or nothing: every record is checked against the ontology before anything is written, an existing object is never replaced, and the import is recorded in the audit ledger. Both formats are published as JSON Schemas, [`contracts/schema/ontology.v1.schema.json`](../../contracts/schema/ontology.v1.schema.json) and [`contracts/schema/import-record.v1.schema.json`](../../contracts/schema/import-record.v1.schema.json), and a test holds them to the gateway's parsers.
+
+For real data to practise on, the [sample datasets](../../samples/README.md) load the same way. **[Import your own data](IMPORT_YOUR_OWN_DATA.md)** is the full walkthrough: every key of both formats, links, actions and the policy rules they need, who can read what, converting a spreadsheet, and the errors you will meet.
+
+### 3. Enrol a user
+
+The password is read from standard input, and only from a pipe or a file: `mg-admin` refuses a terminal, because it cannot stop it echoing. Read it without echo first:
+
+```bash
+read -rs PASSWORD
+printf '%s\n' "$PASSWORD" | ./target/release/mg-admin user add --state-dir ./enclosure \
+  --subject olivia --roles operator --clearance internal --purposes operations --totp
+unset PASSWORD
+```
+
+- `--clearance` is a marking band: `open`, `internal`, `restricted` or `confidential`. `--compartments A,B` adds compartments.
+- `--totp` also enrols a TOTP second factor and prints its `otpauth://` URI once, for the user's authenticator app. Their logins then need the current code as well as the password.
+- Passwords must be at least 12 characters. An enrolled user is never replaced.
+- Every enrolment is recorded in the audit ledger before it takes effect.
+
+`./target/release/mg-admin user list --state-dir ./enclosure` shows who is enrolled.
+
+### 4. Serve it
+
+```bash
+cp ./enclosure/trust/audit.pub /etc/midgard/audit.pin   # somewhere the state directory's writer cannot reach
+./target/release/http-gateway --state-dir ./enclosure --audit-pin /etc/midgard/audit.pin \
+    --allow-origin http://localhost:5173
+```
+
+At startup the gateway re-verifies every recovered audit entry and refuses to start if anything fails to authenticate. That covers a tampered or mismatched keystore, journal or ledger, and an invalid policy file. The ledger is checked under the pinned key, not the key in `keys/audit.keystore`: an audit keystore that does not hold the pinned key refuses to start, and so does a ledger that is missing, has lost its checkpoint, or is shorter than its checkpoint says. Without `--audit-pin` the gateway pins `trust/audit.pub` inside the state directory and says so; that still refuses a swapped keystore, but not one swapped together with the trust file beside it. It prints how many users are enrolled. `--bind ADDR` changes the address (default `127.0.0.1:7710`), and each `--allow-origin` adds a browser origin (there are none by default).
+
+To make it detectable when the ledger and its checkpoint are rolled back together, give the gateway a checkpoint mirror on another mount: seed it once with `mg-admin audit checkpoint --state-dir ./enclosure --audit-pin /etc/midgard/audit.pin --checkpoint-mirror /mnt/audit-mirror`, then add `--checkpoint-mirror /mnt/audit-mirror` to the command above. Every checkpoint is then written there too, and a ledger behind its mirror refuses to start ([docs/ops/BACKUP_RESTORE.md](../ops/BACKUP_RESTORE.md)).
+
+Log in from the Midgard console ([step 4 above](#4-start-the-midgard-console)) with the user you enrolled. From the command line, add `"totp":"123456"` to the login body when the user has a second factor:
+
+```bash
+curl -s -X POST http://127.0.0.1:7710/api/v1/login -H 'content-type: application/json' \
+  -d '{"username":"olivia","password":"…","totp":"123456"}'
+```
+
+Tokens and the audit ledger survive a restart.
+
+### Administrators and online enrolment
+
+Users can also be enrolled **while the gateway runs**, under dual control. One administrator requests, and a different one approves. Administrators prove who they are with two factors on every request: a post-quantum passkey (ML-DSA-65) and a one-time code from their authenticator app, not a password.
+
+Make two administrators first, with the gateway stopped. Each gets a passkey in a sealed keystore file that is **theirs to keep**, and a TOTP second factor whose `otpauth` URI is printed once for their authenticator app. Only the passkey's public half is registered in the state directory:
+
+```bash
+./target/release/mg-admin admin add --state-dir ./enclosure --admin alice --role IAM-Admin --keystore ./alice.passkey
+./target/release/mg-admin admin add --state-dir ./enclosure --admin bob   --role IAM-Admin --keystore ./bob.passkey
+```
+
+Roles are `IAM-Admin`, `Security-Officer`, `Model-Steward`, `Release-Manager` and `Auditor`. A binding covers `--scope` (default `iam`) for `--days` (default 365). Enrolling needs `IAM-Admin`. An administrator who loses their authenticator gets a new secret with `mg-admin admin totp-reset --state-dir ./enclosure --admin <name>`, with the gateway stopped; administrators made by an earlier release need one too before they can administer.
+
+Then, with the gateway running, alice requests and bob approves. Each command asks for the current code from the administrator's authenticator app, or takes it as `--totp <code>`:
+
+```bash
+./target/release/mg-admin enrol request \
+  --gateway http://127.0.0.1:7710 --admin alice --keystore ./alice.passkey \
+  --subject olivia --roles operator --clearance internal --purposes operations \
+  --justification "new duty operator"
+
+./target/release/mg-admin enrol list    --gateway http://127.0.0.1:7710 --admin bob --keystore ./bob.passkey
+./target/release/mg-admin enrol approve --gateway http://127.0.0.1:7710 --admin bob --keystore ./bob.passkey \
+  --id <enrolment id> --subject olivia
+```
+
+The approval prints a single-use activation code. bob hands it to olivia himself, out of band, and discards it. olivia then chooses her password and receives her TOTP second factor:
+
+```bash
+read -rs PASSWORD
+curl -s -X POST http://127.0.0.1:7710/api/v1/activate -H 'content-type: application/json' \
+  -d "{\"username\":\"olivia\",\"activationCode\":\"<code>\",\"password\":\"$PASSWORD\"}"
+unset PASSWORD
+```
+
+The reply's `otpauth` URI goes into her authenticator app; she logs in with her password and its code.
+
+- Until the approval, and then until she activates, olivia cannot log in.
+- No password or second factor passes through either administrator. The request names only who olivia is and what she may do, with roles and purposes the served `policy.json` names; the gateway creates her credentials at approval.
+- The code works once, and expires 72 hours after the approval. A password must be at least 12 characters.
+- alice cannot approve her own request, and an administrator without the IAM user capability cannot approve it. `enrol list` shows each waiting request in full, and `enrol approve` names the subject being approved.
+- `enrol reject --id <enrolment id> --reason <text>` discards a waiting request. If the approval cannot be written, the same approver runs `enrol approve` again.
+- A waiting request survives a gateway restart. Each command signs a fresh single-use challenge, issued to the administrator it names and answerable by no one else, and the gateway accepts each one-time code once, so a second command within the same 30 seconds waits for the next code. The passkey alone is refused.
+- Requests, approvals and refusals all appear in the audit ledger.
+- `--gateway` must be a loopback address, because administration runs over plain HTTP.
+
+### Limits of a real enclosure today
+
+| Limit | Detail |
+|---|---|
+| **TLS to sources only through the egress broker** | Data arrives through `mg-admin import` files, with the gateway stopped, or through the Forge worker while it runs (see [Run the services with docker compose](#run-the-services-with-docker-compose)). The worker's connectors speak plaintext themselves. Sources outside the enclosure's network are reached through the egress broker, which originates TLS 1.3 (see [Reach sources outside the enclosure](#reach-sources-outside-the-enclosure)). PostgreSQL cannot go through it, because PostgreSQL before 17 negotiates TLS inside its own protocol. |
+| **Imports only add** | An import never replaces or deletes an object. Declared actions change properties of objects that exist. |
+| **Schema and policy changes need a restart** | The gateway reads `ontology.json` and `policy.json` at startup. |
+| **Most administration is offline** | Enrolment works while the gateway runs, but `init`, `user add`, `import` and `admin add` need `midgard.lock`, which the gateway holds, so stop it first. A gateway killed outright leaves the lock behind. On Linux the next start detects that its holder is gone and takes it over; elsewhere you remove it after confirming nothing is running. |
+| **No administration console** | Online enrolment is command-line only. A browser cannot produce the post-quantum passkey assertions administrators sign with. |
+| **Software key custody** | The keystores are files, their custody roots wrapped under an operator passphrase (PBKDF2-HMAC-SHA256, 600,000 iterations, AES-256-GCM). The keystore format also takes a root sealed to an external trust root (`RootWrap::External` over `kms::TrustRoot`), tested against the SoftHSM stand-in, but no HSM or TPM driver is wired in: hardware custody remains the GA target. |
+| **Platform views are still fixed data** | Identities, keys, compute, observability and resilience views come from `data.rs`. |
+
+---
+
+## Run the services with docker compose
+
+Compose runs the enclosure's HTTP edge, the Mimir inference plane, the Bifrost fleet manager, the Heimdall feed gateway and the Forge worker as separate containers. Each runs as a non-root user with a read-only root filesystem and no capabilities, and mounts only its own volumes. The image is built from this checkout, not from a signed release, so use it for development and evaluation.
+
+Build the pinned toolchain image once. It compiles the services without network access, against the vendored crates:
+
+```bash
+docker build -t midgard-acceptance:1.82.0 deploy/acceptance
+```
+
+Then build and start everything:
+
+```bash
+just compose-up
+```
+
+- **`init`** runs first. `mg-admin init` creates the enclosure's keys and state. `mg-admin mesh issue` then gives each mesh workload an identity key, a separate audit key and a certificate signed by the enclosure's issuer: `mimir-server`, `mimir-probe`, `bifrost-fleet`, the agent `fleet-agent-1`, the operator `fleet-operator`, `heimdall-feed`, the source `feed-source-1`, the analyst `picture-analyst`, the gateway's own mesh identity `http-gateway`, and `forge-worker`. A fresh enclosure also gets a demonstration ontology (aircraft, facilities and the link between them) and a policy that lets the worker sync into it. Each identity directory also gets the mesh trust anchor and the signed revocation list, `mesh.crl`, every service needs to start. `init` never overwrites a key, so it is safe to run again; on an enclosure from an earlier release it is the upgrade: it brings each identity up to date in place (`mg-admin mesh upgrade`) and adopts each audit ledger written before ledgers had checkpoints (`mg-admin audit checkpoint`). See [docs/ops/UPGRADING.md](../ops/UPGRADING.md).
+- **`gateway`** serves the edge from that state on `http://127.0.0.1:7710`. On the internal network it also opens a PQ-mTLS door, `SyncRecords`, for certified workloads to sync objects and links into the fabric. Each sync is handled in this order:
+  1. It is authorised by `policy.json` and audited in the enclosure's one ledger.
+  2. It is checked against the ontology, all or nothing, and what it will change is recorded before anything is written.
+  3. Objects are created or replaced, and a link that already exists is not added again.
+- **`mimir-server`** serves inference over PQ-mTLS only, on an internal network with no host port. A caller needs a certificate from the enclosure's issuer, and `policy.json` must let its roles open the channel and `Infer`. Every call, permitted or denied, is written to the service's own sealed, PQ-signed ledger, which it re-verifies whenever it starts. Inside the network it answers `/healthz`, `/readyz` and `/metrics` on port 9090. Compose waits for readiness.
+- **`bifrost-fleet`** is the fleet manager, on the same internal network. Its `channels.json` sets the version each release channel should run. Agents check in over PQ-mTLS with the version they run and their health. An agent can check in only for the installation its certificate names. Operators read every installation's version and liveness, the drift from its channel and whether the fleet has converged. Every check-in and read is authorised by `policy.json` and audited. Accepted check-ins are journalled, sealed, so a restart recovers them.
+- **`heimdall-feed`** is the feed gateway, on the same internal network. A source submits observations signed with its certified mesh key. An observation is fused into the operating picture only if all four checks pass:
+  - policy lets the source `Ingest`
+  - the observation names the source's own feed
+  - its signature verifies against the key the source's certificate binds
+  - the decision is audited
+
+  Refusals are audited too. Observations that share an entity key fuse into one tracked entity. The picture is sealed at rest after each change and recovered on restart. Analysts read it as JSON.
+- **`forge-worker`** runs the jobs in `deploy/compose/forge/jobs.json`: each at start, then at its own interval. A run does four things:
+  1. It reads a CSV source through Forge's file connector, under the air-gapped sandbox.
+  2. It commits the rows to the worker's sealed, content-addressed dataset store with ingest lineage. An unchanged source is the same version.
+  3. It projects the rows onto the ontology, carrying the job's marking and purposes onto every object.
+  4. It syncs the objects and links through the gateway's door.
+
+  Every run is audited in the worker's own ledger and logged as a JSON line.
+
+Make one inference call as a certified consumer:
+
+```bash
+just compose-probe
+```
+
+It prints the model, where it ran, the call's audit sequence number, the first-token latency and the number of tokens generated, for example `model=local-reference locality=InEnclosure audit_seq=0 first_token_ms=13 tokens=5`, followed by the completion.
+
+Check an installation in, then read the fleet as an operator:
+
+```bash
+docker compose -f deploy/compose/compose.yaml run --rm fleet-agent --channel stable --version 0.1.0
+```
+
+```bash
+docker compose -f deploy/compose/compose.yaml run --rm fleet-status
+```
+
+The status is JSON: each channel's desired version, each installation's version, status (`live`, `unhealthy`, `stale` or `absent`) and last check-in, the drift, and `converged`.
+
+Submit a signed observation, then read the fused picture as an analyst:
+
+```bash
+docker compose -f deploy/compose/compose.yaml run --rm feed-source --kind air-track --entity AC-7 --attrs speed=410,callsign=ALPHA1
+```
+
+```bash
+docker compose -f deploy/compose/compose.yaml run --rm picture
+```
+
+The picture is JSON: its layers, and each tracked entity with its kind, layer, contributing feeds, first and last seen, observation count, classification and latest attributes.
+
+`just compose-smoke` does all of this on throwaway volumes. It restarts `mimir-server` between two inference calls and checks that the second continues the recovered ledger (`audit_seq=1`). It checks an installation in behind its channel, sees the drift, upgrades it and sees the fleet converge. It submits two observations of one entity and sees them fused. It waits for the Forge worker's first sync of the sample aircraft into the fabric. Then it removes everything.
+
+See what the worker synced:
+
+```bash
+docker compose -f deploy/compose/compose.yaml logs forge-worker
+```
+
+Each run line names the job, the dataset version, whether the source changed, and what the gateway applied, for example `synced: 3 created, 0 updated, 3 link(s) added`. The compose gateway is started with no `--allow-origin`, so it accepts no browser origin and a console cannot sign in to it as shipped; read the synced objects through the API (`/api/v1/login`, then `/api/v1/query`) as an enrolled user. `just compose-down` stops the services and keeps their volumes.
+
+### Serve a real model
+
+By default `mimir-server` answers with the deterministic reference engine. It can instead serve IBM Granite 3.3 2B Instruct on llama.cpp's CPU server. The model is Apache-2.0 licensed, and this build is 4-bit GGUF, about 1.5 GB. Midgard ships no weights, so download the file yourself from the pinned revision:
+
+```bash
+curl -L -o granite-3.3-2b-instruct-Q4_K_M.gguf https://huggingface.co/ibm-granite/granite-3.3-2b-instruct-GGUF/resolve/7cdf86ccd1f1bb3491c9b7017b033f2e51367397/granite-3.3-2b-instruct-Q4_K_M.gguf
+```
+
+Stage it into the `midgard-models` volume (build the image first with `docker compose -f deploy/compose/compose.yaml build init`):
+
+```bash
+just model-stage granite-3.3-2b-instruct-Q4_K_M.gguf
+```
+
+Staging uses `mg-model`, and does the following:
+
+1. Refuses the file unless its SHA-256 is the one the upstream publishes.
+2. Signs a manifest over the weights' digest, file name, format, quantisation and size, the family, the licence and the hardware the model needs. The manifest file is format 2: its signature covers the file's own bytes, so it is checked before the file is parsed. A format 1 manifest, from before, is refused; sign the model again.
+3. Verifies the model directory the way `mimir-server` will.
+
+`mimir-server` trusts only the pinned anchor `deploy/trust/model-signing.pub`, which the key ceremony publishes and the image carries at `/etc/midgard/trust`; the key is never taken from the models volume, and a trust key inside the model directory is refused. Until the ceremony has committed that file, stage with a development key instead: `just model-stage --development granite-3.3-2b-instruct-Q4_K_M.gguf`. It generates the key into the `midgard-model-signing` volume on this machine, puts its public half in a volume of its own, `midgard-model-trust`, and warns that the deployment trusts a local key; add `-f deploy/compose/compose.dev-model.yaml` to the compose commands below. In production the key stays in staging, and only the signed manifest enters the enclosure.
+
+Then start the enclosure with the Granite override and make a call:
+
+```bash
+docker compose -f deploy/compose/compose.yaml -f deploy/compose/compose.granite.yaml up -d --build --wait
+```
+
+```bash
+docker compose -f deploy/compose/compose.yaml -f deploy/compose/compose.granite.yaml run --rm probe --prompt "What is an audit ledger?" --max-tokens 64
+```
+
+What happens when it starts and serves:
+
+- **The model is verified first.** Before it serves, `mimir-server` checks the manifest's ML-DSA-65 signature against the trust key over the file's raw bytes, before parsing it; then the family and the hardware the model needs. It then opens the weights once, streams that handle through SHA-256 and checks their size, and their format from their own first bytes. Only GGUF and safetensors load. Any failure stops the service. [MG-SEC-14]
+- **No going back.** `mimir-server` keeps a release floor in its state directory (`model-release.floor`): the highest version of each model it has accepted, and a digest of its signed manifest. A model signed with an older version, or the same version with a different manifest, is refused even though its signature is valid. To replace a model, sign the new one with a higher `--version`. [MG-SEC-14]
+- **The weights stay the verified ones.** The engine loads the weights by path, so `mimir-server` keeps the verified file open and is ready only while the path still names that file, unchanged; a file swapped in afterwards takes it out of rotation. [MG-SEC-14]
+- **The engine is reachable only from `mimir-server`.** llama.cpp runs in `mimir-server`'s network namespace, listening on its loopback address only, with the models volume mounted read-only by both.
+- **Readiness follows the engine.** `mimir-server` is ready only while llama.cpp reports healthy.
+- **Calls stay governed.** Every call is still authorised and audited as before, and a failed call to the engine is refused, never answered by another model.
+
+`just compose-granite-smoke` stages the model, starts it on throwaway state and checks that a certified call is answered by Granite. It ran on a 12-core arm64 Docker host:
+
+- `mimir-server` was ready 23 s after start, including verifying the weights.
+- A 64-token call was answered with 44 tokens, 325 ms to the first token.
+
+To carry the model into an enclosure with no network, bundle it. `mg-model pack` packs a verified model directory into one signed bundle, streamed a chunk at a time. On the far side, `mg-model unpack` verifies that bundle offline, writes the model out and runs the load gate on it. See [the air-gap bundle README](../../deploy/air-gap-bundle/README.md#model-bundles).
+
+On Kubernetes, the chart's `modelServing` values for `mimir-server` run the same engine as a sidecar in its pod:
+
+- The staged model directories come from a PersistentVolumeClaim, mounted read-only.
+- The trust key comes from a ConfigMap.
+- The same values take vLLM's image and arguments, and a GPU resource, instead.
+
+### Limits of compose today
+
+| Limit | Detail |
+|---|---|
+| **Forge sources** | The compose worker reads sample files. It can also read PostgreSQL queries, S3-compatible object prefixes and Kafka topics, each incrementally from a checkpoint, with secrets from `--secrets-dir`. PostgreSQL and S3 have been checked against real servers (`just live-connectors`), and S3 through the egress broker to a TLS server; Kafka only against a fake broker. Connectors do not speak TLS themselves, and compose runs no egress broker (the Helm chart does). Jobs apply no transforms: rows are projected as they are read. |
+| **A sync never deletes** | A row removed from a source stays in the fabric, and so does a link. |
+| **The jobs file sets markings** | The gateway checks that policy lets the worker sync, not that the worker may write data at the marking its jobs file declares. |
+| **The picture stays in Heimdall** | Fused entities are not projected into the enclosure's object fabric, and no classifier is attached, so entities are unclassified. The whole picture is re-sealed after every observation, which will not scale to a large picture. |
+| **A feed is a mesh identity** | A source's feed id is the service its certificate names, and it signs with its mesh key. Separate feed-device keys are not supported. |
+| **The fleet manager only records** | It reports drift but does not push upgrades: nothing drives the rollout orchestrator from it yet. A channel removed from `channels.json` stays declared. |
+| **One real model, on CPU** | Without the Granite override, `mimir-server` serves the deterministic reference backend. Granite on llama.cpp has run end to end. vLLM on GPUs is wired in the code and the chart but has not been run, because no GPU was available, so the 800 ms first-token target is unproven. Until the key ceremony commits `deploy/trust/model-signing.pub`, a real model is served only under a development key (`stage-model.sh --development`). |
+| **Nothing calls Mimir yet** | The gateway does not route AI requests to `mimir-server`. Only `mimir-probe` does. |
+| **Not the release image** | The image is built from source and unsigned. |
+| **Certificates are renewed by hand** | Certificates expire after 30 days. Nothing in compose renews them yet: run `mg-admin mesh renew --within 10` for each service (see [docs/ops/PKI.md](../ops/PKI.md)) and restart it, or the service stops at expiry. |
+
+---
+
+## Run on Kubernetes with kind
+
+The same five services run on a local three-node Kubernetes cluster through the Helm chart in `deploy/helm/midgard`. You need [kind](https://kind.sigs.k8s.io), [Helm](https://helm.sh), `kubectl` and Docker, plus the toolchain image from the compose section.
+
+```bash
+just kind-up
+```
+
+`kind-up` does the following, and is safe to run again:
+
+1. Creates the cluster, a control plane and two workers.
+2. Builds the image from this checkout and loads it into the cluster.
+3. Installs the chart into the `midgard-enclosure` namespace.
+4. Provisions the secrets: the same `init` as compose mints the enclosure's keys, every mesh identity and each keystore's passphrase, and each becomes a Kubernetes Secret, the passphrase in a Secret of its own. `deploy/kind/bootstrap-secrets.sh` refuses any kubectl context that is not a kind cluster: on a real cluster the identities come from your key custody through the chart's `csi` or `externalSecrets` provider, and the `kubernetes` provider needs etcd encrypted at rest ([deploy/helm/midgard/README.md](../../deploy/helm/midgard/README.md)).
+5. Waits for every service.
+
+What the chart deploys:
+
+- **One single-replica `StatefulSet` per service, on its own volume.** Each service holds a single-writer, locked state directory, so a second replica would be refused, not share the load.
+- **Hardened pods.** Every pod runs non-root with a read-only root filesystem, no capabilities and the restricted pod-security profile.
+- **Seeded state.** On first start an init container unpacks the service's seed: its keys, trust anchors and configuration (and, for the gateway, the governance ledger `mg-admin init` created), never a directory, object store or other journal, which the service creates empty. Another init container copies the keystore passphrase into memory as a file only the service's user can read.
+- **Default-deny networking.** The namespace allows nothing in or out except cluster DNS. Each port is opened only to the pods the chart names: `mimir-server` accepts only `mimir-probe`, and the gateway's mesh door only `forge-worker`.
+
+Then run every mesh client against it:
+
+```bash
+just kind-smoke
+```
+
+The smoke test runs each client as a Job with its own identity:
+
+- an inference call, then a restart of `mimir-server` and a second call that continues the recovered ledger
+- a fleet check-in and status read
+- two fused observations
+- a check that the Forge worker synced into the fabric
+- a pod outside `mimir-server`'s ingress policy, which must fail to reach it
+
+`just kind-down` deletes the cluster.
+
+To serve Granite on the cluster instead of the reference engine, stage the model for compose first (see [Serve a real model](#serve-a-real-model)), then:
+
+```bash
+just kind-granite
+```
+
+`kind-granite` downloads nothing. It does the following:
+
+1. Loads the pinned llama.cpp image into the cluster.
+2. Streams the staged model into a PersistentVolumeClaim, on the node that holds `mimir-server`'s state.
+3. Runs `mg-model verify` on it there.
+4. Turns on the chart's `modelServing`.
+
+`mimir-server` then verifies the model again itself before it serves. To keep serving it when you re-run `just kind-up`, set `MIDGARD_KIND_MODEL=granite`.
+
+The deployment-tier acceptance suite runs its checks against this deployment:
+
+| Check | What it does |
+|---|---|
+| RC-40.1 | Checks that every service comes back ready from a restart on its recovered state. |
+| RC-40.2 | A PQ-mTLS handshake between two nodes. |
+| RC-40.4 | One certified PQ-mTLS inference call to the deployed `mimir-server`, which must be answered by a real model. It passes only when the model runs on a GPU inside the 800 ms first-token budget. On kind the CPU completion and its latency are reported, and the check skips. |
+
+The HSM check skips too, so the best result on kind is a partial pass, never a promotion:
+
+```bash
+ALLOW_SKIP=1 MIDGARD_PROBE_IMAGE=<registry>/midgard/dev@sha256:<digest> just deploy-accept
+```
+
+`deploy/k8s/enclosure.yaml` is the chart rendered for development, for `kubectl apply` without Helm: no release has produced image digests yet, so its images are referenced by tag and pulled every time (`image.allowTag=true`). `just render-k8s` regenerates it, and CI fails if it is not exactly what the chart renders. The release chart pins each signed per-service image by digest and does not render without them; the release outputs carry that rendering, signed. The probe image is given by digest too.
+
+### Reach sources outside the enclosure
+
+The worker's connectors speak plaintext, and only to the hosts their jobs name. For a source outside the enclosure's network, turn on the egress broker. It runs HAProxy beside the worker in its pod, pinned by digest. Each route takes a local port and originates TLS 1.3 from it to one upstream, verifying the upstream's certificate against a CA pinned for that route, and its name.
+
+Declare the routes in a ConfigMap (key `routes.json`):
+
+```json
+{ "version": 1,
+  "routes": [ { "name": "exports", "listen": 19000,
+                "upstream": { "host": "minio.example.org", "port": 9000 },
+                "ca": "exports-ca.pem" } ] }
+```
+
+Then point the job's source at `127.0.0.1:19000`. Put each route's CA file in a Secret, and set the chart's values:
+
+```yaml
+egressBroker:
+  enabled: true                          # for forge-worker
+  routesConfigMap: forge-egress-routes   # routes.json
+  caSecret: forge-egress-ca              # exports-ca.pem, ...
+  upstreamPorts: [9000]                  # the only ports the pod may reach outside the cluster
+```
+
+Set `sourcesSecret` on the `forge-worker` service to the Secret holding what the jobs' sources name (passwords, secret keys), mounted for `--secrets-dir`.
+
+When the pod starts, an init container runs `forge-egress`, which renders HAProxy's whole configuration from the routes. The same check runs again when the worker starts with `--egress-routes`. It refuses a routes file that could inject configuration, and any job whose network source is not one of the broker's local ports. So an undeclared host is unreachable twice: the connector may not dial it, and the broker has no route to it.
+
+S3 and Kafka can go through the broker. PostgreSQL cannot, because PostgreSQL negotiates TLS inside its own protocol, and before PostgreSQL 17 no TLS-originating proxy can speak it. `just live-connectors` checks S3 through the broker against a MinIO server that serves TLS. It also checks that a route pinned to the wrong CA fails, and that plaintext sent straight to that server fails.
+
+---
+
+## Upgrade an existing enclosure
+
+The security release (MG-SEC-01 to MG-SEC-15) changes the mesh protocol and the formats of certificates, trust anchors and audit ledgers, so an enclosure created by an earlier build needs one upgrade pass before its services start again. No key is replaced and no audit history is lost. Upgrade every service together: a service on this release refuses one on the earlier release.
+
+| You run it with | Do this |
+|---|---|
+| `mg-install` | Update the checkout, run `sudo deploy/installer/mg-install`, choose **Check and repair it**. |
+| docker compose | `just compose-down`, update the checkout, `just compose-up`. `init` does the upgrade before anything starts. |
+| kind | Delete the namespace and run `deploy/kind/up.sh` again. |
+| By hand | Stop everything, then `mg-admin audit checkpoint` for each audit ledger, then `mg-admin mesh upgrade` for each identity directory, and start the gateway with `--state-dir` (and `--audit-pin`). |
+
+[docs/ops/UPGRADING.md](../ops/UPGRADING.md) has every step, the services' roles and ledger ids, and what else changed: passwords move to Argon2id at their owners' next sign-in, break-glass needs the `breakglass.request` and `breakglass.approve` roles, model manifests must be signed again, and a model sidecar needs `--serve-dir`.
+
+### Keep mesh identities current
+
+Certificates are valid for 30 days by default (`--days`). Run `mg-admin mesh renew --within 10` for each service daily and restart what it renews. To revoke one, `mg-admin mesh revoke --cert FILE --out DIR,DIR,...` with every service's identity directory: each picks the new list up within 30 seconds. [docs/ops/PKI.md](../ops/PKI.md) covers both.
+
+## What is not yet runnable
+
+Most subsystems are implemented and tested as libraries; five run as services. Being precise about the difference:
+
+**There are five services.** `services/http-gateway` is the edge, and it composes `fabric`, `kms`, `iam` and `governance` in one process; its mesh door lets the Forge worker write into that fabric. `mimir/mimir-server` is the inference plane, `bifrost/fleet-server` the fleet manager, `heimdall/feed-server` the feed gateway and `forge/worker` the Forge worker. All four are built on `services/runtime`, which loads a mesh identity from files, opens a durable audit ledger, runs the PQ-mTLS accept loop, serves health and metrics, and gives clients a one-call PQ-mTLS request. The rest of Forge, Bifrost and Heimdall, and `scheduler` and the admin crates, are still libraries: implemented and exercised by the 72-criterion gate, but with no `main.rs` and no wire listener. The Helm chart deploys all five services; they have been run on a local kind cluster, not on production infrastructure.
+
+**The edge serves a real enclosure, filled offline.** `http-gateway` serves the object-fabric routes from `fabric::Fabric`, which owns the single `governance` spine, so edge admission and every fabric call are written to one PQ-signed ledger. From a state directory it runs on persisted keys, a durable store, ledger and identity directory, a policy file, an ontology file, users enrolled with `mg-admin`, and data imported with `mg-admin`.
+
+Running the platform on live data therefore still needs, in rough order:
+
+1. Reach PostgreSQL outside the enclosure's network. The egress broker covers S3 and Kafka; PostgreSQL needs its own TLS negotiation in the connector, or PostgreSQL 17's direct TLS behind the broker.
+2. Build and sign a release image per service, so the chart's release values can run on a real cluster, and run the deployment tier there with an HSM and a GPU.
+
+Each step builds on libraries that are implemented and tested. What each capability still needs is tracked in the [claims ledger](../compliance/CLAIMS.md).
+

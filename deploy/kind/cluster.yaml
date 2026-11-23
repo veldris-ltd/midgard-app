@@ -4,9 +4,17 @@
 # is exercised as it would be on a real cluster. [NFR-SEC-1] [NFR-PRV-1]
 #
 #   kind create cluster --name midgard --config deploy/kind/cluster.yaml
+#
+# Every node runs the kind node image pinned by its index digest, the one kind v0.33.0's
+# release notes publish for Kubernetes 1.37.0, never whatever kind defaults to. It is in
+# deploy/images/externals.lock and travels in the air-gap bundle, so a rehearsal needs
+# no registry: load it first (deploy/air-gap-bundle/README.md). [VLD-ANB-MIDGARD-0035]
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
   - role: control-plane
+    image: kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
   - role: worker
+    image: kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
   - role: worker
+    image: kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5

@@ -14,6 +14,13 @@
 # And: the runner's copy of allowed_signers, and each keystore, is refused when it lies
 # inside the job's workspace and accepted outside it, and an unset copy is refused, each
 # failure pointing to docs/ops/PKI.md.
+#
+# And: each keystore passphrase file, a runner secret of its own, is refused when it is
+# not configured, naming the secret PKI.md names, or names no readable file; and passes
+# when it names one outside the workspace. [VLD-ANB-MIDGARD-0007]
+#
+# And: the external images for the air-gap bundle (MIDGARD_EXTERNAL_IMAGES) are refused
+# when not configured, inside the workspace, or not all there as pinned.
 set -uo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -37,7 +44,7 @@ preflight() { # preflight VAR=VALUE...: run with only these runner settings
     env -u RUNNER_ENVIRONMENT -u ACTIONS_RUNNER_HOOK_JOB_COMPLETED -u MIDGARD_SIGNING_KEYSTORE \
         -u MIDGARD_BIFROST_KEYSTORE -u MIDGARD_BIFROST_REGISTRY -u MIDGARD_ALLOWED_SIGNERS_PATH \
         -u MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE -u MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE \
-        -u GITHUB_WORKSPACE -u CI_PROJECT_DIR PATH="$work/stubs:$PATH" \
+        -u GITHUB_WORKSPACE -u CI_PROJECT_DIR -u MIDGARD_EXTERNAL_IMAGES PATH="$work/stubs:$PATH" \
         "$@" bash "$script" 2>&1
 }
 
@@ -98,6 +105,39 @@ out="$(preflight GITHUB_WORKSPACE="$work/ws" MIDGARD_SIGNING_KEYSTORE="$work/run
 grep -q 'ok — MIDGARD_SIGNING_KEYSTORE is configured' <<<"$out" &&
     pass "a keystore outside the workspace passes" || fail "a keystore outside the workspace passes: $out"
 
+# --- keystore passphrase files [VLD-ANB-MIDGARD-0007] --------------------------------
+# A stand-in, not a passphrase: the preflight only checks the file is there.
+echo 'test-only, not a passphrase' > "$work/runner/release.passphrase"
+echo 'test-only, not a passphrase' > "$work/ws/release.passphrase"
+out="$(preflight GITHUB_WORKSPACE="$work/ws")"
+for var in MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE; do
+    grep "$var is not configured (runner secret $var)" <<<"$out" | grep -q "$pki" &&
+        pass "an unset $var is refused, naming its runner secret and PKI.md" ||
+        fail "an unset $var is refused, naming its runner secret and PKI.md: $out"
+done
+grep -q 'MIDGARD_SIGNING_KEYSTORE is not configured (runner secret MIDGARD_SIGNING_KEYSTORE_PATH)' <<<"$out" &&
+    pass "an unset keystore still names its _PATH runner secret" ||
+    fail "an unset keystore still names its _PATH runner secret: $out"
+
+for var in MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE; do
+    out="$(preflight GITHUB_WORKSPACE="$work/ws" "$var=$work/runner/absent.passphrase")"
+    grep "$var names $work/runner/absent.passphrase, which is not a readable file" <<<"$out" | grep -q "$pki" &&
+        pass "a $var naming no file is refused" || fail "a $var naming no file is refused: $out"
+done
+
+out="$(preflight GITHUB_WORKSPACE="$work/ws" MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE="$work/ws/release.passphrase")"
+grep -q "MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE names a file inside the job's workspace" <<<"$out" &&
+    pass "a passphrase file inside the workspace is refused" ||
+    fail "a passphrase file inside the workspace is refused: $out"
+
+out="$(preflight GITHUB_WORKSPACE="$work/ws" MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE="$work/runner/release.passphrase")"
+grep -q 'ok — MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE is configured' <<<"$out" &&
+    pass "a passphrase file outside the workspace passes" ||
+    fail "a passphrase file outside the workspace passes: $out"
+! grep -q 'test-only, not a passphrase' <<<"$out" &&
+    pass "the preflight never prints a passphrase file's contents" ||
+    fail "the preflight never prints a passphrase file's contents: $out"
+
 out="$(preflight GITHUB_WORKSPACE="$work/ws")"
 grep -q 'the docker daemon is not reachable' <<<"$out" &&
     pass "an unreachable docker daemon is named" || fail "an unreachable docker daemon is named: $out"
@@ -109,6 +149,20 @@ grep -q 'ok — builds run in the toolchain container with --network none' <<<"$
     pass "this repository's in-toolchain.sh uses --network none" ||
     fail "this repository's in-toolchain.sh uses --network none: $out"
 
+# --- the external images, for the air-gap bundle [VLD-ANB-MIDGARD-0035] ---------------
+out="$(preflight GITHUB_WORKSPACE="$work/ws")"
+grep 'MIDGARD_EXTERNAL_IMAGES is not configured (runner secret MIDGARD_EXTERNAL_IMAGES_PATH)' <<<"$out" | grep -q "$pki" &&
+    pass "a runner with no external images fails closed, naming its runner secret and PKI.md" ||
+    fail "a runner with no external images fails closed, naming its runner secret and PKI.md: $out"
+mkdir -p "$work/runner/externals" "$work/ws/externals"
+out="$(preflight GITHUB_WORKSPACE="$work/ws" MIDGARD_EXTERNAL_IMAGES="$work/ws/externals")"
+grep -q "MIDGARD_EXTERNAL_IMAGES names a directory inside the job's workspace" <<<"$out" &&
+    pass "external images inside the workspace are refused" ||
+    fail "external images inside the workspace are refused: $out"
+out="$(preflight GITHUB_WORKSPACE="$work/ws" MIDGARD_EXTERNAL_IMAGES="$work/runner/externals")"
+grep 'the external images in .* are not all there as pinned' <<<"$out" | grep -q 'seed-base-debian12-debug.oci.tar is missing' &&
+    pass "a directory without the external images is refused, naming what is missing" ||
+    fail "a directory without the external images is refused, naming what is missing: $out"
 # --- key material reaches the signing jobs [VLD-ANB-MIDGARD-0007] ---------------------
 # Each item names the runner secret that supplies it, as docs/ops/PKI.md does; and
 # release.yml maps exactly that secret into every job on the signing runner, so a

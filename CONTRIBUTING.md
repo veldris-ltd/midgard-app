@@ -40,7 +40,7 @@ propose changes so they pass the gates on the first try.
 
 Every source change must cite the requirement/decision it implements with an inline
 tag — `[FR-...]`, `[NFR-...]`, `[DD-...]`, `[AC-...]`, `[RC-...]`, or `[STD:...]`. CI
-(`just check-provenance-tags`) fails a PR whose changed sources carry none. This is
+(`just ci provenance`) fails a PR whose changed sources carry none. This is
 the traceability guarantee the platform relies on (DD-6). Match the density and style
 of the surrounding code.
 
@@ -80,7 +80,7 @@ jobs still decide. [VLD-ANB-MIDGARD-0091]
 Before opening a PR, ensure:
 
 - `just test` (or the crate you touched) is green in the pinned image.
-- `just check-licences` passes (no non-OSI vendored crate).
+- `just ci scan` passes (the advisory and licence scan: no non-OSI vendored crate).
 - `bash contracts/check-conformance.sh` passes if you touched the SDK/contract surface.
 - New behaviour has a test. Acceptance-criteria code (`RC-nn` / `AC-...`) needs an
   acceptance test that fails-closed on the negative path.
