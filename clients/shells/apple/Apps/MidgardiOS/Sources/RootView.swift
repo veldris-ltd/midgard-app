@@ -260,9 +260,21 @@ struct ConsoleTab: View {
     @Binding var path: [String]
     @Binding var query: String
 
+    /// Midgard's screens in its web console's order (FABRIC, GOVERNANCE, PLATFORM);
+    /// every other console's in the catalogue's.
+    private var ordered: [String] {
+        guard console.id == "midgard" else { return console.screens }
+        return MidgardChrome.sections.flatMap(\.items).map(\.screen)
+    }
+
     private var screens: [String] {
         let q = query.trimmingCharacters(in: .whitespaces)
-        return q.isEmpty ? console.screens : console.screens.filter { $0.localizedCaseInsensitiveContains(q) }
+        return q.isEmpty ? ordered : ordered.filter { $0.localizedCaseInsensitiveContains(q) || label($0).localizedCaseInsensitiveContains(q) }
+    }
+
+    /// A screen's name in the list: Midgard's web navigation label ("Object types").
+    private func label(_ screen: String) -> String {
+        console.id == "midgard" ? MidgardChrome.item(for: screen)?.label ?? screen : screen
     }
 
     var body: some View {
@@ -288,7 +300,7 @@ struct ConsoleTab: View {
                             path.append(screen)
                         } label: {
                             HStack {
-                                Text(screen).font(MGFonts.sans(.body)).multilineTextAlignment(.leading)
+                                Text(label(screen)).font(MGFonts.sans(.body)).multilineTextAlignment(.leading)
                                 Spacer(minLength: MGSpace.s2)
                                 Image(systemName: "chevron.right").font(.footnote.weight(.semibold))
                                     .accessibilityHidden(true)
@@ -300,7 +312,7 @@ struct ConsoleTab: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel(Text(screen))
+                        .accessibilityLabel(Text(label(screen)))
                         .accessibilityHint(Text("Opens the screen"))
                         .accessibilityIdentifier("mg.\(index + 1).\(console.slug).\(ConsoleCatalog.slug(screen))")
                         Divider().padding(.leading, MGSpace.s4)
@@ -316,8 +328,11 @@ struct ConsoleTab: View {
             // Inline: a large title leaves Midgard's eleventh screen cut by the console bar
             // on an iPhone 17, and a row cut by an edge fails the contrast audit.
             .navigationBarTitleDisplayMode(.inline)
-            .navigationDestination(for: String.self) { screen in
-                ScreenPlaceholder(model: model, console: console, screen: screen, persona: persona)
+            .navigationDestination(for: String.self) { element in
+                let (screen, link) = MidgardLink.decode(element)
+                ScreenPlaceholder(model: model, console: console, screen: screen, persona: persona, link: link) { next, link in
+                    path.append(link?.encoded(for: next) ?? next)
+                }
             }
             .refreshable { await model.syncNow() }
             // Typing is activity: a hardware keyboard's keys are not touches.
@@ -372,8 +387,9 @@ struct ScreenSearchField: View {
     }
 }
 
-/// A screen until its phase: what it is and when it arrives; Heimdall's Operating
-/// Picture, matched to the web console (owner decision 22 Nov 2026), is built: the
+/// A screen until its phase: what it is and when it arrives; Midgard's eleven screens
+/// (`MidgardScreen`, compact: the inspector in a sheet) and Heimdall's Operating
+/// Picture, matched to the web console (owner decision 22 Nov 2026), are built: the
 /// picture first and the inspector as a sheet (`HeimdallOperatingPictureCompact`). In the
 /// Maps edition the Operating Picture also has the view switch, 2D / MAP / 3D, in the
 /// navigation bar: MAP and 3D come from the edition library (`AppModel.pictureViews`, the
@@ -384,6 +400,10 @@ struct ScreenPlaceholder: View {
     let console: Console
     let screen: String
     let persona: PersonaInfo
+    /// What a Midgard screen was opened with (another screen's link).
+    var link: MidgardLink? = nil
+    /// Opens another screen of the console (Midgard's links).
+    var open: (String, MidgardLink?) -> Void = { _, _ in }
     /// The picture's view, kept for the scene as the web keeps it for the browser.
     @SceneStorage("mg-heimdall-view") private var pictureView = HeimdallPictureView.reference.id
 
@@ -394,7 +414,7 @@ struct ScreenPlaceholder: View {
 
     var body: some View {
         content
-            .navigationTitle(screen)
+            .navigationTitle(console.id == "midgard" ? MidgardChrome.item(for: screen)?.label ?? screen : screen)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { SessionMenu(model: model, persona: persona) }
@@ -405,6 +425,8 @@ struct ScreenPlaceholder: View {
     @ViewBuilder private var content: some View {
         if isOperatingPicture {
             HeimdallOperatingPictureCompact(app: model, personaId: persona.id, view: $pictureView)
+        } else if console.id == "midgard" {
+            MidgardScreen(app: model, persona: persona.id, screen: screen, compact: true, link: link, open: open)
         } else {
             ScrollView {
                 VStack(spacing: MGSpace.s3) {

@@ -152,8 +152,9 @@ struct WindowSetup: NSViewRepresentable {
     }
 }
 
-/// Signed in: Heimdall in the web console's own frame (`HeimdallConsole`, matched to
-/// the web suite, owner decision 22 Nov 2026); every other console, until its phase
+/// Signed in: Heimdall and Midgard in their web consoles' own frames (`HeimdallConsole`,
+/// `MidgardConsole`, matched to the web suite, owner decision 22 Nov 2026); every other
+/// console, until its phase
 /// matches it, the persona menu above a three-column split view. The sidebar lists the
 /// six consoles (⌘1…⌘6) and, under the selected one, its screens; the content and
 /// detail columns show the screen's placeholder until its phase builds it. [FR-C-1]
@@ -165,6 +166,9 @@ struct ConsoleShell: View {
     var body: some View {
         if ConsoleCatalog.console(route).id == "heimdall" {
             HeimdallConsole(model: model, persona: persona, route: $route)
+                .navigationTitle(ConsoleCatalog.console(route).name)
+        } else if ConsoleCatalog.console(route).id == "midgard" {
+            MidgardConsole(model: model, persona: persona, route: $route)
                 .navigationTitle(ConsoleCatalog.console(route).name)
         } else {
             SplitConsoleShell(model: model, persona: persona, route: $route)
@@ -271,6 +275,67 @@ struct HeimdallConsole: View {
     @ViewBuilder private var trailing: some View {
         if let views { HeimdallViewSwitch(views: views.views, selection: $pictureView) }
         PersonaMenu(model: model, persona: persona)
+    }
+}
+
+/// Midgard as the web console draws it (`ConsoleShell` with each of its eleven screens):
+/// the classification banner, the header (mark, the screen's context, seals, the search
+/// box that opens Data search for its text across every type, the persona menu), the
+/// navigation (the six consoles as a row of tiles, then Midgard's FABRIC, GOVERNANCE and
+/// PLATFORM sections in the web's order and words, and the `midgard status` footer where
+/// the web screen has it), and the screen with its inspector. [FR-C-1] [DD-1] [DD-7]
+struct MidgardConsole: View {
+    @ObservedObject var model: AppModel
+    let persona: PersonaInfo
+    @Binding var route: ConsoleRoute
+    /// What the screen was opened with ("Explore instances", "Open in Search-around",
+    /// the header's search); cleared when the navigation opens a screen.
+    @State private var link: MidgardLink?
+
+    private var midgard: Console { ConsoleCatalog.console(route) }
+    private var screen: String { ConsoleCatalog.screenName(route) }
+
+    var body: some View {
+        let item = MidgardChrome.item(for: screen)
+        MidgardConsoleFrame(context: item?.context ?? "") {
+            nav(footer: item?.statusFooter ?? false)
+        } content: {
+            MidgardScreen(app: model, persona: persona.id, screen: screen, compact: false, link: link) { screen, link in
+                open(screen, link)
+            }
+        } trailing: {
+            MidgardHeaderSearch { open("Data Search", .text($0)) }
+            PersonaMenu(model: model, persona: persona)
+        }
+    }
+
+    private func open(_ screen: String, _ link: MidgardLink?) {
+        self.link = link
+        let index = midgard.screens.firstIndex(of: screen) ?? 0
+        route = ConsoleRoute(console: route.clamped.console, screen: index).clamped
+    }
+
+    /// The consoles first, as a row of tiles (numbered from 1; the persona menu is 0),
+    /// then Midgard's sections in the web's order.
+    private func nav(footer: Bool) -> some View {
+        var number = 0
+        func next() -> Int { number += 1; return number }
+        let consoles = ConsoleCatalog.consoles.enumerated().map { index, console in
+            WebSideNavItem(id: "console.\(console.slug)", label: "\(console.name) console", symbol: console.symbol, badge: nil,
+                           identifier: "mg.\(next()).console.\(console.slug)", selected: console.id == "midgard",
+                           action: { route.select(console: index) })
+        }
+        let sections = MidgardChrome.sections.map { section in
+            WebSideNavSection(title: section.title, items: section.items.map { item in
+                WebSideNavItem(id: item.id, label: item.label, symbol: item.symbol, badge: nil,
+                               identifier: "mg.\(next()).screen.\(ConsoleCatalog.slug(item.screen))",
+                               selected: item.screen == screen,
+                               action: { open(item.screen, nil) })
+            })
+        }
+        return WebSideNav(rail: WebSideNavSection(title: "CONSOLES", items: consoles), sections: sections, accent: .midgard) {
+            if footer { MidgardStatusFooter() }
+        }
     }
 }
 
