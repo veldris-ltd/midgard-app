@@ -1,6 +1,7 @@
 # Midgard Apple clients
 
-The macOS and iPhone apps, and the Swift package they share. Both apps are thin
+The macOS and iPhone apps (one of each, both the Maps edition), and the Swift package
+they share. Both apps are thin
 SwiftUI shells over the Rust core (`midgard-client-core`, exported through UniFFI by
 `clients/ffi`); every key, store, sync and policy decision is the core's. How the
 binding is built, and the release checklist for UniFFI, are in
@@ -21,15 +22,14 @@ so no `clients-*` build output is left behind (see [Cleaning up](#cleaning-up)).
 | Branch | Holds |
 |---|---|
 | `clients_shared` | the Rust core and FFI, this package (`MidgardKit`, `MidgardAuditKit`, `MidgardGlobeKit`, tests), `tools/`, `audit.sh`, this README |
-| `clients_mac` | `clients_shared` plus `Apps/MidgardMac/` (the apps `MidgardMac`, `MidgardMac3D` and `MidgardMacMaps`) |
-| `clients_iphone` | `clients_shared` plus `Apps/MidgardiOS/` (the apps `MidgardiOS`, `MidgardiOS3D` and `MidgardiOSMaps`) |
+| `clients_apple` | `clients_shared` plus `Apps/MidgardMac/` (the app `MidgardMacMaps`) and `Apps/MidgardiOS/` (the app `MidgardiOSMaps`), with the edition check, the projects test and the audit narrowed to them |
 
-Shared work is committed on `clients_shared` first and then merged into each app
-branch with `git merge --no-ff clients_shared` (signed). It is never cherry-picked, so
-the shared base stays one history, and `git diff clients_shared clients_mac` shows only
-`Apps/MidgardMac/` (likewise for the iPhone). This README lives on `clients_shared`,
-where `Apps/` does not exist: the app sections below describe files that are only on
-the app branches.
+`clients_apple` replaces `clients_mac` and `clients_iphone` (owner decision, 23 November
+2026: two apps, one branch); those two branches are kept, unchanged, until the owner
+decides about them. Shared work is committed on `clients_shared` first and then merged
+into `clients_apple` with `git merge --no-ff clients_shared` (signed). It is never
+cherry-picked, so the shared base stays one history. The app sections below describe
+files that are only on `clients_apple`.
 
 ## Layout
 
@@ -40,12 +40,12 @@ the app branches.
 | `Frameworks/` | gitignored link to the XCFramework build in the cache |
 | `Sources/MidgardKit/` | everything both apps share: session (`AppModel`, `AppEnvironment`, the UI-testing environment), Secure Enclave key root, storage paths, design tokens and fonts, the console catalogue, sign-in, lock, chips, banner, acknowledgements |
 | `Sources/MidgardAuditKit/` | `AccessibilityAuditBase`, the accessibility audit each app's UI-test target subclasses |
-| `Sources/MidgardHooks/` | C: the link-time hooks `MidgardKit` reads, as weak defaults (see [Editions](#editions)) |
-| `Sources/MidgardGlobeKit/` | the 3D editions' library: Heimdall's "3D view" (a placeholder until Phase I), registered at link time |
+| `Sources/MidgardHooks/` | C: the link-time hooks `MidgardKit` reads, as weak defaults (see [Edition](#edition)) |
+| `Sources/MidgardGlobeKit/` | the edition library: Heimdall's "3D view" (a placeholder until Phase I), registered at link time |
 | `Tests/MidgardKitTests/` | the package tests, including `ContractTests` over every exported binding |
-| `Tests/MidgardGlobeKitTests/` | the 3D library's tests: linking it registers it |
-| `Apps/MidgardMac/` | the macOS apps, all three editions (`clients_mac` only) |
-| `Apps/MidgardiOS/` | the iPhone apps, all three editions (`clients_iphone` only) |
+| `Tests/MidgardGlobeKitTests/` | the edition library's tests: linking it registers it |
+| `Apps/MidgardMac/` | the macOS app (`clients_apple` only) |
+| `Apps/MidgardiOS/` | the iPhone app (`clients_apple` only) |
 | `audit.sh`, `accessibility.toml`, `audits/` | the on-device accessibility audit and the affordances it measures |
 | `tools/` | build, check and clean-up scripts (below) |
 
@@ -63,7 +63,7 @@ entitlements), `Sources/` and `UITests/`.
 | `check-bindings.sh` | the bindings are a fresh `uniffi-bindgen` run's; acknowledgement present; UniFFI licence exception not expired |
 | `gen-tokens.mjs` | design tokens and fonts from `ui/design-system` (`--check` to compare only) |
 | `typecheck-ios.sh` | typechecks the package for iOS without a simulator runtime |
-| `check-edition.sh` | builds every app and fails if one carries more or less than its edition allows (see [Editions](#editions)) |
+| `check-edition.sh` | builds both apps and fails if one carries more or less than its edition allows (see [Edition](#edition)) |
 | `audit-failures.js` | reads an audit result bundle's summary for `audit.sh` |
 | `clean.sh` | deletes the local build outputs |
 
@@ -101,95 +101,90 @@ swift test --scratch-path ~/Library/Caches/midgard-build/clients-swift
 
 ## Building and testing the apps
 
-Each app has its own derived-data directory, so the two branches' builds never share
-one.
+Each app has its own derived-data directory.
 
-macOS (`clients_mac`):
+macOS:
 
 ```bash
 xcodebuild build -project clients/shells/apple/Apps/MidgardMac/MidgardMac.xcodeproj \
-    -scheme MidgardMac -destination platform=macOS \
+    -scheme MidgardMacMaps -destination platform=macOS \
     -derivedDataPath ~/Library/Caches/midgard-build/clients-derived-mac
 xcodebuild test -project clients/shells/apple/Apps/MidgardMac/MidgardMac.xcodeproj \
-    -scheme MidgardMac -destination platform=macOS \
+    -scheme MidgardMacMaps -destination platform=macOS \
     -derivedDataPath ~/Library/Caches/midgard-build/clients-derived-mac
 ```
 
-iPhone (`clients_iphone`):
+iPhone:
 
 ```bash
 xcodebuild build -project clients/shells/apple/Apps/MidgardiOS/MidgardiOS.xcodeproj \
-    -scheme MidgardiOS -destination 'platform=iOS Simulator,name=iPhone 17' \
+    -scheme MidgardiOSMaps -destination 'platform=iOS Simulator,name=iPhone 17' \
     -derivedDataPath ~/Library/Caches/midgard-build/clients-derived-ios
 xcodebuild test -project clients/shells/apple/Apps/MidgardiOS/MidgardiOS.xcodeproj \
-    -scheme MidgardiOS -destination 'platform=iOS Simulator,name=iPhone 17' \
+    -scheme MidgardiOSMaps -destination 'platform=iOS Simulator,name=iPhone 17' \
     -derivedDataPath ~/Library/Caches/midgard-build/clients-derived-ios
 ```
 
-`test` runs the scheme's UI tests (`SessionFlowTests` and `AccessibilityAudit`; add
-`-only-testing:MidgardMacUITests/SessionFlowTests`, or `MidgardiOSUITests/...`, for one
-class). The UI tests launch the app with `-MidgardUITesting`, which in Debug builds
-only selects a key root that never prompts and a fresh temporary store; a Release
-build carries none of that code. The macOS scheme skips
-`AccessibilityAudit/test_affordance_dynamic_type()`: Dynamic Type is measured on iOS.
+With a team in `Signing.local.xcconfig` the first signed build may need
+`-allowProvisioningUpdates`.
 
-The 3D and maps apps build and test the same way with the schemes `MidgardMac3D`,
-`MidgardMacMaps`, `MidgardiOS3D` and `MidgardiOSMaps` (UI-test targets
-`<scheme>UITests`), in the same derived-data directories.
+`test` runs the scheme's UI tests (`SessionFlowTests`, `HeimdallPictureFlowTests`,
+`EditionTests` and `AccessibilityAudit`; add
+`-only-testing:MidgardMacMapsUITests/HeimdallPictureFlowTests`, or
+`MidgardiOSMapsUITests/...`, for one class). The UI tests launch the app with
+`-MidgardUITesting`, which in Debug builds only selects a key root that never prompts and
+a fresh temporary store; a Release build carries none of that code. The macOS scheme
+skips `AccessibilityAudit/test_affordance_dynamic_type()`: Dynamic Type is measured on
+iOS.
 
 After editing a `project.yml`, run `xcodegen generate` in that app's directory and
 commit the spec and the regenerated project together;
 `bash tools/ci/tests/apple-projects.test.sh` fails when they differ, and when a project
-does not declare all three editions as below.
+does not declare its one app as below.
 
-## Editions
+## Edition
 
-There are three apps on each platform (owner decision, 22 November 2026), six in all:
+There are two apps, one per platform, both the Maps edition (owner decision, 23
+November 2026; it replaces the 22 November decision of three editions per platform, and
+drops the release-only and 3D-only apps):
 
-| | Midgard | Midgard 3D | Midgard Maps |
-|---|---|---|---|
-| Content | the signed release `v0.1.0-rc.3` (`ea5899ab`) | the same, plus a 3D view in Heimdall | the 3D edition; Phase I's map tiles will come only here |
-| Targets and schemes | `MidgardMac`, `MidgardiOS` | `MidgardMac3D`, `MidgardiOS3D` | `MidgardMacMaps`, `MidgardiOSMaps` |
-| Bundle IDs | `io.veldris.midgard.mac`, `.ios` | `io.veldris.midgard3d.mac`, `.ios` | `io.veldris.midgardmaps.mac`, `.ios` |
-| Info.plist `MidgardEdition` | `release` | `3d` | `maps` |
-| Links `MidgardGlobeKit` | no | yes | yes |
-| Network entitlement | none | none | the client one, on the Mac (iOS has no such entitlement) |
-| Banners | "Demonstration data. …" (the web consoles' notice) | the same, plus "3D edition, not in the signed release" (`mg.banner.edition3d`) | the same, plus "Maps edition, not in the signed release" (`mg.banner.editionmaps`) |
+| | Mac | iPhone |
+|---|---|---|
+| Target and scheme | `MidgardMacMaps` | `MidgardiOSMaps` |
+| UI-test target | `MidgardMacMapsUITests` (`UITests`, `UITests-Maps`) | `MidgardiOSMapsUITests` (`UITests`, `UITests-Maps`) |
+| Bundle ID | `io.veldris.midgardmaps.mac` | `io.veldris.midgardmaps.ios` |
+| Shown as | "Midgard" (`CFBundleDisplayName`; the product is `Midgard.app`) | "Midgard" (`CFBundleDisplayName`) |
+| Info.plist `MidgardEdition` | `maps` | `maps` |
+| Entitlements | `MidgardMacMaps.entitlements` (team), `MidgardMacMaps-AdHoc.entitlements`: App Sandbox and the client network entitlement | `MidgardiOSMaps.entitlements` (team), `MidgardiOSMaps-NoTeam.entitlements`; iOS has no network entitlement |
 
-The tile loader itself is Task I2: until then the maps apps are the 3D apps with a
-different edition, banner and entitlements.
+Both link `MidgardGlobeKit`. Content: the signed release `v0.1.0-rc.3` (`ea5899ab`),
+plus a 3D view in Heimdall; Phase I's map tiles come here (the planned tag is
+`apple-midgard3dmaps-v0.1.0-rc.3`). Until the tile loader (Task I2, its own module
+`MidgardTileKit`) the apps are the 3D view with the Maps edition's banner and
+entitlements. The banners are "Demonstration data. …" (the web consoles' notice) and
+"Maps edition, not in the signed release" (`mg.banner.editionmaps`).
 
-The editions share their sources and UI tests; each has its own `Info.plist`,
-entitlements (ad hoc and team), scheme and UI-test target, whose `AccessibilityAudit`
-subclasses the same `AccessibilityAuditBase`. A missing or unknown `MidgardEdition` is
-the "app misconfigured" failed state, as with `MidgardDataSource`.
-
-The release apps carry no edition code or wording (owner decision, 22 November 2026):
-they read `MidgardEdition` silently and show nothing new. Everything an edition shows
-lives in `MidgardGlobeKit`, which only the 3D and maps apps link: the edition banner (at
-accessibility text sizes the compact "3D edition · not the signed release" or "Maps
-edition · not the signed release", with the full text as its accessibility label), the
-About screen (Settings on the Mac, the session menu on the iPhone; it names the edition
-and says it is not the signed release), and Heimdall's "3D view" entry on the Operating
-Picture. MidgardKit only asks an `EditionProvider` for them, and a package test holds
-its sources (and MidgardHooks') to no edition wording, no `Globe` and no Metal import.
+Everything the edition shows lives in `MidgardGlobeKit`: the edition banner (at
+accessibility text sizes the compact "Maps edition · not the signed release", with the
+full text as its accessibility label), the About screen (Settings on the Mac, the session
+menu on the iPhone; it names the edition and says it is not the signed release), and
+Heimdall's "3D view" entry on the Operating Picture. MidgardKit only asks an
+`EditionProvider` for them, and a package test holds its sources (and MidgardHooks') to
+no edition wording, no `Globe` and no Metal import. A missing or unknown `MidgardEdition`
+is the "app misconfigured" failed state, as with `MidgardDataSource`.
 
 The provider is registered by a link-time hook, never a runtime switch: `MidgardHooks`
 defines `midgard_edition_hook` weakly, returning nothing, and `MidgardGlobeKit` defines
-it strongly, so a binary that links the library gets its provider and one that does not
-gets none. Nothing calls a register function at launch.
+it strongly, so a binary that links the library gets its provider. Nothing calls a
+register function at launch. (The package keeps this indirection unchanged on
+`clients_shared`.)
 
-`tools/check-edition.sh` builds every app present (Debug) and checks each against its
-edition. Every app: its `MidgardEdition`, the Mac sandbox, and (when it builds) that its
-target signs with its own entitlements file. A release app: no `MidgardGlobeKit` file
-or bytes, no `Globe`, no edition wording or provider type in any Mach-O file, the hook
-weak or absent (`nm -m`), no `MetalKit.framework` (`otool -L`). A 3D or maps app: the
-hook defined strongly. Release and 3D apps: no network, networking or temporary-exception
-entitlement. A maps app: on the Mac the client network entitlement, and nothing beyond it.
-Ahead of the tile loader (Task I2, its own module `MidgardTileKit`, linked only by the
-maps apps), release and 3D apps already fail on a `MidgardTileKit` symbol or on an
-`NSAppTransportSecurity`, `NSLocalNetworkUsageDescription` or `NSBonjourServices` key.
-`--release`, `--3d` and `--maps <app>...` check built bundles only; B4 and B5 run it so on
+`tools/check-edition.sh` builds both apps (Debug) and checks each: its `MidgardEdition`
+is `maps`; on the Mac it is sandboxed; its target signs with its own entitlements file;
+the hook is defined strongly (the edition library is linked); and it has no network
+entitlement beyond the client one (no server, `com.apple.developer.networking.*` or
+temporary-exception entitlement), with the client one required on the Mac.
+`check-edition.sh [--maps] <app>...` checks built bundles only; B4 and B5 run it so on
 the signed Release archives. `audit.sh` runs it first and records nothing when it fails.
 `tools/ci/tests/apple-edition.test.sh` runs it against bundles it builds with seeded
 failures.
@@ -245,8 +240,8 @@ Signing is set in `Config/Signing.xcconfig` (one per app). No team ID is ever
 committed.
 
 - **Without a team** (the default): Debug builds are signed ad hoc with the no-team
-  entitlements (`Config/MidgardMac-AdHoc.entitlements`,
-  `Config/MidgardiOS-NoTeam.entitlements`), which leave out `keychain-access-groups`:
+  entitlements (`Config/MidgardMacMaps-AdHoc.entitlements`,
+  `Config/MidgardiOSMaps-NoTeam.entitlements`), which leave out `keychain-access-groups`:
   that entitlement is restricted, and an ad-hoc app that claims it is killed at launch.
   The app builds, runs and passes its UI tests, but outside UI testing it cannot use
   the data-protection keychain and shows "cannot keep keys". iPhone device builds need
@@ -283,9 +278,8 @@ bash clients/shells/apple/audit.sh <release> shell-audit/apple-<release>.json
 ```
 
 or `tools/ci/run.sh shell-audit apple <release>`, which records the result. `audit.sh`
-needs both apps, so it runs only on a tree that merges `clients_mac` and
-`clients_iphone`; on either app branch alone it refuses. It builds the XCFramework,
-runs the `AccessibilityAudit` UI test of all six apps (three editions of each) on the
+needs both apps, so it runs on `clients_apple`; on a tree with one app it refuses. It
+builds the XCFramework, runs the `AccessibilityAudit` UI test of both apps on the
 `iPhone 17` simulator
 (`MIDGARD_AUDIT_SIMULATOR` names another) and on this Mac, with derived data and
 result bundles in `~/Library/Caches/midgard-build/clients-derived`, and prints the
@@ -293,8 +287,8 @@ affordances that failed. An affordance whose test failed, was skipped or did not
 counts as failed. It refuses UI-test sources that override `record(_:)` or
 `invokeTest`.
 
-The affordances are those in `accessibility.toml`. In the latest runs on each app
-branch, six of the seven pass on both apps (`dynamic_type` is measured on iOS only and
+The affordances are those in `accessibility.toml`. In the latest runs on the former app
+branches, six of the seven pass on both apps (`dynamic_type` is measured on iOS only and
 stands for both). The known gap is `keyboard_navigation`:
 
 - **macOS**: Tab reaches every control only with the system setting

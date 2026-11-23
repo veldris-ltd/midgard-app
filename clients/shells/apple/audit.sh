@@ -6,21 +6,18 @@
 #
 #   bash clients/shells/apple/audit.sh <release> <report-path>
 #
-# The record covers both apps (owner decision 4: it is written from a merge of
-# clients_mac and clients_iphone), so a tree with only one of them is refused. Each
-# project holds the three editions (Task B7): the release app (scheme MidgardiOS,
-# MidgardMac), the 3D app (MidgardiOS3D, MidgardMac3D) and the maps app (MidgardiOSMaps,
-# MidgardMacMaps), so six apps are audited, and a 3D or maps scheme that does not run
-# fails the audit as the release one would. tools/check-edition.sh runs first: a tree
-# whose apps carry what their edition does not allow is not audited. Each app's
-# UI-test target runs `AccessibilityAudit` (a subclass of MidgardAuditKit's
-# AccessibilityAuditBase); tools/audit-failures.js reads the result bundle. An
-# affordance whose test failed, was skipped or did not run is reported failed. UI-test
-# sources that override `record(_:)` or `invokeTest` could rewrite their own results,
-# so they are refused. Dynamic Type is measured on iOS only: the macOS run never claims
-# it, and the iOS results stand for it. Next to <report> (the six apps' result summaries,
-# merged) it keeps <report>-ios.json, -ios3d.json, -iosmaps.json, -mac.json, -mac3d.json,
-# -macmaps.json and <report>.device, the devices audited, which `run.sh` records.
+# The record covers both apps (owner decision 4: it is written from clients_apple, which
+# holds the Mac and iPhone apps), so a tree with only one of them is refused. Each
+# project holds one app, the Maps edition (owner decision, 23 Nov 2026): MidgardiOSMaps
+# and MidgardMacMaps. tools/check-edition.sh runs first: a tree whose apps carry what
+# their edition does not allow is not audited. Each app's UI-test target runs
+# `AccessibilityAudit` (a subclass of MidgardAuditKit's AccessibilityAuditBase);
+# tools/audit-failures.js reads the result bundle. An affordance whose test failed, was
+# skipped or did not run is reported failed. UI-test sources that override `record(_:)`
+# or `invokeTest` could rewrite their own results, so they are refused. Dynamic Type is
+# measured on iOS only: the macOS run never claims it, and the iOS results stand for it.
+# Next to <report> (the two apps' result summaries, merged) it keeps <report>-iosmaps.json,
+# <report>-macmaps.json and <report>.device, the devices audited, which `run.sh` records.
 # Derived data and result bundles go to ~/Library/Caches/midgard-build/clients-derived.
 set -euo pipefail
 release="${1:?release}"; report="${2:?report path}"
@@ -153,15 +150,14 @@ fi
 mkdir -p "$derived"
 failed="$kbd_unmeasured"
 runs=""
-for app in $apps; do runs="$runs $app ${app}3d ${app}maps"; done
+for app in $apps; do runs="$runs ${app}maps"; done
 for app in $runs; do
     case "$app" in
-        ios | ios3d | iosmaps)
-            proj="$here/Apps/MidgardiOS/MidgardiOS.xcodeproj"; scheme=MidgardiOS
+        iosmaps)
+            proj="$here/Apps/MidgardiOS/MidgardiOS.xcodeproj"; scheme=MidgardiOSMaps
             dest="platform=iOS Simulator,name=$sim" ;;
-        mac | mac3d | macmaps) proj="$here/Apps/MidgardMac/MidgardMac.xcodeproj"; scheme=MidgardMac; dest="platform=macOS" ;;
+        macmaps) proj="$here/Apps/MidgardMac/MidgardMac.xcodeproj"; scheme=MidgardMacMaps; dest="platform=macOS" ;;
     esac
-    case "$app" in *3d) scheme="${scheme}3D" ;; *maps) scheme="${scheme}Maps" ;; esac
     bundle="$derived/$app-$release.xcresult"
     rm -rf "$bundle"
     # Test failures are data here, not a reason to stop: the parser reads them.

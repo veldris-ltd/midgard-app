@@ -27,6 +27,6 @@
 	<key>MidgardDataSource</key>
 	<string>sample</string>
 	<key>MidgardEdition</key>
-	<string>release</string>
+	<string>maps</string>
 </dict>
 </plist>

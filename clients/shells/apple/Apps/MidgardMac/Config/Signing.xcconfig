@@ -1,8 +1,8 @@
-// Signing for the Midgard macOS app and its test targets. [DD-6] [FR-C-9]
+// Signing for the Midgard macOS app (MidgardMacMaps) and its test targets. [DD-6] [FR-C-9]
 //
 // With no team (the default, and every machine without the owner's Apple account):
 // builds are signed ad hoc ("Sign to Run Locally", identity "-") with
-// MidgardMac-AdHoc.entitlements, which leaves out keychain-access-groups: that is a
+// MidgardMacMaps-AdHoc.entitlements, which leaves out keychain-access-groups: that is a
 // restricted entitlement, and an ad-hoc app claiming it is killed at launch. Debug
 // builds and their tests run; outside UI testing such a build cannot use the
 // data-protection keychain and shows "cannot keep keys".
@@ -13,9 +13,10 @@
 //     MIDGARD_TEAM_ID = XXXXXXXXXX
 //
 // and nothing else changes: signing becomes automatic under that team with the
-// "Apple Development" identity and MidgardMac.entitlements (App Sandbox, no network,
-// keychain-access-groups = $(AppIdentifierPrefix)io.veldris.midgard.mac, which the
-// Secure Enclave key root needs). Xcode then needs the team's account signed in.
+// "Apple Development" identity and MidgardMacMaps.entitlements (App Sandbox, the client
+// network entitlement for map tiles, keychain-access-groups =
+// $(AppIdentifierPrefix)io.veldris.midgardmaps.mac, which the Secure Enclave key root
+// needs). Xcode then needs the team's account signed in.
 //
 // How: MIDGARD_NO_TEAM is YES only while MIDGARD_TEAM_ID is empty, because
 // MIDGARD_NO_TEAM_$(MIDGARD_TEAM_ID) then names MIDGARD_NO_TEAM_ (defined below) and,
@@ -36,12 +37,9 @@ MIDGARD_IDENTITY_ = Apple Development
 CODE_SIGN_IDENTITY = $(MIDGARD_IDENTITY_$(MIDGARD_NO_TEAM))
 
 // The app target sets CODE_SIGN_ENTITLEMENTS = $(MIDGARD_MAC_ENTITLEMENTS); the test
-// targets have no entitlements of their own. The 3D and maps apps (MidgardMac3D,
-// MidgardMacMaps) override the two MIDGARD_ENTITLEMENTS_ settings in project.yml with
-// their own files (MidgardMac3D[-AdHoc].entitlements, MidgardMacMaps[-AdHoc].entitlements);
-// only the maps ones add the client network entitlement.
-MIDGARD_ENTITLEMENTS_YES = Config/MidgardMac-AdHoc.entitlements
-MIDGARD_ENTITLEMENTS_ = Config/MidgardMac.entitlements
+// targets have no entitlements of their own.
+MIDGARD_ENTITLEMENTS_YES = Config/MidgardMacMaps-AdHoc.entitlements
+MIDGARD_ENTITLEMENTS_ = Config/MidgardMacMaps.entitlements
 MIDGARD_MAC_ENTITLEMENTS = $(MIDGARD_ENTITLEMENTS_$(MIDGARD_NO_TEAM))
 
 // Any build other than Debug (Release, or a configuration added later) with no team

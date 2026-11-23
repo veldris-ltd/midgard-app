@@ -25,7 +25,7 @@
 	<key>MidgardDataSource</key>
 	<string>sample</string>
 	<key>MidgardEdition</key>
-	<string>release</string>
+	<string>maps</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Midgard uses Face ID to unlock the encrypted store on this device.</string>
 	<key>UIApplicationSceneManifest</key>

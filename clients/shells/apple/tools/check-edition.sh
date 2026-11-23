@@ -1,62 +1,45 @@
 #!/usr/bin/env bash
-# Each app carries what its edition allows, and nothing more (Task B7, owner decision
-# 22 Nov 2026). There are three editions, each its own app on the Mac and the iPhone:
+# Each app carries what its edition allows, and nothing more. There is one edition, Maps
+# (owner decision, 23 November 2026: two apps, one branch), built as one app per platform:
 #
-#   release  MidgardMac, MidgardiOS          no edition code or wording, no network entitlement
-#   3d       MidgardMac3D, MidgardiOS3D      the edition library, no network entitlement
-#   maps     MidgardMacMaps, MidgardiOSMaps  the edition library and, on the Mac, the client
-#                                            network entitlement (the only edition with one)
+#   MidgardMacMaps  io.veldris.midgardmaps.mac   the edition library and the client
+#                                                network entitlement (map tiles)
+#   MidgardiOSMaps  io.veldris.midgardmaps.ios   the edition library (iOS has no network
+#                                                entitlement)
 #
 # Builds each app present (Debug, the one configuration that builds without a team) and
-# fails if, for its edition:
-#   all       its Info.plist's MidgardEdition is not that edition; (Mac) it is not
-#             sandboxed (com.apple.security.app-sandbox true); (build mode) its target's
-#             entitlements file is not its own: <scheme>.entitlements or
-#             <scheme>-AdHoc / -NoTeam.entitlements;
-#   release   a file's name or bytes contain "MidgardGlobeKit", or a Mach-O file holds
-#             "Globe" or any edition wording ("not in the signed release", "not the signed
-#             release", "Midgard Maps", "Edition: ", "ea5899ab") or the edition provider
-#             type (EditionUIProvider); the link-time hook midgard_edition_hook is defined
-#             other than weakly; a Mach-O file links MetalKit.framework;
-#   3d, maps  no Mach-O file defines midgard_edition_hook strongly (the edition library
-#             is not linked);
-#   release, 3d
-#             a network entitlement (com.apple.security.network.*,
-#             com.apple.developer.networking.*) or a temporary-exception entitlement
-#             (com.apple.security.temporary-exception.*); and, ahead of the tile loader
-#             (Task I2, its own module MidgardTileKit, linked only by the maps apps):
-#             any "MidgardTileKit" symbol, or an Info.plist key NSAppTransportSecurity,
-#             NSLocalNetworkUsageDescription or NSBonjourServices;
-#   maps      the network server entitlement, or, on the Mac, no client one. iOS has no
-#             network entitlement (an iPhone app may use the network), so an iPhone maps
-#             app is not required to carry one.
+# fails if:
+#   - its Info.plist's MidgardEdition is not maps;
+#   - (Mac) it is not sandboxed (com.apple.security.app-sandbox true);
+#   - (build mode) its target's entitlements file is not its own: <scheme>.entitlements or
+#     <scheme>-AdHoc / -NoTeam.entitlements;
+#   - no Mach-O file defines the link-time hook midgard_edition_hook strongly (the edition
+#     library MidgardGlobeKit is not linked);
+#   - it has a network entitlement other than the client one (com.apple.security.network.server,
+#     com.apple.developer.networking.*) or a temporary-exception entitlement
+#     (com.apple.security.temporary-exception.*);
+#   - (Mac) it lacks the client network entitlement.
 # Debug binaries keep their symbol tables, so a symbol the linker kept is seen. B4/B5
-# must also run this on the signed Release archives (--release/--3d/--maps <app>).
+# must also run this on the signed Release archives (<app>... below).
 # [FR-C-1] [DD-6]
 #
-#   bash clients/shells/apple/tools/check-edition.sh          build and check every app present
-#   bash clients/shells/apple/tools/check-edition.sh --release <app>... [--3d <app>...] [--maps <app>...]
-#                                                             check built bundles only, each as
-#                                                             the edition named before it
+#   bash clients/shells/apple/tools/check-edition.sh               build and check both apps present
+#   bash clients/shells/apple/tools/check-edition.sh [--maps] <app>...   check built bundles only
 #
 # Derived data goes to ~/Library/Caches/midgard-build/clients-derived-{mac,ios}
-# (MIDGARD_BUILD_CACHE names another cache); the iPhone apps are built for the iPhone 17
+# (MIDGARD_BUILD_CACHE names another cache); the iPhone app is built for the iPhone 17
 # simulator (MIDGARD_AUDIT_SIMULATOR names another), which is not booted.
 set -uo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 cache="${MIDGARD_BUILD_CACHE:-$HOME/Library/Caches/midgard-build}"
 hook=midgard_edition_hook
-# Words a release app's Mach-O files must not hold (bytes, so symbols and strings alike).
-release_words=("Globe" "not in the signed release" "not the signed release" "Midgard Maps" "Edition: "
-    "ea5899ab" "EditionUIProvider")
-# Entitlements only the maps edition may have (and of those, only the network client one).
 net_re='com\.apple\.(security\.network\.(client|server)|developer\.networking\.[A-Za-z.-]+|security\.temporary-exception\.[A-Za-z.-]+)'
 
 say() { echo "check-edition: $*" >&2; }
 
-# check_bundle <edition> <app>: prints one line per problem; returns non-zero when there is one.
+# check_bundle <app>: prints one line per problem; returns non-zero when there is one.
 check_bundle() {
-    local edition="$1" app="$2" bad=0 info said f ents mac=0 strong=0 net="" w syms key
+    local app="$1" bad=0 info said f ents mac=0 strong=0 net="" syms
     fail() { echo "FAIL  $app: $*"; bad=1; }
     if [ ! -d "$app" ]; then
         echo "FAIL  $app: not a bundle"
@@ -64,40 +47,9 @@ check_bundle() {
     fi
     if [ -f "$app/Contents/Info.plist" ]; then info="$app/Contents/Info.plist"; mac=1; else info="$app/Info.plist"; fi
     said="$(plutil -extract MidgardEdition raw -o - "$info" 2>/dev/null || true)"
-    [ "$said" = "$edition" ] || fail "MidgardEdition is '${said:-missing}', not $edition"
-    if [ "$edition" != maps ]; then
-        for key in NSAppTransportSecurity NSLocalNetworkUsageDescription NSBonjourServices; do
-            if plutil -extract "$key" xml1 -o - "$info" >/dev/null 2>&1; then
-                fail "Info.plist has $key; only the maps edition may reach the network"
-            fi
-        done
-    fi
-    if [ "$edition" = release ]; then
-        # Names first (a resource bundle such as MidgardKit_MidgardGlobeKit.bundle).
-        while IFS= read -r f; do
-            fail "holds ${f#"$app"/}, of MidgardGlobeKit"
-        done < <(find "$app" -name '*MidgardGlobeKit*' -print)
-    fi
-    # Then bytes and symbols.
+    [ "$said" = maps ] || fail "MidgardEdition is '${said:-missing}', not maps"
     while IFS= read -r -d '' f; do
-        if [ "$edition" = release ] && LC_ALL=C grep -aq 'MidgardGlobeKit' "$f"; then
-            fail "${f#"$app"/} contains a MidgardGlobeKit symbol or name"
-        fi
         file -b "$f" | grep -q 'Mach-O' || continue
-        if [ "$edition" = release ]; then
-            for w in "${release_words[@]}"; do
-                if LC_ALL=C grep -aqF -- "$w" "$f"; then
-                    if [ "$w" = Globe ]; then fail "${f#"$app"/} contains a Globe type or name"
-                    else fail "${f#"$app"/} holds edition-only \"$w\""; fi
-                fi
-            done
-            if otool -L "$f" 2>/dev/null | grep -q 'MetalKit.framework'; then
-                fail "${f#"$app"/} links MetalKit.framework"
-            fi
-        fi
-        if [ "$edition" != maps ] && LC_ALL=C grep -aq 'MidgardTileKit' "$f"; then
-            fail "${f#"$app"/} contains MidgardTileKit, the maps edition's tile loader"
-        fi
         syms="$(nm -m "$f" 2>/dev/null | grep -E " _${hook}\$" || true)"
         if grep -v 'weak external' <<<"$syms" | grep -q 'external'; then strong=1; fi
         net="$net $(LC_ALL=C grep -aoE "$net_re" "$f" | sort -u | tr '\n' ' ')"
@@ -108,48 +60,29 @@ check_bundle() {
     if [ "$mac" = 1 ] && ! grep -q '<key>com.apple.security.app-sandbox</key><true/>' <<<"$ents"; then
         fail "is not sandboxed (com.apple.security.app-sandbox is not true)"
     fi
-    if [ "$edition" = release ] && [ "$strong" = 1 ]; then
-        fail "defines $hook strongly: an edition library is linked"
+    if [ "$strong" = 0 ]; then
+        fail "no Mach-O file defines $hook strongly; the app links the edition library"
     fi
-    if [ "$edition" != release ] && [ "$strong" = 0 ]; then
-        fail "no Mach-O file defines $hook strongly; the $edition edition links the edition library"
+    if grep -qE '(network\.server|developer\.networking|temporary-exception)' <<<"$net"; then
+        fail "has an entitlement beyond the network client one ($(tr ' ' '\n' <<<"$net" | sort -u | tr '\n' ' ' | sed 's/^ *//;s/ *$//'))"
     fi
-    case "$edition" in
-        release | 3d)
-            if grep -qE '(network|temporary-exception)' <<<"$net"; then
-                fail "has a network or temporary-exception entitlement ($(tr ' ' '\n' <<<"$net" | sort -u | tr '\n' ' ' | sed 's/^ *//;s/ *$//')); the $edition edition has none"
-            fi ;;
-        maps)
-            if grep -qE '(network\.server|developer\.networking|temporary-exception)' <<<"$net"; then
-                fail "has an entitlement beyond the network client one; the maps edition has that one only"
-            fi
-            if [ "$mac" = 1 ] && ! grep -q 'network\.client' <<<"$net"; then
-                fail "lacks the network client entitlement the Mac maps edition has"
-            fi ;;
-    esac
+    if [ "$mac" = 1 ] && ! grep -q 'network\.client' <<<"$net"; then
+        fail "lacks the network client entitlement the Mac app has"
+    fi
     if [ "$bad" -eq 0 ]; then
-        case "$edition" in
-            release) echo "ok    $app: release edition: no edition code or wording, hook weak or absent, no MetalKit, no network entitlement" ;;
-            3d) echo "ok    $app: 3d edition: edition library linked (strong hook), no network entitlement" ;;
-            maps) echo "ok    $app: maps edition: edition library linked (strong hook), network: $( [ "$mac" = 1 ] && echo client only || echo none on iOS)" ;;
-        esac
+        echo "ok    $app: maps edition: edition library linked (strong hook), network: $( [ "$mac" = 1 ] && echo "client only, sandboxed" || echo "none on iOS")"
     fi
     return "$bad"
 }
 
-# check_args (--release|--3d|--maps <app>...)...: checks each app as the edition named before it.
+# check_args [--maps] <app>...: checks each app.
 check_args() {
-    local rc=0 edition="" n=0
+    local rc=0 n=0
     while [ "$#" -gt 0 ]; do
         case "$1" in
-            --release) edition=release ;;
-            --3d) edition=3d ;;
-            --maps) edition=maps ;;
-            -*) say "unknown option: $1 (use --release, --3d or --maps <app>..., or no option)"; return 2 ;;
-            *)
-                [ -n "$edition" ] || { say "name the edition (--release, --3d or --maps) before $1"; return 2; }
-                check_bundle "$edition" "$1" || rc=1
-                n=$((n + 1)) ;;
+            --maps) ;;
+            -*) say "unknown option: $1 (give app bundles, or no argument)"; return 2 ;;
+            *) check_bundle "$1" || rc=1; n=$((n + 1)) ;;
         esac
         shift
     done
@@ -189,21 +122,19 @@ for platform in Mac iOS; do
         # destination would also build x86_64.
         dest="platform=iOS Simulator,name=${MIDGARD_AUDIT_SIMULATOR:-iPhone 17}"; derived="$cache/clients-derived-ios"
     fi
-    for pair in ":release" "3D:3d" "Maps:maps"; do
-        scheme="Midgard$platform${pair%%:*}"
-        out="$(built_app "$proj" "$scheme" "$dest" "$derived")" || { say "the $scheme build failed"; exit 1; }
-        app="$(sed -n 1p <<<"$out")"
-        ents="$(sed -n 2p <<<"$out")"
-        ents="${ents##*/}"
-        case "$ents" in
-            "$scheme.entitlements" | "$scheme-AdHoc.entitlements" | "$scheme-NoTeam.entitlements")
-                echo "ok    $scheme: signs with its own entitlements, $ents" ;;
-            *)
-                echo "FAIL  $scheme: signs with '${ents:-no file}', not its own $scheme{,-AdHoc,-NoTeam}.entitlements"
-                static_bad=1 ;;
-        esac
-        args+=("--${pair##*:}" "$app")
-    done
+    scheme="Midgard${platform}Maps"
+    out="$(built_app "$proj" "$scheme" "$dest" "$derived")" || { say "the $scheme build failed"; exit 1; }
+    app="$(sed -n 1p <<<"$out")"
+    ents="$(sed -n 2p <<<"$out")"
+    ents="${ents##*/}"
+    case "$ents" in
+        "$scheme.entitlements" | "$scheme-AdHoc.entitlements" | "$scheme-NoTeam.entitlements")
+            echo "ok    $scheme: signs with its own entitlements, $ents" ;;
+        *)
+            echo "FAIL  $scheme: signs with '${ents:-no file}', not its own $scheme{,-AdHoc,-NoTeam}.entitlements"
+            static_bad=1 ;;
+    esac
+    args+=("$app")
 done
 if [ "${#args[@]}" -eq 0 ]; then
     say "no app under clients/shells/apple/Apps; nothing was checked"

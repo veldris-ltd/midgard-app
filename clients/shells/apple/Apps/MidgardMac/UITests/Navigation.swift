@@ -7,13 +7,11 @@ enum Nav {
     /// can leave saved state with none, and the app would then open no window.
     /// They open at the apps' default size, 1400 × 1000 (the web reference is 1400 × 900;
     /// Heimdall's inspector needs the height under the Mac banners), over any window frame
-    /// AppKit saved from an earlier run, for each edition's module.
-    static let freshLaunch = ["-ApplePersistenceIgnoreState", "YES"]
-        + ["Midgard", "Midgard3D", "MidgardMaps"].flatMap { module in
-            ["-NSWindow Frame SwiftUI.PresentedWindowContent<MidgardKit.ConsoleRoute, "
-                + "SwiftUI.ModifiedContent<\(module).RootView, SwiftUI._FlexFrameLayout>>-1-AppWindow-1",
-             "100 130 1400 1000 0 0 1920 1170"]
-        }
+    /// AppKit saved from an earlier run (the app's module is Midgard).
+    static let freshLaunch = ["-ApplePersistenceIgnoreState", "YES",
+        "-NSWindow Frame SwiftUI.PresentedWindowContent<MidgardKit.ConsoleRoute, "
+            + "SwiftUI.ModifiedContent<Midgard.RootView, SwiftUI._FlexFrameLayout>>-1-AppWindow-1",
+        "100 130 1400 1000 0 0 1920 1170"]
 
     static let consoleIds = ["midgard", "admin", "heimdall", "forge", "mimir", "bifrost"]
 

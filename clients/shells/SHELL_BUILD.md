@@ -61,8 +61,8 @@ apps is the platform-team build, run on the appropriate CI runners.
 ## Apple (built)
 
 The Apple binding and the shared Swift package exist on `clients_shared`; the macOS
-and iPhone apps are built on the branches `clients_mac` and `clients_iphone`, which
-merge `clients_shared`. [`apple/README.md`](apple/README.md) covers the apps:
+and iPhone apps (one each, the Maps edition: owner decision, 23 November 2026) are
+built on the branch `clients_apple`, which merges `clients_shared`. [`apple/README.md`](apple/README.md) covers the apps:
 branches, building and testing them, the no-data mode, signing, the audit and
 clean-up.
 
@@ -80,7 +80,7 @@ aarch64-apple-ios-sim --toolchain 1.82.0`), Node 22 (token generation only).
 | `Sources/MidgardCore/` | the generated `midgard_client_ffi.swift` (gitignored, copied in by the build) over the `MidgardCoreFFI` XCFramework (`Frameworks/`, a gitignored link) |
 | `Sources/MidgardKit/` | shared SwiftUI layer: design tokens (generated), Secure Enclave key root, sign-in, lock, chips, acknowledgements |
 | `Sources/MidgardAuditKit/` | the accessibility audit's base class that each app's UI-test target subclasses |
-| `Sources/MidgardHooks/`, `Sources/MidgardGlobeKit/` | the link-time hook and the 3D editions' library (Task B7; [`apple/README.md`](apple/README.md#editions)) |
+| `Sources/MidgardHooks/`, `Sources/MidgardGlobeKit/` | the link-time hook and the Maps edition's library (Task B7; [`apple/README.md`](apple/README.md#editions)) |
 | `Tests/MidgardKitTests/` | package tests, including the contract test over every exported binding |
 | `audit.sh` | the on-device accessibility audit (`tools/ci/run.sh shell-audit apple`) |
 
@@ -98,7 +98,7 @@ bash tools/check-contract.sh      # every exported function is exercised by Cont
 bash tools/check-bindings.sh      # the bindings are a fresh uniffi-bindgen run's; acknowledgement; licence expiry
 node tools/gen-tokens.mjs --check # design tokens and fonts match ui/design-system
 bash tools/typecheck-ios.sh       # typecheck for iOS without a simulator runtime
-bash tools/check-edition.sh       # each app carries what its edition allows, no more (on an app branch)
+bash tools/check-edition.sh       # each app carries what its edition allows, no more (on clients_apple)
 bash tools/clean.sh [--target]    # delete every clients-* build output, the apps' derived data
                                   # and archives included (and the cargo target dir)
 ```
@@ -122,9 +122,8 @@ checks that each committed `Apps/<App>/<App>.xcodeproj` is what its `project.yml
 both apps, runs each app's `AccessibilityAudit` UI test (XCUITest +
 `XCUIAccessibilityAudit`) on an iPhone simulator and on the Mac, and names the
 devices it audited; `tools/ci/run.sh shell-audit apple` records the result. It
-refuses a tree without both apps, so it records nothing on `clients_mac` or
-`clients_iphone` alone (only on a merge of the two), and until then the release gate
-stays closed.
+refuses a tree without both apps, so it records only on `clients_apple`, and until
+then the release gate stays closed.
 
 **Apple release checklist** (MPL-2.0, UniFFI):
 

@@ -1,9 +1,9 @@
 import XCTest
 
-/// The edition the app under test says it is (Task B7), against `Edition`, which each
-/// UI-test target defines for its app (UITests-Release, UITests-3D, UITests-Maps): the
-/// edition banner, Heimdall's "3D view" entry, and About, all of which only the 3D and
-/// maps apps have: the release app shows no visible change. [FR-C-1] [AC-C-13]
+/// The edition the app under test says it is (Task B7), against `Edition`, which the
+/// UI-test target defines in UITests-Maps (the one edition since 23 Nov 2026): the
+/// edition banner, Heimdall's "3D view" entry, and About. The branches for an app without
+/// them stay, so the tests still hold if an edition without them returns. [FR-C-1] [AC-C-13]
 final class EditionTests: XCTestCase {
     private var app: XCUIApplication!
 

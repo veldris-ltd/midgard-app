@@ -6,9 +6,9 @@
 # project removed first), and its project.pbxproj and shared schemes must equal the
 # committed <App>.xcodeproj's. An edit made in Xcode and not in project.yml fails here,
 # naming the app. The copy keeps the package directory's name ("apple"): XcodeGen names
-# a local package's folder reference after it. Each project also declares all three editions
-# (Task B7): the release, 3D and maps apps, each with its own scheme, UI tests, Info.plist
-# and entitlements, and only the 3D and maps apps linking MidgardGlobeKit (check_editions).
+# a local package's folder reference after it. Each project also declares its one app, the
+# Maps edition (owner decision, 23 Nov 2026), with its scheme, UI tests, Info.plist and
+# entitlements (check_editions).
 # macOS only (XcodeGen, jq, plutil): elsewhere it says SKIP. [DD-6]
 #
 #   bash tools/ci/tests/apple-projects.test.sh
@@ -129,20 +129,18 @@ check "fixture: only tracked files are copied (a spec needing an untracked file 
 mkdir -p "$tmp/empty" && git -C "$tmp/empty" init -q
 check "no apps: passes, saying so" "out=\$(compare_projects $tmp/empty) && grep -q 'no app projects' <<<\"\$out\""
 
-# All three editions in every project (Task B7, owner decision 22 Nov 2026). Each
-# Apps/<App>/project.yml declares the release app <App>, the 3D app <App>3D and the maps
-# app <App>Maps, each an application for the same platform with its own scheme, its own
-# UI-test target (<App>UITests, <App>3DUITests, <App>MapsUITests) that links
-# MidgardAuditKit, its own Info.plist (MidgardEdition release, 3d, maps) and its own bundle
-# identifier (io.veldris.midgard.*, io.veldris.midgard3d.*, io.veldris.midgardmaps.*).
-# Only <App>3D and <App>Maps link MidgardGlobeKit. Entitlement files: only a maps one
-# (on the Mac) names a network entitlement, the client one and never the server one; each
-# 3D and maps target names its own entitlement files. tools/check-edition.sh checks what
-# the builds actually carry.
+# One app per project, the Maps edition (owner decision, 23 Nov 2026). Each
+# Apps/<App>/project.yml declares exactly one application, <App>Maps, with its scheme, its
+# UI-test target <App>MapsUITests that links MidgardAuditKit, an Info.plist saying
+# MidgardEdition maps, a bundle identifier io.veldris.midgardmaps.*, and MidgardGlobeKit
+# linked. Entitlement files: never the network server entitlement; on the Mac every one
+# names the client one, and the app names its own (<App>Maps[-AdHoc|-NoTeam].entitlements,
+# here or through Config/Signing.xcconfig). tools/check-edition.sh checks what the build
+# actually carries.
 #
 # check_editions <package dir>: one line per app; returns the number of apps that fail.
 check_editions() {
-    local base="$1" n=0 bad=0 spec dir app json problems platform plist want f pair
+    local base="$1" n=0 bad=0 spec dir app json problems platform plist f
     for spec in "$base"/Apps/*/project.yml; do
         [ -f "$spec" ] || continue
         n=$((n + 1))
@@ -155,67 +153,51 @@ check_editions() {
         fi
         problems="$(jq -r --arg a "$app" '
             . as $root |
+            ($a + "Maps") as $m |
             def t($n): $root.targets[$n] // {};
             def links($n; $p): ((t($n).dependencies // []) | map(select(.product == $p)) | length) > 0;
             def bid($n): (t($n).settings.base.PRODUCT_BUNDLE_IDENTIFIER // "");
-            def ents($n): [t($n).settings.base // {} | to_entries[] | select(.key | test("ENTITLEMENTS"))
-                | .value | tostring | select(test("[.]entitlements"))];
-            [$a, $a + "3D", $a + "Maps"] as $apps |
-            ($apps[] | select(t(.).type != "application") | "no application target \(.)"),
-            ($apps[] | select(t(.).platform != t($a).platform) | "\(.) is not for the platform of \($a)"),
-            ($apps[] | select(t(. + "UITests").settings.base.TEST_TARGET_NAME != .) | "no UI-test target \(.)UITests for \(.)"),
-            ($apps[] | select(links(. + "UITests"; "MidgardAuditKit") | not) | "\(.)UITests does not link MidgardAuditKit"),
-            ($apps[] | select(($root.schemes // {})[.] == null) | "no scheme \(.)"),
-            ($apps[1:][] | select(links(.; "MidgardGlobeKit") | not) | "\(.) does not link MidgardGlobeKit"),
-            (($root.targets // {}) | to_entries[] | select(.key as $k | $apps[1:] | index($k) | not)
-                | select(((.value.dependencies // []) | map(select(.product == "MidgardGlobeKit")) | length) > 0)
-                | "\(.key) links MidgardGlobeKit (only \($a)3D and \($a)Maps may)"),
-            (if bid($a) | test("^io[.]veldris[.]midgard[.]") | not then "\($a) bundle id \(bid($a)) is not io.veldris.midgard.*" else empty end),
-            (if bid($a + "3D") | test("^io[.]veldris[.]midgard3d[.]") | not then "\($a)3D bundle id \(bid($a + "3D")) is not io.veldris.midgard3d.*" else empty end),
-            (if bid($a + "Maps") | test("^io[.]veldris[.]midgardmaps[.]") | not then "\($a)Maps bundle id \(bid($a + "Maps")) is not io.veldris.midgardmaps.*" else empty end),
-            (if ([$apps[] | t(.).settings.base.INFOPLIST_FILE // ""] | unique | length) != 3
-                then "the three apps do not each have their own Info.plist" else empty end),
-            (if (ents($a + "3D") | map(select(test("3D[^/]*[.]entitlements"))) | length) == 0
-                then "\($a)3D does not name its own 3D entitlements" else empty end),
-            (if (ents($a + "Maps") | map(select(test("Maps[^/]*[.]entitlements"))) | length) == 0
-                then "\($a)Maps does not name its own Maps entitlements" else empty end)
+            (if t($m).type != "application" then "no application target \($m)" else empty end),
+            (($root.targets // {}) | to_entries[] | select(.value.type == "application" and .key != $m)
+                | "\(.key) is an application other than \($m) (one app per platform)"),
+            (if t($m + "UITests").settings.base.TEST_TARGET_NAME != $m then "no UI-test target \($m)UITests for \($m)" else empty end),
+            (if links($m + "UITests"; "MidgardAuditKit") | not then "\($m)UITests does not link MidgardAuditKit" else empty end),
+            (if ($root.schemes // {})[$m] == null then "no scheme \($m)" else empty end),
+            (($root.schemes // {}) | keys[] | select(. != $m) | "scheme \(.) is not for \($m)"),
+            (if links($m; "MidgardGlobeKit") | not then "\($m) does not link MidgardGlobeKit" else empty end),
+            (if bid($m) | test("^io[.]veldris[.]midgardmaps[.](mac|ios)$") | not then "\($m) bundle id \(bid($m)) is not io.veldris.midgardmaps.mac or .ios" else empty end)
             ' <<<"$json" 2>&1)"
-        platform="$(jq -r --arg a "$app" '.targets[$a].platform // ""' <<<"$json")"
-        for pair in "$app:release" "${app}3D:3d" "${app}Maps:maps"; do
-            plist="$(jq -r --arg t "${pair%%:*}" '.targets[$t].settings.base.INFOPLIST_FILE // ""' <<<"$json")"
-            want="${pair##*:}"
-            if [ -z "$plist" ] || [ ! -f "$dir/$plist" ]; then
-                problems="$problems${problems:+
-}${pair%%:*} has no Info.plist"
-            elif [ "$(plutil -extract MidgardEdition raw -o - "$dir/$plist" 2>/dev/null)" != "$want" ]; then
-                problems="$problems${problems:+
-}${pair%%:*}'s Info.plist does not say MidgardEdition $want"
-            fi
-        done
+        platform="$(jq -r --arg t "${app}Maps" '.targets[$t].platform // ""' <<<"$json")"
+        plist="$(jq -r --arg t "${app}Maps" '.targets[$t].settings.base.INFOPLIST_FILE // ""' <<<"$json")"
+        if [ -z "$plist" ] || [ ! -f "$dir/$plist" ]; then
+            problems="$problems${problems:+
+}${app}Maps has no Info.plist"
+        elif [ "$(plutil -extract MidgardEdition raw -o - "$dir/$plist" 2>/dev/null)" != maps ]; then
+            problems="$problems${problems:+
+}${app}Maps's Info.plist does not say MidgardEdition maps"
+        fi
         for f in "$dir"/Config/*.entitlements; do
             [ -f "$f" ] || continue
             case "$(basename "$f")" in
-                *Maps*)
-                    if [ "$platform" = macOS ]; then
-                        grep -q 'com.apple.security.network.client' "$f" ||
-                            problems="$problems${problems:+
-}$(basename "$f") lacks the network client entitlement"
-                    fi
-                    ! grep -q 'com.apple.security.network.server' "$f" ||
-                        problems="$problems${problems:+
-}$(basename "$f") has the network server entitlement" ;;
-                *)
-                    ! grep -q 'com.apple.security.network' "$f" ||
-                        problems="$problems${problems:+
-}$(basename "$f") names a network entitlement (only the maps edition has one)" ;;
+                "${app}Maps.entitlements" | "${app}Maps-AdHoc.entitlements" | "${app}Maps-NoTeam.entitlements") ;;
+                *) problems="$problems${problems:+
+}$(basename "$f") is not an entitlements file of ${app}Maps" ;;
             esac
+            if [ "$platform" = macOS ]; then
+                grep -q 'com.apple.security.network.client' "$f" ||
+                    problems="$problems${problems:+
+}$(basename "$f") lacks the network client entitlement"
+            fi
+            ! grep -q 'com.apple.security.network.server' "$f" ||
+                problems="$problems${problems:+
+}$(basename "$f") has the network server entitlement"
         done
         if [ -n "$problems" ]; then
-            echo "FAIL  $app: the three editions are not all declared as required:"
+            echo "FAIL  $app: its one app is not declared as required:"
             sed 's/^/      /' <<<"$problems"
             bad=$((bad + 1))
         else
-            echo "ok    $app: declares $app, ${app}3D and ${app}Maps, each with its own scheme, UI tests, Info.plist and entitlements"
+            echo "ok    $app: declares ${app}Maps only, with its scheme, UI tests, Info.plist and entitlements"
         fi
     done
     [ "$n" -gt 0 ] || echo "ok    no app projects"
@@ -228,38 +210,22 @@ if command -v jq >/dev/null 2>&1 && command -v plutil >/dev/null 2>&1; then
 
     # The check's own failure paths, on a spec-only fixture made here: as written it passes;
     # each seeded edit fails, saying why.
-    edition_fixture() { # edition_fixture <dir>: a Mac app "Ed" with all three editions
-        local d="$1/apple/Apps/Ed" e
+    edition_fixture() { # edition_fixture <dir>: a Mac app "Ed" with its one app, EdMaps
+        local d="$1/apple/Apps/Ed"
         rm -rf "$1" && mkdir -p "$d/Config" "$d/Sources" "$d/UITests"
-        for e in release:Info 3d:Info3D maps:InfoMaps; do
-            printf '%s\n' "<plist version=\"1.0\"><dict><key>MidgardEdition</key><string>${e%%:*}</string></dict></plist>" \
-                >"$d/${e##*:}.plist"
-        done
-        for e in Ed Ed3D; do
-            printf '%s\n' '<plist version="1.0"><dict><key>com.apple.security.app-sandbox</key><true/></dict></plist>' \
-                >"$d/Config/$e.entitlements"
-        done
+        printf '%s\n' '<plist version="1.0"><dict><key>MidgardEdition</key><string>maps</string></dict></plist>' >"$d/Info.plist"
         printf '%s\n' '<plist version="1.0"><dict><key>com.apple.security.app-sandbox</key><true/>' \
             '<key>com.apple.security.network.client</key><true/></dict></plist>' >"$d/Config/EdMaps.entitlements"
-        {
-            printf '%s\n' 'name: Ed' 'packages:' '  MidgardKit:' '    path: ../..' 'targets:'
-            for e in :io.veldris.midgard.mac:Info 3D:io.veldris.midgard3d.mac:Info3D Maps:io.veldris.midgardmaps.mac:InfoMaps; do
-                local s="${e%%:*}" rest="${e#*:}"
-                local id="${rest%%:*}" plist="${rest##*:}"
-                printf '%s\n' "  Ed$s:" '    type: application' '    platform: macOS' '    sources: [Sources]' \
-                    '    settings:' '      base:' "        PRODUCT_BUNDLE_IDENTIFIER: $id" "        INFOPLIST_FILE: $plist.plist" \
-                    "        CODE_SIGN_ENTITLEMENTS: Config/Ed$s.entitlements" '    dependencies:' \
-                    '      - package: MidgardKit' '        product: MidgardKit'
-                [ -z "$s" ] || printf '%s\n' '      - package: MidgardKit' '        product: MidgardGlobeKit'
-                printf '%s\n' "  Ed${s}UITests:" '    type: bundle.ui-testing' '    platform: macOS' '    sources: [UITests]' \
-                    '    settings:' '      base:' "        TEST_TARGET_NAME: Ed$s" '    dependencies:' "      - target: Ed$s" \
-                    '      - package: MidgardKit' '        product: MidgardAuditKit'
-            done
-            printf '%s\n' 'schemes:'
-            for s in "" 3D Maps; do
-                printf '%s\n' "  Ed$s:" '    build:' '      targets:' "        Ed$s: all"
-            done
-        } >"$d/project.yml"
+        printf '%s\n' 'name: Ed' 'packages:' '  MidgardKit:' '    path: ../..' 'targets:' \
+            '  EdMaps:' '    type: application' '    platform: macOS' '    sources: [Sources]' \
+            '    settings:' '      base:' '        PRODUCT_BUNDLE_IDENTIFIER: io.veldris.midgardmaps.mac' \
+            '        INFOPLIST_FILE: Info.plist' '        CODE_SIGN_ENTITLEMENTS: Config/EdMaps.entitlements' \
+            '    dependencies:' '      - package: MidgardKit' '        product: MidgardKit' \
+            '      - package: MidgardKit' '        product: MidgardGlobeKit' \
+            '  EdMapsUITests:' '    type: bundle.ui-testing' '    platform: macOS' '    sources: [UITests]' \
+            '    settings:' '      base:' '        TEST_TARGET_NAME: EdMaps' '    dependencies:' '      - target: EdMaps' \
+            '      - package: MidgardKit' '        product: MidgardAuditKit' \
+            'schemes:' '  EdMaps:' '    build:' '      targets:' '        EdMaps: all' >"$d/project.yml"
     }
     ed="$tmp/ed"
     edit_spec() { awk "$1" project.yml >project.new && mv project.new project.yml; }
@@ -271,43 +237,29 @@ if command -v jq >/dev/null 2>&1 && command -v plutil >/dev/null 2>&1; then
             "! out=\$(check_editions $ed/apple) && grep -q '^FAIL  Ed:' <<<\"\$out\" && grep -q '$2' <<<\"\$out\""
     }
     edition_fixture "$ed"
-    check "editions fixture: all three editions as required pass" "check_editions $ed/apple >/dev/null"
-    seeded "no 3D target" "no application target Ed3D" \
-        "edit_spec '/^  Ed3D:\$/ && !done { skip = 1; done = 1; next } skip && /^  [A-Za-z]/ { skip = 0 } !skip { print }'"
-    seeded "no maps target" "no application target EdMaps" \
-        "edit_spec '/^  EdMaps:\$/ && !done { skip = 1; done = 1; next } skip && /^  [A-Za-z]/ { skip = 0 } !skip { print }'"
-    seeded "no maps scheme" "no scheme EdMaps" \
-        "edit_spec '/^schemes:/ { on = 1 } on && /^  EdMaps:\$/ { skip = 1; next } skip && /^  [A-Za-z]/ { skip = 0 } !skip { print }'"
-    seeded "the release app linking MidgardGlobeKit" "Ed links MidgardGlobeKit" \
-        "edit_spec '{ print } /^  Ed:\$/ { on = 1 } on && /^    dependencies:\$/ { print \"      - package: MidgardKit\"; print \"        product: MidgardGlobeKit\"; on = 0 }'"
-    seeded "the 3D app not linking MidgardGlobeKit" "Ed3D does not link MidgardGlobeKit" \
-        "edit_spec '/^  Ed3D:\$/ { on = 1 } /^  EdMaps:\$/ { on = 0 } on && /product: MidgardGlobeKit/ { sub(/MidgardGlobeKit/, \"MidgardKit\") } { print }'"
-    seeded "the maps app not linking MidgardGlobeKit" "EdMaps does not link MidgardGlobeKit" \
-        "edit_spec '/^  EdMaps:\$/ { on = 1 } /^  EdMapsUITests:\$/ { on = 0 } on && /product: MidgardGlobeKit/ { sub(/MidgardGlobeKit/, \"MidgardKit\") } { print }'"
-    seeded "a maps UI-test target missing" "no UI-test target EdMapsUITests" \
+    check "editions fixture: the one app as required passes" "check_editions $ed/apple >/dev/null"
+    seeded "a second application target" "an application other than EdMaps" \
+        "edit_spec '/^  EdMapsUITests:\$/ { print \"  Ed3D:\"; print \"    type: application\"; print \"    platform: macOS\"; print \"    sources: [Sources]\" } { print }'"
+    seeded "a second scheme" "scheme Ed3D is not for" \
+        "printf '%s\\n' '  Ed3D:' '    build:' '      targets:' '        EdMaps: all' >>project.yml"
+    seeded "no scheme" "no scheme EdMaps" \
+        "edit_spec '/^schemes:/ { exit } { print }'"
+    seeded "the app not linking MidgardGlobeKit" "EdMaps does not link MidgardGlobeKit" \
+        "edit_spec '{ sub(/product: MidgardGlobeKit/, \"product: MidgardKit\"); print }'"
+    seeded "the UI-test target missing" "no UI-test target EdMapsUITests" \
         "edit_spec '{ sub(/TEST_TARGET_NAME: EdMaps/, \"TEST_TARGET_NAME: Ed\"); print }'"
-    seeded "the 3D Info.plist saying release" "MidgardEdition 3d" \
-        "plutil -replace MidgardEdition -string release Info3D.plist"
-    seeded "the maps Info.plist saying 3d" "MidgardEdition maps" \
-        "plutil -replace MidgardEdition -string 3d InfoMaps.plist"
-    seeded "the release Info.plist missing its edition" "MidgardEdition release" \
+    seeded "the Info.plist saying 3d" "MidgardEdition maps" \
+        "plutil -replace MidgardEdition -string 3d Info.plist"
+    seeded "the Info.plist missing its edition" "MidgardEdition maps" \
         "plutil -remove MidgardEdition Info.plist"
-    seeded "a 3D bundle id outside io.veldris.midgard3d" "bundle id" \
-        "edit_spec '{ sub(/io.veldris.midgard3d.mac/, \"io.veldris.midgard.mac3d\"); print }'"
-    seeded "a maps bundle id outside io.veldris.midgardmaps" "bundle id" \
-        "edit_spec '{ sub(/io.veldris.midgardmaps.mac/, \"io.veldris.midgard3d.macmaps\"); print }'"
-    seeded "a release entitlement with network" "names a network entitlement" \
-        "cp Config/EdMaps.entitlements Config/Ed.entitlements"
-    seeded "a 3D entitlement with network" "Ed3D.entitlements names a network entitlement" \
+    seeded "a bundle id outside io.veldris.midgardmaps" "bundle id" \
+        "edit_spec '{ sub(/io.veldris.midgardmaps.mac/, \"io.veldris.midgard.mac\"); print }'"
+    seeded "a leftover entitlements file of another app" "is not an entitlements file of EdMaps" \
         "cp Config/EdMaps.entitlements Config/Ed3D.entitlements"
-    seeded "a Mac maps entitlement without network" "lacks the network client" \
-        "cp Config/Ed.entitlements Config/EdMaps.entitlements"
-    seeded "a maps entitlement with the server one" "network server" \
+    seeded "a Mac entitlement without network" "lacks the network client" \
+        "printf '%s\\n' '<plist version=\"1.0\"><dict><key>com.apple.security.app-sandbox</key><true/></dict></plist>' >Config/EdMaps.entitlements"
+    seeded "an entitlement with the server one" "network server" \
         "sed 's|</dict>|<key>com.apple.security.network.server</key><true/></dict>|' Config/EdMaps.entitlements >x && mv x Config/EdMaps.entitlements"
-    seeded "a maps target naming the 3D entitlements" "own Maps entitlements" \
-        "edit_spec '{ sub(/Config\\/EdMaps.entitlements/, \"Config/Ed3D.entitlements\"); print }'"
-    seeded "a 3D target naming the release entitlements" "own 3D entitlements" \
-        "edit_spec '{ sub(/Config\\/Ed3D.entitlements/, \"Config/Ed.entitlements\"); print }'"
 else
     echo "SKIP  the editions check needs jq and plutil (macOS)"
 fi

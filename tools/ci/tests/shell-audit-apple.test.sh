@@ -69,7 +69,7 @@ leftover="$(find "$work/r/clients/shells/apple/audits" -type f ! -name '*.toml')
 if [ -z "$leftover" ]; then pass "record-audit leaves no temp or backup file"; else fail "left $leftover"; fi
 
 # 4. audit.sh against stub Xcode tools. xcodebuild writes a result bundle holding the
-#    failures configured for its scheme (STUB_FAIL_MidgardiOS / STUB_FAIL_MidgardMac);
+#    failures configured for its scheme (STUB_FAIL_MidgardiOSMaps / STUB_FAIL_MidgardMacMaps);
 #    xcrun prints them after a test-case line; osascript prints that line back.
 stubs="$work/stubs"
 mkdir -p "$stubs"
@@ -156,7 +156,7 @@ run_audit() { # run_audit TREE [VAR=value...]: stdout of audit.sh; rc in $rc
 
 for one in MidgardMac MidgardiOS; do
     t="$(apps "only-$one" "$one")"
-    run_audit "$t" STUB_FAIL_MidgardMac=dynamic_type
+    run_audit "$t" STUB_FAIL_MidgardMacMaps=dynamic_type
     if [ "$rc" -ne 0 ] && [ -z "$out" ] && [ ! -f "$t/calls" ] && grep -q 'needs both apps' "$t/stderr"; then
         pass "$one alone: refused before anything runs (the record needs both apps)"
     else
@@ -179,18 +179,16 @@ for hook in 'override func record(_ issue: XCTIssue) {}' 'override func invokeTe
 done
 
 t="$(apps both MidgardiOS MidgardMac)"
-run_audit "$t" STUB_FAIL_MidgardiOS=contrast_aa "STUB_FAIL_MidgardMac=dynamic_type keyboard_navigation"
+run_audit "$t" STUB_FAIL_MidgardiOSMaps=contrast_aa "STUB_FAIL_MidgardMacMaps=dynamic_type keyboard_navigation"
 if [ "$rc" -eq 0 ] && [ "$out" = "contrast_aa keyboard_navigation " ]; then
     pass "iOS and macOS: the iOS run stands for dynamic_type; other failures add up"
 else
     fail "iOS and macOS: rc=$rc out='$out' $(cat "$t/stderr")"
 fi
 ev="$t/shell-audit/apple-0.0.0-test"
-if [ -s "$ev-ios.json" ] && [ -s "$ev-ios3d.json" ] && [ -s "$ev-iosmaps.json" ] && [ -s "$ev-mac.json" ] \
-    && [ -s "$ev-mac3d.json" ] && [ -s "$ev-macmaps.json" ] && grep -q '^{"ios":' "$ev.json" \
-    && grep -q ',"ios3d":' "$ev.json" && grep -q ',"iosmaps":' "$ev.json" && grep -q ',"mac":' "$ev.json" \
-    && grep -q ',"mac3d":' "$ev.json" && grep -q ',"macmaps":' "$ev.json"; then
-    pass "the six apps' reports are kept, and merged in the report"
+if [ -s "$ev-iosmaps.json" ] && [ -s "$ev-macmaps.json" ] && grep -q '^{"iosmaps":' "$ev.json" \
+    && grep -q ',"macmaps":' "$ev.json"; then
+    pass "the two apps' reports are kept, and merged in the report"
 else
     fail "reports: $(ls "$t/shell-audit" 2>/dev/null)"
 fi
@@ -213,14 +211,14 @@ if [ "$rc" -ne 0 ] && [ -z "$out" ]; then
 else
     fail "unknown simulator: rc=$rc out='$out'"
 fi
-if [ "$(tr '\n' ' ' < "$t/calls")" = "MidgardiOS MidgardiOS3D MidgardiOSMaps MidgardMac MidgardMac3D MidgardMacMaps " ]; then
-    pass "both apps are tested, each in all three editions"
+if [ "$(tr '\n' ' ' < "$t/calls")" = "MidgardiOSMaps MidgardMacMaps " ]; then
+    pass "both apps are tested, the Maps edition only"
 else
     fail "tested: $(cat "$t/calls")"
 fi
 
 t="$(apps both-pass MidgardiOS MidgardMac)"
-run_audit "$t" STUB_FAIL_MidgardMac=dynamic_type
+run_audit "$t" STUB_FAIL_MidgardMacMaps=dynamic_type
 if [ "$rc" -eq 0 ] && [ -z "$(echo "$out" | tr -d ' ')" ]; then
     pass "iOS and macOS, all measured pass: nothing failed"
 else
@@ -253,7 +251,7 @@ kbd_case() { # kbd_case NAME BEFORE [VAR=value...]: BEFORE is a value or "absent
     t="$(apps "kbd-$name" MidgardiOS MidgardMac)"
     kbd="$t/kbd"
     [ "$before" = absent ] || echo "$before" > "$kbd"
-    run_audit "$t" STUB_KBD="$kbd" STUB_RESTORE="$t/cache/audit-kbd-restore" STUB_FAIL_MidgardMac=dynamic_type "$@"
+    run_audit "$t" STUB_KBD="$kbd" STUB_RESTORE="$t/cache/audit-kbd-restore" STUB_FAIL_MidgardMacMaps=dynamic_type "$@"
 }
 real_before="$(defaults read -g AppleKeyboardUIMode 2>/dev/null || echo absent)"
 for ci in GITHUB_ACTIONS=true CI=true; do
@@ -284,7 +282,7 @@ if [ "$rc" -eq 0 ] && [ "$(cat "$kbd")" = 3 ] && ! grep -qE '^(write|delete)' "$
 else
     fail "CI, on: rc=$rc kbd=$(cat "$kbd" 2>/dev/null) log=$(tr '\n' ';' < "$kbd.log")"
 fi
-six="MidgardiOS MidgardiOS3D MidgardiOSMaps MidgardMac MidgardMac3D MidgardMacMaps "
+both="MidgardiOSMaps MidgardMacMaps "
 for before in absent 0; do
     kbd_case "local-off-$before" "$before"
     after="$(cat "$kbd" 2>/dev/null || echo absent)"
@@ -293,7 +291,7 @@ for before in absent 0; do
         && grep -q '^restore-file-before-write=yes$' "$kbd.log" \
         && grep -q 'turned on Keyboard navigation' "$t/stderr" && grep -q 'put back to' "$t/stderr" \
         && [ ! -e "$t/cache/audit-kbd-restore" ] && [ ! -e "$t/cache/audit-kbd.lock" ] \
-        && [ "$(tr '\n' ' ' < "$t/calls")" = "$six" ]; then
+        && [ "$(tr '\n' ' ' < "$t/calls")" = "$both" ]; then
         pass "not CI, setting $before: turned on for the run (restore file first), put back after, said so"
     else
         fail "not CI, $before: rc=$rc out='$out' after=$after log=$(tr '\n' ';' < "$kbd.log") $(cat "$t/stderr")"
@@ -311,7 +309,7 @@ fi
 # next run puts 0 back first, turns it on for itself, and puts 0 back again at the end.
 t="$(apps kbd-stale MidgardiOS MidgardMac)"
 kbd="$t/kbd"; echo 2 > "$kbd"; mkdir -p "$t/cache"; echo 0 > "$t/cache/audit-kbd-restore"
-run_audit "$t" STUB_KBD="$kbd" STUB_RESTORE="$t/cache/audit-kbd-restore" STUB_FAIL_MidgardMac=dynamic_type
+run_audit "$t" STUB_KBD="$kbd" STUB_RESTORE="$t/cache/audit-kbd-restore" STUB_FAIL_MidgardMacMaps=dynamic_type
 first_write="$(grep -m 1 -E '^(write|delete)' "$kbd.log")"
 if [ "$rc" -eq 0 ] && [ "$first_write" = "write -g AppleKeyboardUIMode -int 0" ] && [ "$(cat "$kbd")" = 0 ] \
     && [ ! -e "$t/cache/audit-kbd-restore" ]; then
@@ -322,7 +320,7 @@ fi
 # Safeguard 2: a lock held by a live audit refuses the run; a dead holder's is taken over.
 t="$(apps kbd-locked MidgardiOS MidgardMac)"
 kbd="$t/kbd"; echo 0 > "$kbd"; mkdir -p "$t/cache/audit-kbd.lock"; echo $$ > "$t/cache/audit-kbd.lock/pid"
-run_audit "$t" STUB_KBD="$kbd" STUB_FAIL_MidgardMac=dynamic_type
+run_audit "$t" STUB_KBD="$kbd" STUB_FAIL_MidgardMacMaps=dynamic_type
 if [ "$rc" -ne 0 ] && [ -z "$out" ] && [ ! -f "$t/calls" ] && ! grep -qE '^(write|delete)' "$kbd.log" 2>/dev/null \
     && grep -q 'another audit' "$t/stderr" && [ -d "$t/cache/audit-kbd.lock" ]; then
     pass "a lock held by a live audit: refused, setting and lock untouched"
@@ -331,7 +329,7 @@ else
 fi
 t="$(apps kbd-deadlock MidgardiOS MidgardMac)"
 kbd="$t/kbd"; echo 0 > "$kbd"; mkdir -p "$t/cache/audit-kbd.lock"; echo 999999 > "$t/cache/audit-kbd.lock/pid"
-run_audit "$t" STUB_KBD="$kbd" STUB_RESTORE="$t/cache/audit-kbd-restore" STUB_FAIL_MidgardMac=dynamic_type
+run_audit "$t" STUB_KBD="$kbd" STUB_RESTORE="$t/cache/audit-kbd-restore" STUB_FAIL_MidgardMacMaps=dynamic_type
 if [ "$rc" -eq 0 ] && [ "$(cat "$kbd")" = 0 ] && [ ! -e "$t/cache/audit-kbd.lock" ]; then
     pass "a lock whose holder is gone is taken over, and released after"
 else
@@ -377,14 +375,14 @@ else
     fail "CI job, no app: rc=$rc $(ls "$t/clients/shells/apple/audits" 2>/dev/null) $(cat "$t/stdout")"
 fi
 t="$(job_tree job-mac MidgardMac)"
-job "$t" STUB_FAIL_MidgardMac=dynamic_type
+job "$t" STUB_FAIL_MidgardMacMaps=dynamic_type
 if [ "$rc" -ne 0 ] && [ -z "$(ls "$t/clients/shells/apple/audits" 2>/dev/null)" ]; then
     pass "CI job, macOS app alone: fails, no record"
 else
     fail "CI job, macOS alone: rc=$rc $(ls "$t/clients/shells/apple/audits" 2>/dev/null) $(cat "$t/stdout")"
 fi
 t="$(job_tree job-fail MidgardiOS MidgardMac)"
-job "$t" STUB_FAIL_MidgardiOS=contrast_aa STUB_FAIL_MidgardMac=dynamic_type
+job "$t" STUB_FAIL_MidgardiOSMaps=contrast_aa STUB_FAIL_MidgardMacMaps=dynamic_type
 rec="$t/clients/shells/apple/audits/0.0.0-test.toml"
 if [ "$rc" -ne 0 ] && grep -q '^contrast_aa *= "fail"' "$rec" 2>/dev/null && grep -q '^overall *= "fail"' "$rec" \
     && grep -q '^dynamic_type *= "pass"' "$rec" && grep -q '^tool_version = "Xcode 26.2"' "$rec" \
@@ -394,7 +392,7 @@ else
     fail "CI job, failed affordance: rc=$rc $(cat "$rec" 2>/dev/null) $(cat "$t/stdout")"
 fi
 t="$(job_tree job-both MidgardiOS MidgardMac)"
-job "$t" STUB_FAIL_MidgardMac=dynamic_type
+job "$t" STUB_FAIL_MidgardMacMaps=dynamic_type
 rec="$t/clients/shells/apple/audits/0.0.0-test.toml"
 if [ "$rc" -eq 0 ] && grep -q '^overall *= "pass"' "$rec" 2>/dev/null && [ "$(grep -c '= "pass"$' "$rec")" -eq 8 ] \
     && grep -q '^device *= "iPhone 17 simulator (iOS 26.2) + macOS 15.5 (arm64)"' "$rec"; then
