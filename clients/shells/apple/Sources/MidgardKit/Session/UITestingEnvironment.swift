@@ -54,6 +54,34 @@ public enum UITestingEnvironment {
         try? FileManager.default.removeItem(at: base)
     }
 
+    /// Your Data in a UI-testing launch: what the UI tests ask for in the launch
+    /// environment, once, after the first sign-in. `MIDGARD_UITEST_IMPORT`: groups of
+    /// file paths imported one after the other (groups split by `||`, files by `|`), as
+    /// the picker would give them (system pickers are not driven by the tests);
+    /// `MIDGARD_UITEST_FEED`: `name|url`, a feed added. Debug builds only.
+    nonisolated(unsafe) private static var seeded = false
+
+    @MainActor
+    static func seed(_ data: UserDataModel, environment: [String: String] = ProcessInfo.processInfo.environment) async {
+        guard requested(), !lock.withLock({ seeded }) else { return }
+        lock.withLock { seeded = true }
+        if let feed = environment["MIDGARD_UITEST_FEED"]?.split(separator: "|", maxSplits: 1).map(String.init),
+           feed.count == 2 {
+            data.saveFeed(name: feed[0], url: feed[1], interval: UserFeedConfig.minimumInterval)
+        }
+        for group in (environment["MIDGARD_UITEST_IMPORT"] ?? "").components(separatedBy: "||") where !group.isEmpty {
+            await data.importFiles(group.split(separator: "|").map { URL(fileURLWithPath: String($0)) })
+        }
+    }
+
+    /// The feeds' preferences for a UI-testing launch: a suite of their own, emptied.
+    static func defaults() -> UserDefaults {
+        let name = "io.veldris.midgard.uitesting"
+        let d = UserDefaults(suiteName: name) ?? .standard
+        d.removePersistentDomain(forName: name)
+        return d
+    }
+
     /// Confirms presence without asking.
     struct NoPrompt: UserPresence {
         func confirm(reason: String) throws {}

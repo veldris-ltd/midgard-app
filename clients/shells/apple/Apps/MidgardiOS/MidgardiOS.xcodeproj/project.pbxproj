@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		2BCF3AED59747988FC7DD14E /* MidgardGlobeKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4F1560A8F53E3761A484D3E7 /* MidgardGlobeKit */; };
+		3118570DA2F023B745C6BC50 /* YourDataFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42D8EDCE9DE689079DBF21D7 /* YourDataFlowTests.swift */; };
 		37549767AF849D7B48163655 /* MidgardKit in Frameworks */ = {isa = PBXBuildFile; productRef = E92ECC69BDBB66C2316FE0C8 /* MidgardKit */; };
 		3856C18D3015F16729C0F287 /* MidgardFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D039A818E322D133521F3E9A /* MidgardFlowTests.swift */; };
 		40BC10DD225D6FC6CDF25E6F /* HeimdallPictureFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0921C9C2A4C059101F8C3936 /* HeimdallPictureFlowTests.swift */; };
@@ -37,6 +38,7 @@
 		0921C9C2A4C059101F8C3936 /* HeimdallPictureFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeimdallPictureFlowTests.swift; sourceTree = "<group>"; };
 		223C959AEB6A7F8220782A99 /* AdminFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdminFlowTests.swift; sourceTree = "<group>"; };
 		34824E36E0A06B2673FF4D6A /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		42D8EDCE9DE689079DBF21D7 /* YourDataFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YourDataFlowTests.swift; sourceTree = "<group>"; };
 		49D6B35EFADEBFE6B5B92AA7 /* MidgardiOSMapsUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = MidgardiOSMapsUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		57336E7E400D5D3788353F2B /* EditionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditionTests.swift; sourceTree = "<group>"; };
 		603C59FCD35B12560685113F /* apple */ = {isa = PBXFileReference; lastKnownFileType = folder; name = apple; path = ../..; sourceTree = SOURCE_ROOT; };
@@ -111,6 +113,7 @@
 				0921C9C2A4C059101F8C3936 /* HeimdallPictureFlowTests.swift */,
 				D039A818E322D133521F3E9A /* MidgardFlowTests.swift */,
 				BF02CDCC2435DDB79E9FBD42 /* SessionFlowTests.swift */,
+				42D8EDCE9DE689079DBF21D7 /* YourDataFlowTests.swift */,
 			);
 			path = UITests;
 			sourceTree = "<group>";
@@ -284,6 +287,7 @@
 				40BC10DD225D6FC6CDF25E6F /* HeimdallPictureFlowTests.swift in Sources */,
 				3856C18D3015F16729C0F287 /* MidgardFlowTests.swift in Sources */,
 				A6CA25FADB86F5188BE750EE /* SessionFlowTests.swift in Sources */,
+				3118570DA2F023B745C6BC50 /* YourDataFlowTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -92,8 +92,12 @@ public final class UserDataModel: ObservableObject {
     init(app: AppModel, http: UserHTTPClient = UserHTTPClient(), defaults: UserDefaults = .standard) {
         self.app = app
         self.http = http
+        #if DEBUG
+        self.defaults = UITestingEnvironment.requested() ? UITestingEnvironment.defaults() : defaults
+        #else
         self.defaults = defaults
-        if let data = defaults.data(forKey: Self.feedsKey),
+        #endif
+        if let data = self.defaults.data(forKey: Self.feedsKey),
            let saved = try? JSONDecoder().decode([UserFeedConfig].self, from: data) {
             feeds = saved
         }
@@ -212,6 +216,9 @@ public final class UserDataModel: ObservableObject {
         guard let app else { return }
         summary = try? await app.core { try $0.restoreUserData() }
         await pushFeedRows()
+        #if DEBUG
+        await UITestingEnvironment.seed(self)
+        #endif
     }
 
     /// The imported object types.

@@ -12,6 +12,7 @@
 		3473209ED66BECAD1E368757 /* Commands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1549396EBB7C1DAE0B5734A2 /* Commands.swift */; };
 		3985C0DDA840F3460437AF08 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFCD086C5408628651DCE82B /* RootView.swift */; };
 		3C1E16D313541DF0A090C3E6 /* MidgardKit in Frameworks */ = {isa = PBXBuildFile; productRef = F9C82844BDCFA8503EC612AD /* MidgardKit */; };
+		3CD35B98D60FD5BC1B2E0D17 /* YourDataFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D754B5ADEE66C75BBA6715B /* YourDataFlowTests.swift */; };
 		52D5343E8126DF5F60ACB1EE /* MidgardAuditKit in Frameworks */ = {isa = PBXBuildFile; productRef = 0E17EEB29F8D425A5B52BCA1 /* MidgardAuditKit */; };
 		5A35A17FC79E204FB95719F9 /* AdminFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9FE317A6AB198192C18DF23 /* AdminFlowTests.swift */; };
 		6F592540DDEA0EFB1B67CE64 /* HeimdallPictureFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E26511B12D395787805057D2 /* HeimdallPictureFlowTests.swift */; };
@@ -41,6 +42,7 @@
 		409BD2BC78EA7C8AC526937B /* EditionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditionTests.swift; sourceTree = "<group>"; };
 		4A6B209DB7388FF87BD77F44 /* HeimdallMapsFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeimdallMapsFlowTests.swift; sourceTree = "<group>"; };
 		4E316CDB290820D0E2F2E46E /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		5D754B5ADEE66C75BBA6715B /* YourDataFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YourDataFlowTests.swift; sourceTree = "<group>"; };
 		5DD19DFA1EAC44DB4FDAD0DD /* Edition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Edition.swift; sourceTree = "<group>"; };
 		6380628501D676F695AF0FA9 /* MidgardMacMaps.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MidgardMacMaps.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		6CEA33545D3C1CF51BA1CDBF /* MidgardFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidgardFlowTests.swift; sourceTree = "<group>"; };
@@ -110,6 +112,7 @@
 				6CEA33545D3C1CF51BA1CDBF /* MidgardFlowTests.swift */,
 				9DF1958D6BF627B9AF388C03 /* Navigation.swift */,
 				045679D09ABCFB0DD5FEA121 /* SessionFlowTests.swift */,
+				5D754B5ADEE66C75BBA6715B /* YourDataFlowTests.swift */,
 			);
 			path = UITests;
 			sourceTree = "<group>";
@@ -297,6 +300,7 @@
 				B796320A2DF3DA7BC0CBE1A0 /* MidgardFlowTests.swift in Sources */,
 				E6A14827750C3C1D86D15E84 /* Navigation.swift in Sources */,
 				D01CAB038C6B7641EE310CD8 /* SessionFlowTests.swift in Sources */,
+				3CD35B98D60FD5BC1B2E0D17 /* YourDataFlowTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
