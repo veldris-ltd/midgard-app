@@ -41,7 +41,8 @@ let package = Package(
                 resources: [.copy("Resources/Outlines")]),
         .testTarget(name: "MidgardKitTests", dependencies: ["MidgardKit", "MidgardCore", "MidgardAuditKit"],
                     path: "Tests/MidgardKitTests"),
+        // Recorded tiles (Fixtures/CREDITS.md): the tile tests never use the network.
         .testTarget(name: "MidgardGlobeKitTests", dependencies: ["MidgardGlobeKit", "MidgardKit"],
-                    path: "Tests/MidgardGlobeKitTests", exclude: ["Fixtures"]),
+                    path: "Tests/MidgardGlobeKitTests", resources: [.copy("Fixtures")]),
     ]
 )

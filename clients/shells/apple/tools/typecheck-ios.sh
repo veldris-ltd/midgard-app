@@ -29,7 +29,8 @@ scratch="$cache/clients-typecheck"
 rm -rf "$scratch"
 mkdir -p "$scratch"
 trap 'rm -rf "$scratch"' EXIT
-# SwiftPM generates Bundle.module for a target with resources; supply it here.
+# SwiftPM generates Bundle.module for a target with resources (MidgardKit's fonts,
+# MidgardGlobeKit's outlines); supply it here.
 cat >"$scratch/BundleModule.swift" <<'EOF'
 import Foundation
 extension Bundle { static var module: Bundle { .main } }
@@ -55,7 +56,7 @@ for pair in "iphoneos:arm64-apple-ios17.0:ios-arm64" "iphonesimulator:arm64-appl
             -module-name MidgardKit -parse-as-library -emit-module -emit-module-path "$out/MidgardKit.swiftmodule" \
             $kit_sources "$scratch/BundleModule.swift" \
         && xcrun --sdk "$sdk" swiftc $common -I "$xcf/$slice/Headers" -I "$out" -I Sources/MidgardHooks/include \
-            -module-name MidgardGlobeKit -parse-as-library -typecheck $globe_sources \
+            -module-name MidgardGlobeKit -parse-as-library -typecheck $globe_sources "$scratch/BundleModule.swift" \
         && xcrun --sdk "$sdk" swiftc $common -F "$platform/Developer/Library/Frameworks" \
             -I "$platform/Developer/usr/lib" -module-name MidgardAuditKit -parse-as-library -typecheck $audit_sources; then
         echo "typecheck-ios: ok    $target"
