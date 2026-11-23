@@ -1177,3 +1177,32 @@ pub fn gateway_delivery(text: &str) -> Result<Vec<crate::source::Delivered>, Str
         })
         .collect())
 }
+
+/// Leave out of the gateway row at `path` (`$[<id>]`, a row itself, not a nested
+/// value) the key `key` its read model does not declare: a gateway may add fields
+/// beyond the console contract (the audit row's `outcome`), which the web console's
+/// TypeScript ignores. Nested values stay strict. Whether a row was changed.
+pub fn drop_extra_key(rows: &mut [crate::source::Delivered], path: &str, key: &str) -> bool {
+    for d in rows.iter_mut() {
+        let crate::source::Delivered::Row { id, body, .. } = d else {
+            continue;
+        };
+        if format!("$[{id}]") != path {
+            continue;
+        }
+        let Some(Json::Obj(pairs)) = std::str::from_utf8(body)
+            .ok()
+            .and_then(|t| parse_json(t).ok())
+        else {
+            return false;
+        };
+        let before = pairs.len();
+        let kept: Vec<(String, Json)> = pairs.into_iter().filter(|(k, _)| k != key).collect();
+        if kept.len() == before {
+            return false;
+        }
+        *body = canon::encode(&Json::Obj(kept)).into_bytes();
+        return true;
+    }
+    false
+}

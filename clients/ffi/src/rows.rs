@@ -144,8 +144,23 @@ macro_rules! row_items {
         /// A gateway's list answer, decoded strictly as the read model `type_name`.
         pub(crate) fn decoded_rows(
             type_name: &str,
-            delivered: Vec<midgard_client_core::source::Delivered>,
+            mut delivered: Vec<midgard_client_core::source::Delivered>,
         ) -> Result<Vec<ConsoleRow>, ClientError> {
+            // A key a row adds beyond its read model is left out (at most 16), never a
+            // nested one: the gateway's audit rows carry `outcome`.
+            for _ in 0..16 {
+                let probe = match type_name {
+                    $(
+                        stringify!($ty) => midgard_client_core::source::decode_rows::<core::$module::$ty>(delivered.clone()).err(),
+                    )*
+                    _ => None,
+                };
+                let Some(e) = probe else { break };
+                let Some(key) = e.reason.strip_prefix("unknown key \"").and_then(|k| k.strip_suffix('"')) else { break };
+                if !midgard_client_core::user_data::drop_extra_key(&mut delivered, &e.path, key) {
+                    break;
+                }
+            }
             let malformed = |e: midgard_client_core::consoles::decode::DecodeError| ClientError::Malformed {
                 detail: format!("the gateway's answer does not decode as {type_name}: {e}"),
             };
