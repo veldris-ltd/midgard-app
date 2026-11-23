@@ -69,6 +69,20 @@ public struct HeimdallLayersList: View {
                           isOn: Binding(get: { model.isOn(layer.id) }, set: { model.setLayer(layer.id, $0) }),
                           accent: .heimdall, identifier: "mg.heimdall.layer.\(layer.id)")
             }
+            if !model.userLayers.isEmpty {
+                Text("YOUR LAYERS · NOT FUSED")
+                    .font(MGWebFont.mono(11))
+                    .mgTracking(0.14, size: MGWebFont.monoSize(11))
+                    .foregroundStyle(MGWeb.textFaint)
+                    .accessibilityAddTraits(.isHeader)
+                    .padding(.top, 4)
+                ForEach(model.userLayers) { layer in
+                    WebSwitch("\(layer.label) · \(layer.points.count)/\(layer.total)",
+                              isOn: Binding(get: { model.userLayerOn[layer.id] != false },
+                                            set: { model.setUserLayer(layer.id, $0) }),
+                              accent: .heimdall, identifier: "mg.heimdall.userlayer.\(layer.name)")
+                }
+            }
         }
         .padding(.horizontal, 10)
         .padding(.top, 10)
@@ -121,6 +135,7 @@ public struct HeimdallPictureCanvas: View {
                     .frame(width: size.width, alignment: .topLeading)
                 }
                 if model.isOn("feeds") { coverage(size) }
+                if !model.visibleUserLayers.isEmpty { HeimdallUserPoints(layers: model.visibleUserLayers, size: size) }
                 ForEach(model.visibleTracks, id: \.id) { track in
                     let at = HeimdallPictureGeometry.point(x: track.x, y: track.y, in: size)
                     let label = large ? nil : labelSizes[track.id]
@@ -268,7 +283,14 @@ public struct HeimdallPictureCanvas: View {
     /// so decoration) and at accessibility text sizes (not drawn). Where they are text
     /// (the iPhone, in the readout strip) the picture's label does not repeat them.
     private var pictureLabel: String {
-        let count = "Operating picture, \(model.visibleTracks.count) tracks shown."
+        var count = "Operating picture, \(model.visibleTracks.count) tracks shown."
+        let user = model.visibleUserLayers
+        if !user.isEmpty {
+            let placed = user.reduce(0) { n, l in
+                n + l.points.filter { HeimdallPictureModel.referencePoint(lat: $0.lat, lon: $0.lon) != nil }.count
+            }
+            count += " \(placed) points of your own layers on this view: \(user.map(\.label).joined(separator: ", "))."
+        }
         guard MGWeb.readoutsDecorative || large else { return count }
         var text = count + " North up, scale 10 nautical miles, vectors show a one minute projection."
         if let t = model.selectedTrack { text += " " + HeimdallPictureReadoutStrip.focusSentence(t) }
@@ -944,5 +966,40 @@ struct PictureStripLayout: Layout {
             picture.place(at: CGPoint(x: bounds.minX, y: bounds.minY + h.strip),
                           proposal: ProposedViewSize(width: bounds.width, height: h.picture))
         }
+    }
+}
+
+/// The user's own layers on the 2D reference layout: an open diamond in the warning tone
+/// for each observation of an UNVERIFIED FEED, a small square in the accent for each
+/// imported object, at `HeimdallPictureModel.referencePoint`. Drawn, not interactive:
+/// the layer list names each layer, and the picture's label counts the points.
+struct HeimdallUserPoints: View {
+    let layers: [UserMapLayer]
+    let size: CGSize
+
+    var body: some View {
+        Canvas { ctx, size in
+            for layer in layers {
+                for p in layer.points {
+                    guard let at = HeimdallPictureModel.referencePoint(lat: p.lat, lon: p.lon) else { continue }
+                    let c = HeimdallPictureGeometry.point(x: at.x, y: at.y, in: size)
+                    if layer.unverified {
+                        var d = Path()
+                        d.move(to: CGPoint(x: c.x, y: c.y - 5))
+                        d.addLine(to: CGPoint(x: c.x + 5, y: c.y))
+                        d.addLine(to: CGPoint(x: c.x, y: c.y + 5))
+                        d.addLine(to: CGPoint(x: c.x - 5, y: c.y))
+                        d.closeSubpath()
+                        ctx.stroke(d, with: .color(MGWeb.warn), lineWidth: 1.5)
+                    } else {
+                        ctx.fill(Path(CGRect(x: c.x - 3.5, y: c.y - 3.5, width: 7, height: 7)),
+                                 with: .color(MGWebAccent.heimdall.fill))
+                    }
+                }
+            }
+        }
+        .frame(width: size.width, height: size.height)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }

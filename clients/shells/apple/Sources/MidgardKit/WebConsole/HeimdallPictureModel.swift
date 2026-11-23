@@ -64,6 +64,10 @@ public final class HeimdallPictureModel: ObservableObject {
     @Published public private(set) var busy = false
     @Published public var hovered: String?
     @Published public var message: String?
+    /// The layers the user added (Your Data): imported observation files, feed URLs and
+    /// imported objects with a position. Drawn apart from the tracks, never fused.
+    @Published public internal(set) var userLayers: [UserMapLayer] = []
+    @Published public var userLayerOn: [String: Bool] = [:]
 
     /// Option rank → the human-gated workflow it opens; rank 3 (hold) opens none.
     public static let workflowForRank: [Int: String] = [1: "W-0912", 2: "W-0913"]
@@ -74,7 +78,7 @@ public final class HeimdallPictureModel: ObservableObject {
         "UNKNOWN": "RADAR ONLY · UNCORROBORATED",
     ]
 
-    private let app: AppModel
+    let app: AppModel
     private var token = 0
 
     public init(app: AppModel) {
@@ -114,6 +118,7 @@ public final class HeimdallPictureModel: ObservableObject {
             selected = shown.first { $0.id == "E-0871" }?.id ?? shown.first?.id
         }
         loaded = true
+        await refreshUserLayers()
     }
 
     public func select(_ id: String) {

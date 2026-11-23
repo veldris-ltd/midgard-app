@@ -47,7 +47,17 @@ public struct AdminScreen: View {
             }
         }
         // A new link (or persona) is a new page, as a new URL is on the web.
-        .id("\(screen)|\(persona)|\(String(describing: link))")
+        .id("\(screen)|\(persona)|\(String(describing: link))\(app.userData.live?.host ?? "")")
+        // Connected to a gateway: it serves none of Admin's read models, so the screen
+        // is empty and says so, rather than show the sample data under a LIVE chip.
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if let live = app.userData.live {
+                WebNotice("NOT SERVED BY \(live.host.uppercased()) · ADMIN'S SCREENS HAVE NO LIVE DATA FROM THIS GATEWAY. DISCONNECT IN YOUR DATA TO SEE THE SAMPLE DATA.",
+                          tone: .warn, identifier: "mg.admin.notserved")
+                    .padding(8)
+                    .background(MGWeb.bgPage)
+            }
+        }
     }
 }
 

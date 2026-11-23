@@ -143,6 +143,41 @@ public final class SessionController {
         return report
     }
 
+    // MARK: Your Data
+
+    /// The imported files, sealed under the device root by the core (one file for the
+    /// device: every persona reads them through its own clearance).
+    var userDataURL: URL { store.directory.appendingPathComponent("user-data.sealed") }
+
+    /// Import files (checked and audited in the core), then keep the sealed copy.
+    public func importData(ontology: NamedFile?, files: [NamedFile]) throws -> ImportOutcome {
+        let outcome = try client.importData(ontology: ontology, files: files)
+        try AtomicFile.write(outcome.sealed, to: userDataURL)
+        try persist()
+        return outcome
+    }
+
+    /// Install the sealed copy after a sign-in; one that does not open or check is
+    /// deleted. Nothing imported: an empty summary.
+    public func restoreUserData() throws -> UserDataSummary {
+        guard FileManager.default.fileExists(atPath: userDataURL.path) else { return client.userDataSummary() }
+        let sealed = try Data(contentsOf: userDataURL)
+        do {
+            return try client.restoreUserData(sealed: sealed)
+        } catch {
+            try? AtomicFile.remove(userDataURL)
+            throw error
+        }
+    }
+
+    /// Take the imported data out (audited in the core) and delete the sealed copy.
+    public func removeImportedData() throws -> String {
+        let audit = try client.removeImportedData()
+        try? AtomicFile.remove(userDataURL)
+        try persist()
+        return audit
+    }
+
     /// Reset demo: lock and reload the dataset, delete every file and keychain item
     /// this app keeps, and the platform key.
     /// Every step runs even if an earlier one fails; the first error is reported.

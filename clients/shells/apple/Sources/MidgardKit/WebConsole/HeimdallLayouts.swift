@@ -99,6 +99,8 @@ public struct HeimdallOperatingPictureCompact: View {
                 .accessibilityIdentifier("mg.heimdall.inspector")
         }
         .task(id: personaId) { await model.load() }
+        // The user's feeds are read only while the picture is open.
+        .task { await model.followUserData() }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("mg.content.heimdall.operating-picture")
     }

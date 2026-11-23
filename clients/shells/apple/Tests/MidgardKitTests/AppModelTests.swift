@@ -429,6 +429,55 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.phase, .locked)
         XCTAssertNotNil(try PersonaStateStore(directory: dir, secrets: secrets).load(persona: "k.rao"))
     }
+
+    /// Your Data: the guide's example imported over the sample data (checked and audited
+    /// in the core), kept sealed and installed again at the next sign-in; a bad line
+    /// refused with the file and line named, changing nothing; then removed.
+    /// [DD-1] [RC-10] [AC-C-13]
+    func testYourDataImportsTheGuidesExampleKeepsItSealedAndRemovesIt() async throws {
+        let env = environment(dataSource: .sample)
+        let model = try await signedIn("a.holt", env: env)
+        let example = repositoryRoot().appendingPathComponent("docs/guides/examples/utility")
+        await model.userData.importFiles([example.appendingPathComponent("ontology.json"),
+                                          example.appendingPathComponent("network.jsonl")])
+        let notice = try XCTUnwrap(model.userData.notice)
+        XCTAssertTrue(notice.ok, notice.text)
+        XCTAssertTrue(notice.text.hasPrefix("Imported network.jsonl: now 7 object(s) and 4 link(s)."), notice.text)
+        XCTAssertEqual(model.userData.summary?.typeIds, ["substation", "transformer", "feeder"])
+        let sealed = dir.appendingPathComponent("user-data.sealed")
+        let bytes = try Data(contentsOf: sealed)
+        XCTAssertNil(bytes.range(of: Data("Elm Road".utf8)), "the imported data is sealed at rest")
+
+        // A bad line: refused, named, and nothing changed.
+        let bad = dir.appendingPathComponent("bad.jsonl")
+        try Data(#"{"object":"transformer","key":"TX-9","marking":"internal","purposes":["operations"],"properties":{"serial":"TX-9","rating_kva":"500"}}"#.utf8).write(to: bad)
+        await model.userData.importFiles([bad])
+        XCTAssertEqual(model.userData.notice?.text,
+                       "Import refused: bad.jsonl: import refused: line 1 (transformer/TX-9): \"rating_kva\" must be an integer, not \"500\"")
+        XCTAssertEqual(model.userData.summary?.objects, 7)
+        XCTAssertEqual(try Data(contentsOf: sealed), bytes)
+
+        // The imported objects, as a reader at internal sees them (Quayside withheld).
+        let objects = await model.rows("midgard.objects")
+        let ids = objects.compactMap { row -> String? in
+            if case let .midgardObjectInstance(o)? = row.item { return o.id }
+            return nil
+        }
+        XCTAssertTrue(ids.contains("transformer/TX-40117"))
+        XCTAssertFalse(ids.contains("substation/SS-QUAY"))
+
+        // Locked and signed in again in a new launch: installed from the sealed copy.
+        await model.lock()
+        let again = try await signedIn("a.holt", env: env)
+        for _ in 0..<50 where again.userData.summary?.objects != 7 { try await Task.sleep(for: .milliseconds(100)) }
+        XCTAssertEqual(again.userData.summary?.objects, 7)
+
+        await again.userData.removeImported()
+        XCTAssertTrue(again.userData.notice?.ok ?? false, again.userData.notice?.text ?? "")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sealed.path))
+        XCTAssertNil(again.userData.summary?.ontologyName)
+    }
+
 }
 
 /// Records where `unseal` runs and how often; can answer one prompt as cancelled.
@@ -496,4 +545,11 @@ final class DroppingPendingClient: MidgardClientProtocol {
     func switchPersona(personaId: String) throws -> SessionInfo { try inner.switchPersona(personaId: personaId) }
     func syncNow() throws -> SyncReport { try inner.syncNow() }
     func unlock(keys: SealedKeys, personaId: String) throws -> SessionInfo { try inner.unlock(keys: keys, personaId: personaId) }
+    func importData(ontology: NamedFile?, files: [NamedFile]) throws -> ImportOutcome {
+        try inner.importData(ontology: ontology, files: files)
+    }
+    func removeImportedData() throws -> String { try inner.removeImportedData() }
+    func restoreUserData(sealed: Data) throws -> UserDataSummary { try inner.restoreUserData(sealed: sealed) }
+    func setUserFeeds(feeds: [UserFeed]) throws { try inner.setUserFeeds(feeds: feeds) }
+    func userDataSummary() -> UserDataSummary { inner.userDataSummary() }
 }

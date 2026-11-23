@@ -17,12 +17,17 @@ public enum NoSourceBanner {
 
 /// Which banner the session shows above everything, and its accessibility identifier.
 public enum SourceBanner: Equatable, Sendable {
-    case demo, noSource
+    /// `live(host)`: connected to the enclosure gateway at `host` (Your Data): Midgard's
+    /// screens read it; everything else is still the demonstration data, and is said
+    /// to be.
+    case demo, noSource, live(String)
 
     public var text: String {
         switch self {
         case .demo: return DemoBanner.notice
         case .noSource: return NoSourceBanner.notice
+        case let .live(host):
+            return "LIVE · \(host) · Midgard's screens read this gateway. The other consoles show demonstration data, not live data."
         }
     }
 
@@ -31,6 +36,7 @@ public enum SourceBanner: Equatable, Sendable {
         switch self {
         case .demo: return "Demonstration data · not connected"
         case .noSource: return NoSourceBanner.notice
+        case let .live(host): return "LIVE · \(host) · Midgard only"
         }
     }
 
@@ -38,6 +44,7 @@ public enum SourceBanner: Equatable, Sendable {
         switch self {
         case .demo: return "mg.banner.demo"
         case .noSource: return "mg.banner.nosource"
+        case .live: return "mg.banner.live"
         }
     }
 }

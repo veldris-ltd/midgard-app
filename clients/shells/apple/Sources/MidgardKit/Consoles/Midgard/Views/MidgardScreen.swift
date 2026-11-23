@@ -74,8 +74,9 @@ public struct MidgardScreen: View {
             default: SdkScreen(ctx: ctx)
             }
         }
-        // A new link (or persona) is a new page, as a new URL is on the web.
-        .id("\(screen)|\(persona)|\(String(describing: link))")
+        // A new link (or persona, or a gateway connected) is a new page, as a new URL is
+        // on the web.
+        .id("\(screen)|\(persona)|\(String(describing: link))|\(app.userData.live?.host ?? "")")
     }
 }
 

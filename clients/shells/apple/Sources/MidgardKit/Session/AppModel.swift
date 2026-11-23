@@ -36,7 +36,9 @@ public final class AppModel: ObservableObject {
     /// mode), "No data source connected" with none. [AC-C-13] [FR-C-5]
     public var banner: SourceBanner? {
         switch dataSourceKind {
-        case DataSourceKind.demo?, DataSourceKind.sample?: return .demo
+        case DataSourceKind.demo?, DataSourceKind.sample?:
+            if let live = userData.live { return .live(live.host) }
+            return .demo
         case DataSourceKind.none?: return .noSource
         case nil: return nil
         }
@@ -65,6 +67,8 @@ public final class AppModel: ObservableObject {
     public var isOffline: Bool { chips?.sync.phase == .offline }
 
     private var gateway: CoreGateway<SessionController>?
+    /// Your Data: imported files, the gateway connection and the feeds.
+    public private(set) lazy var userData = UserDataModel(app: self)
     private let idleTimeout: TimeInterval
     private lazy var idle = IdleLock(timeout: idleTimeout) { [weak self] in
         Task { await self?.idleExpired() }
@@ -152,6 +156,7 @@ public final class AppModel: ObservableObject {
         case .discardedStale: message = Notice.staleDiscarded
         case .discardedUnreadable: message = Notice.unreadableDiscarded
         }
+        Task { await userData.restore() }
     }
 
     public func lock() async {
@@ -177,12 +182,32 @@ public final class AppModel: ObservableObject {
     }
 
     /// A collection's rows (withheld ones by level only); empty, with a message, on error.
+    /// Connected to a gateway, Midgard's and Admin's collections are the gateway's: the
+    /// ones it serves read live, the others are empty (the screen says it is not
+    /// served), never the sample data under a LIVE chip.
     public func rows(_ collection: String) async -> [ConsoleRow] {
-        await call { try $0.rows(collection) } ?? []
+        if userData.live != nil, collection.hasPrefix("midgard.") || collection.hasPrefix("admin.") {
+            guard LiveRoutes.serves(collection) else { return [] }
+            let rowType = collections.first { $0.name == collection }?.rowType
+            return await userData.liveRows(collection, rowType: rowType)
+        }
+        return await call { try $0.rows(collection) } ?? []
     }
 
-    /// Queue an action; returns its id.
+    /// Run `body` on the core's queue, with its error (Your Data shows the core's own
+    /// refusal, naming the file and line).
+    func core<T>(_ body: @escaping (SessionController) throws -> T) async throws -> T {
+        guard let gateway else { throw ClientError.Locked }
+        return try await gateway.run(body)
+    }
+
+    /// Queue an action; returns its id. Connected to a gateway, Admin's actions are not
+    /// made (the gateway does not serve Admin; Midgard's go to the gateway).
     public func requestAction(_ action: ActionInput) async -> String? {
+        if let live = userData.live, action.verb.hasPrefix("admin.") || action.verb.hasPrefix("midgard.") {
+            message = "Not served by \(live.host): disconnect to act on the sample data."
+            return nil
+        }
         guard let (id, chips) = await call({ try $0.requestAction(action) }) else { return nil }
         self.chips = chips
         return id
@@ -196,6 +221,7 @@ public final class AppModel: ObservableObject {
 
     public func resetDemo() async {
         idle.stop()
+        await userData.disconnect()
         guard await call({ try $0.resetDemo() }) != nil else { return }
         chips = nil
         lastPersona = nil
