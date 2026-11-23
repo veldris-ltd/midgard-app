@@ -129,7 +129,7 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.banner?.text,
                        "Demonstration data. This console runs on built-in sample data and is not connected to an enclosure.")
         XCTAssertEqual(model.personas.map(\.id), ["k.rao", "j.benjamin", "k.osei", "a.holt"])
-        XCTAssertEqual(model.collections.count, 52)
+        XCTAssertEqual(model.collections.count, 53, "the sample's 52 and the runtime midgard.approvals")
 
         await model.enrol()
         let osei = try XCTUnwrap(model.personas.first { $0.id == "k.osei" })
