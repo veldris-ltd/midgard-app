@@ -119,25 +119,25 @@ public struct WebGuardedAction: View {
     public var body: some View {
         let p = palette
         VStack(alignment: .leading, spacing: 9) {
-            FlowRow(spacing: 10) {
-                Text(action)
-                    .font(MGWebFont.sans(14).weight(.semibold))
-                    .foregroundStyle(MGWeb.textHeading)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(minWidth: 160, maxWidth: .infinity, alignment: .leading)
-                HStack(spacing: 10) {
-                    Text(subsystem)
-                        .font(MGWebFont.mono(11))
-                        .mgTracking(0.08, size: MGWebFont.monoSize(11))
-                        .foregroundStyle(MGWeb.textFaint)
-                    WebRiskBars(risk)
+            // The title takes the line and the subsystem and bars sit at its end, or,
+            // where the two do not fit, under it (the web's `flex-wrap`).
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    title.fixedSize()
+                    Spacer(minLength: 0)
+                    subsystemAndRisk
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    title
+                    subsystemAndRisk
                 }
             }
             if let justification {
                 VStack(alignment: .leading, spacing: 3) {
+                    // 11 pt (the web's 9 px): the Mac's contrast audit reads this card.
                     Text("JUSTIFICATION · MANDATORY")
-                        .font(MGWebFont.mono(9))
-                        .mgTracking(0.1, size: MGWebFont.monoSize(9))
+                        .font(MGWebFont.mono(11))
+                        .mgTracking(0.1, size: MGWebFont.monoSize(11))
                         .foregroundStyle(MGWeb.textFaint)
                     Text(justification)
                         .font(MGWebFont.sans(12, .caption))
@@ -160,16 +160,64 @@ public struct WebGuardedAction: View {
                     .foregroundStyle(violated ? MGWeb.dangerText : MGWeb.secureText)
             }
             .font(MGWebFont.mono(11))
-            (typeSize.isAccessibilitySize
-                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
-                : AnyLayout(HStackLayout(spacing: 10))) {
-                Text(p.label)
-                    .font(MGWebFont.mono(11).weight(.medium))
-                    .mgTracking(0.1, size: MGWebFont.monoSize(11))
-                    .foregroundStyle(p.text)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("\(identifier).state")
-                if !typeSize.isAccessibilitySize { Spacer(minLength: 0) }
+            // The state and the buttons on one line, or the buttons under the state
+            // where they do not fit (the web's `flex-wrap`), always at accessibility sizes.
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 8) {
+                    stateLine(p)
+                    buttons
+                }
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 10) {
+                        stateLine(p).fixedSize()
+                        Spacer(minLength: 0)
+                        buttons
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        stateLine(p)
+                        buttons
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 15)
+        .padding(.vertical, 13)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: MGRadius.md).fill(MGWeb.surfaceCard))
+        .overlay(RoundedRectangle(cornerRadius: MGRadius.md).strokeBorder(p.border))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text("\(action), risk \(risk)"))
+        .accessibilityIdentifier(identifier)
+    }
+
+    private var title: some View {
+        Text(action)
+            .font(MGWebFont.sans(14).weight(.semibold))
+            .foregroundStyle(MGWeb.textHeading)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var subsystemAndRisk: some View {
+        HStack(spacing: 10) {
+            Text(subsystem)
+                .font(MGWebFont.mono(11))
+                .mgTracking(0.08, size: MGWebFont.monoSize(11))
+                .foregroundStyle(MGWeb.textFaint)
+            WebRiskBars(risk)
+        }
+    }
+
+    private func stateLine(_ p: (border: Color, text: Color, label: String)) -> some View {
+        Text(p.label)
+            .font(MGWebFont.mono(11).weight(.medium))
+            .mgTracking(0.1, size: MGWebFont.monoSize(11))
+            .foregroundStyle(p.text)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("\(identifier).state")
+    }
+
+    @ViewBuilder private var buttons: some View {
                 if state == .awaiting, let onApprove {
                     HStack(spacing: 10) {
                         Button { onDeny?() } label: {
@@ -199,17 +247,8 @@ public struct WebGuardedAction: View {
                         .accessibilityLabel(Text("Approve \(action), step-up auth"))
                         .accessibilityIdentifier("\(identifier).approve")
                     }
+                    .fixedSize()
                 }
-            }
-        }
-        .padding(.horizontal, 15)
-        .padding(.vertical, 13)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: MGRadius.md).fill(MGWeb.surfaceCard))
-        .overlay(RoundedRectangle(cornerRadius: MGRadius.md).strokeBorder(p.border))
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(Text("\(action), risk \(risk)"))
-        .accessibilityIdentifier(identifier)
     }
 }
 

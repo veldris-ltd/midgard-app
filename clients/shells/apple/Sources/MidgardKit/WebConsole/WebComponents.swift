@@ -570,6 +570,7 @@ public struct WebSideNav<Footer: View>: View {
                 Text(item.label)
                     .font(MGWebFont.sans(14).weight(item.selected ? .semibold : .regular))
                     .lineLimit(1)
+                    .minimumScaleFactor(0.85)
                 Spacer(minLength: 4)
                 if let badge = item.badge {
                     Text(badge)

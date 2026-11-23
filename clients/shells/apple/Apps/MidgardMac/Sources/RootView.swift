@@ -152,8 +152,9 @@ struct WindowSetup: NSViewRepresentable {
     }
 }
 
-/// Signed in: Heimdall and Midgard in their web consoles' own frames (`HeimdallConsole`,
-/// `MidgardConsole`, matched to the web suite, owner decision 22 Nov 2026); every other
+/// Signed in: Heimdall, Midgard and Admin in their web consoles' own frames
+/// (`HeimdallConsole`, `MidgardConsole`, `AdminConsole`, matched to the web suite, owner
+/// decision 22 Nov 2026); every other
 /// console, until its phase
 /// matches it, the persona menu above a three-column split view. The sidebar lists the
 /// six consoles (⌘1…⌘6) and, under the selected one, its screens; the content and
@@ -169,6 +170,9 @@ struct ConsoleShell: View {
                 .navigationTitle(ConsoleCatalog.console(route).name)
         } else if ConsoleCatalog.console(route).id == "midgard" {
             MidgardConsole(model: model, persona: persona, route: $route)
+                .navigationTitle(ConsoleCatalog.console(route).name)
+        } else if ConsoleCatalog.console(route).id == "admin" {
+            AdminConsole(model: model, persona: persona, route: $route)
                 .navigationTitle(ConsoleCatalog.console(route).name)
         } else {
             SplitConsoleShell(model: model, persona: persona, route: $route)
@@ -335,6 +339,71 @@ struct MidgardConsole: View {
         }
         return WebSideNav(rail: WebSideNavSection(title: "CONSOLES", items: consoles), sections: sections, accent: .midgard) {
             if footer { MidgardStatusFooter() }
+        }
+    }
+}
+
+/// Admin as the web console draws it (`ConsoleShell product="admin"` with each of its
+/// eight screens): the management-zone banner, the header (the grey ADMIN mark, the
+/// screen's context, seals, the screen's toolbar item, the search box that opens the
+/// audit ledger searched for its text, the persona menu), the navigation (the six
+/// consoles as a row of tiles, then Admin's OVERSEE, ADMINISTER, EMERGENCY and ASSIST
+/// sections in the web's order, words and badges, and the `admin status` footer on
+/// Overview), and the screen with its inspector. [FR-C-1] [FR-AD-1] [DD-7]
+struct AdminConsole: View {
+    @ObservedObject var model: AppModel
+    let persona: PersonaInfo
+    @Binding var route: ConsoleRoute
+    /// What the screen was opened with (the header's search); cleared when the
+    /// navigation opens a screen.
+    @State private var link: MidgardLink?
+    @StateObject private var toolbar = AdminToolbar()
+
+    private var admin: Console { ConsoleCatalog.console(route) }
+    private var screen: String { ConsoleCatalog.screenName(route) }
+
+    var body: some View {
+        WebConsoleFrame(banner: AdminChrome.banner, product: "Admin", accent: AdminChrome.accent, tile: AdminChrome.tile,
+                        context: AdminChrome.item(for: screen)?.context ?? "", seals: AdminChrome.seals) {
+            nav
+        } content: {
+            AdminScreen(app: model, persona: persona.id, screen: screen, compact: false, link: link, toolbar: toolbar) {
+                open($0, $1)
+            }
+        } trailing: {
+            AdminToolbarItem(screen: screen, toolbar: toolbar)
+            AdminHeaderSearch { open("Ledger", .text($0)) }
+            PersonaMenu(model: model, persona: persona)
+        }
+    }
+
+    private func open(_ screen: String, _ link: MidgardLink?) {
+        self.link = link
+        let index = admin.screens.firstIndex(of: screen) ?? 0
+        route = ConsoleRoute(console: route.clamped.console, screen: index).clamped
+    }
+
+    /// The consoles first, as a row of tiles (numbered from 1; the persona menu is 0),
+    /// then Admin's sections in the web's order.
+    private var nav: some View {
+        var number = 0
+        func next() -> Int { number += 1; return number }
+        let consoles = ConsoleCatalog.consoles.enumerated().map { index, console in
+            WebSideNavItem(id: "console.\(console.slug)", label: "\(console.name) console", symbol: console.symbol, badge: nil,
+                           identifier: "mg.\(next()).console.\(console.slug)", selected: console.id == "admin",
+                           action: { route.select(console: index) })
+        }
+        let sections = AdminChrome.sections.map { section in
+            WebSideNavSection(title: section.title, items: section.items.map { item in
+                WebSideNavItem(id: item.id, label: item.label, symbol: item.symbol, badge: item.badge,
+                               identifier: "mg.\(next()).screen.\(ConsoleCatalog.slug(item.screen))",
+                               selected: item.screen == screen,
+                               action: { open(item.screen, nil) })
+            })
+        }
+        return WebSideNav(rail: WebSideNavSection(title: "CONSOLES", items: consoles), sections: sections,
+                          accent: AdminChrome.accent) {
+            if screen == "Overview" { AdminStatusFooter() }
         }
     }
 }

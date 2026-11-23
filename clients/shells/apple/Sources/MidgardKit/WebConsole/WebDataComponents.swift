@@ -296,6 +296,16 @@ public struct WebTabs: View {
     }
 
     public var body: some View {
+        // Sideways scrolling where the tabs do not fit (four on an iPhone), each tab's
+        // label on one line.
+        ViewThatFits(in: .horizontal) {
+            row
+            ScrollView(.horizontal, showsIndicators: false) { row }
+        }
+        .overlay(alignment: .bottom) { Rectangle().fill(MGWeb.border).frame(height: 1) }
+    }
+
+    private var row: some View {
         HStack(alignment: .bottom, spacing: 4) {
             ForEach(Array(tabs.enumerated()), id: \.offset) { index, tab in
                 let active = index == selection
@@ -306,6 +316,8 @@ public struct WebTabs: View {
                         Text(tab.label)
                             .font(MGWebFont.sans(14).weight(.medium))
                             .foregroundStyle(active ? MGWeb.textHeading : MGWeb.textMuted)
+                            .lineLimit(1)
+                            .fixedSize()
                         if let badge = tab.badge {
                             Text(badge).font(MGWebFont.mono(12, .caption).weight(.semibold)).foregroundStyle(accent.text)
                         }
@@ -324,7 +336,6 @@ public struct WebTabs: View {
             }
             Spacer(minLength: 0)
         }
-        .overlay(alignment: .bottom) { Rectangle().fill(MGWeb.border).frame(height: 1) }
     }
 }
 

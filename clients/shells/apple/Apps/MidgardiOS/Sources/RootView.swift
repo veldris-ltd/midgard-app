@@ -260,11 +260,15 @@ struct ConsoleTab: View {
     @Binding var path: [String]
     @Binding var query: String
 
-    /// Midgard's screens in its web console's order (FABRIC, GOVERNANCE, PLATFORM);
-    /// every other console's in the catalogue's.
+    /// Midgard's screens in its web console's order (FABRIC, GOVERNANCE, PLATFORM),
+    /// Admin's in its (OVERSEE, ADMINISTER, EMERGENCY, ASSIST); every other console's
+    /// in the catalogue's.
     private var ordered: [String] {
-        guard console.id == "midgard" else { return console.screens }
-        return MidgardChrome.sections.flatMap(\.items).map(\.screen)
+        switch console.id {
+        case "midgard": return MidgardChrome.sections.flatMap(\.items).map(\.screen)
+        case "admin": return AdminChrome.screens
+        default: return console.screens
+        }
     }
 
     private var screens: [String] {
@@ -272,10 +276,9 @@ struct ConsoleTab: View {
         return q.isEmpty ? ordered : ordered.filter { $0.localizedCaseInsensitiveContains(q) || label($0).localizedCaseInsensitiveContains(q) }
     }
 
-    /// A screen's name in the list: Midgard's web navigation label ("Object types").
-    private func label(_ screen: String) -> String {
-        console.id == "midgard" ? MidgardChrome.item(for: screen)?.label ?? screen : screen
-    }
+    /// A screen's name in the list: Midgard's and Admin's web navigation label
+    /// ("Object types", "Identity & roles").
+    private func label(_ screen: String) -> String { screenLabel(console, screen) }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -388,7 +391,8 @@ struct ScreenSearchField: View {
 }
 
 /// A screen until its phase: what it is and when it arrives; Midgard's eleven screens
-/// (`MidgardScreen`, compact: the inspector in a sheet) and Heimdall's Operating
+/// (`MidgardScreen`, compact: the inspector in a sheet), Admin's eight (`AdminScreen`,
+/// the same, the screen's toolbar item in its header) and Heimdall's Operating
 /// Picture, matched to the web console (owner decision 22 Nov 2026), are built: the
 /// picture first and the inspector as a sheet (`HeimdallOperatingPictureCompact`). In the
 /// Maps edition the Operating Picture also has the view switch, 2D / MAP / 3D, in the
@@ -414,7 +418,7 @@ struct ScreenPlaceholder: View {
 
     var body: some View {
         content
-            .navigationTitle(console.id == "midgard" ? MidgardChrome.item(for: screen)?.label ?? screen : screen)
+            .navigationTitle(screenLabel(console, screen))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { SessionMenu(model: model, persona: persona) }
@@ -427,6 +431,8 @@ struct ScreenPlaceholder: View {
             HeimdallOperatingPictureCompact(app: model, personaId: persona.id, view: $pictureView)
         } else if console.id == "midgard" {
             MidgardScreen(app: model, persona: persona.id, screen: screen, compact: true, link: link, open: open)
+        } else if console.id == "admin" {
+            AdminScreen(app: model, persona: persona.id, screen: screen, compact: true, link: link, open: open)
         } else {
             ScrollView {
                 VStack(spacing: MGSpace.s3) {
@@ -444,6 +450,17 @@ struct ScreenPlaceholder: View {
                 .accessibilityIdentifier("mg.placeholder.\(console.slug).\(ConsoleCatalog.slug(screen))")
             }
         }
+    }
+}
+
+/// A screen's name in the list and its navigation bar: Midgard's and Admin's web
+/// navigation label ("Object types", "Identity & roles"); every other console's
+/// catalogue name.
+func screenLabel(_ console: Console, _ screen: String) -> String {
+    switch console.id {
+    case "midgard": return MidgardChrome.item(for: screen)?.label ?? screen
+    case "admin": return AdminChrome.item(for: screen)?.label ?? screen
+    default: return screen
     }
 }
 
