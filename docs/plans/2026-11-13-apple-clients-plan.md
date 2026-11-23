@@ -7098,3 +7098,32 @@ Environment Agency sources above are superseded.
 
 The README's "Heimdall's MAP and 3D views" section lists where the apps knowingly differ
 from the web.
+
+## Phase C done (23 Nov 2026)
+
+Midgard's eleven screens are built on both apps, matched to the rc.3 web console over
+the release's sample data, following the R1 pattern (`Sources/MidgardKit/WebConsole/`,
+the screen models and views in `Sources/MidgardKit/Consoles/Midgard/`).
+
+- **Actions:** `MockGateway`'s, ported into `SampleSource`
+  (`clients/core/src/demo/actions/midgard.rs`): `midgard.requestApproval`,
+  `midgard.decideApproval`, `midgard.applyAction` (one target, the gate token, the 900 s
+  TTL), and the computed reads `midgard.query`, `midgard.searchAround` and
+  `midgard.simulatePolicy`, all audited in the mock's numbering (`AUD-1043` from
+  14:32:10). Computed reads run as actions on `midgard.objectTypes/<type>` or
+  `midgard.policies/*` (a collection target, accepted only when the persona may read a
+  row of it), rather than through a new `DataSource::compute`; approvals are the runtime
+  collection `midgard.approvals`. The module lists where the port differs from the mock.
+- **Platforms:** the Mac in the web's frame with its navigation; the iPhone's list in
+  the web's order and words, each screen with its tables as lists and its inspector in a
+  sheet.
+- **Tests:** Rust tests per action (`clients/core/tests/midgard_actions.rs`: success,
+  refusal, audited, the golden search-around graph); `MidgardConsoleTests`; one
+  `MidgardFlowTests` per app (all eleven screens and the approval request); the audit
+  covers Object Fabric and Policies on both apps (and Data Search on the Mac).
+- **Deferred to "after Phase H":** the gated action's full persona-switching flow in the
+  UI tests (covered by the Rust and model tests), and Swift Charts gauges, since the web
+  shows meters.
+
+The README's "Midgard's screens (Phase C)" section lists where the apps knowingly differ
+from the web.

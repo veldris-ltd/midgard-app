@@ -128,8 +128,9 @@ xcodebuild test -project clients/shells/apple/Apps/MidgardiOS/MidgardiOS.xcodepr
 With a team in `Signing.local.xcconfig` the first signed build may need
 `-allowProvisioningUpdates`.
 
-`test` runs the scheme's UI tests (`SessionFlowTests`, `HeimdallPictureFlowTests`,
-`HeimdallMapsFlowTests`, `EditionTests` and `AccessibilityAudit`; add
+`test` runs the scheme's UI tests (`SessionFlowTests`, `MidgardFlowTests`,
+`HeimdallPictureFlowTests`, `HeimdallMapsFlowTests`, `EditionTests` and
+`AccessibilityAudit`; add
 `-only-testing:MidgardMacMapsUITests/HeimdallPictureFlowTests`, or
 `MidgardiOSMapsUITests/...`, for one class). The UI tests launch the app with
 `-MidgardUITesting`, which in Debug builds only selects a key root that never prompts and
@@ -207,12 +208,15 @@ November 2026): exactly what the `v0.1.0-rc.3` web consoles show in mock mode
   the core's governance applies as it does to the demo dataset: every row keeps its
   marking (its own, or the committed overlay's), rows above a persona are withheld by
   level only, and every action is decided once and audited;
-- actions behave as the web mocks do. So far Heimdall's `heimdall.authoriseWorkflow`
-  (the Operating Picture's Authorise): a human-gated workflow needs a gate token, and
-  its audit row is numbered and stamped as `HeimdallMock` numbers them (`D-4473`, from
-  14:39:04). Its wording stays the core's (`applied · heimdall.authoriseWorkflow`), which
-  the device's audit key checks before signing it. The other consoles' actions come with
-  their phases and are refused as unknown until then;
+- actions behave as the web mocks do. Heimdall's `heimdall.authoriseWorkflow` (the
+  Operating Picture's Authorise): a human-gated workflow needs a gate token, and its
+  audit row is numbered and stamped as `HeimdallMock` numbers them (`D-4473`, from
+  14:39:04). Midgard's, ported from `MockGateway` (Phase C, see
+  [Midgard's screens](#midgards-screens-phase-c)), are numbered as it numbers them
+  (`AUD-1043`, from 14:32:10). The rows' wording stays the core's (`applied ·
+  heimdall.authoriseWorkflow`), which the device's audit key checks before signing it.
+  The other consoles' actions come with their phases and are refused as unknown until
+  then;
 - the banner above everything is the web consoles' own demonstration notice,
   "Demonstration data. This console runs on built-in sample data and is not connected to
   an enclosure." (`mg.banner.demo`).
@@ -233,6 +237,66 @@ the web's frame (classification banner, header with seals, navigation, picture,
 inspector); the iPhone app shows the picture first and the inspector as a sheet. Where the
 web's colours fail WCAG AA they are lifted to the nearest that passes (`MGWeb`), so the
 accessibility audit still holds.
+
+## Midgard's screens (Phase C)
+
+All eleven of Midgard's screens are built on both apps, matched to the rc.3 web console
+(`products/midgard/ui/src/screens/`) over the release's sample data:
+`Sources/MidgardKit/Consoles/Midgard/` (the screen models and views) and
+`Sources/MidgardKit/WebConsole/` (`MidgardChrome.swift`, the console's frame;
+`WebDataComponents.swift`, the design system's Table, Terminal, MeterBar, Card, Button,
+Select, Input, Tabs and Tag). The Mac shows each in the web's frame (classification
+banner, header with seals and the "Search all object data…" box, the navigation's
+FABRIC, GOVERNANCE and PLATFORM sections in the web's order and words, the screen and its
+inspector rail); the iPhone lists the screens in the same order and words, and shows each
+screen under the console's banner and header with its tables as lists and its inspector
+in a sheet ("Inspect …", or a row tapped).
+
+| Screen | What it does here |
+|---|---|
+| Object Fabric | the registry's types; Act on one object; a human-gated action requested (`midgard.requestApproval`), approved by a second persona (`midgard.decideApproval`), run by the requester with that approval as the gate token (`midgard.applyAction`); every outcome or refusal shown; the latest audit lineage |
+| Data Search | type, `*` any-text conditions, order, paging (`midgard.query`), and the header's text search across every type; offline, the last answer to the same search, said to be the last one |
+| Search Around | seed type and id, hops, the traversal (`midgard.searchAround`) grouped by hop, the link table; "Explore instances" and "Open in Search-around" open it |
+| Policies | the rules, markings and purposes tabs; the dry run (`midgard.simulatePolicy`) against the signed-in persona's subject, clearance and roles |
+| Audit | the ledger with its filter and category tags, the lineage trace, Export chain (the Mac's save panel, the iPhone's share sheet) of the rows shown |
+| Identity, Keys, Compute, Observability, Resilience, SDK | the sample tables and cards, SAMPLE DATA, their controls disabled with the web's reasons |
+
+The actions are the core's ports of `MockGateway` (`clients/core/src/demo/actions/midgard.rs`,
+which lists where the port knowingly differs); approvals are the runtime collection
+`midgard.approvals`. Rows above the persona are withheld by count ("N … WITHHELD · ABOVE
+YOUR CLEARANCE"): an analyst (K. Rao) does not see Aircraft or Sensor Feed in the registry.
+
+Where the apps knowingly differ from the web console:
+- **Signatures are the core's.** The sample's seeded audit rows carry no signature, so
+  they show UNSIGNED and LINEAGE SIGNED counts only the rows this device signed for its own
+  actions (`ML-DSA ✓`); the web mock labels every row `ML-DSA ✓`.
+- **No synthetic live stream.** The web mock adds a record from a pool of four every 4.2 s;
+  the apps do not, so the web's "· LIVE", "RECORDS · LIVE" and "STREAM LIVE" labels read
+  without "live".
+- **Audit wording is the core's** (`applied · midgard.query` on
+  `midgard.objectTypes/aircraft`), numbered as the mock numbers its rows.
+- **Act on** lists the type's objects from `midgard.objects` (what the web's query
+  returns), so opening Object Fabric adds no "Query" row to the ledger.
+- **The second person is another persona**, not the mock's simulated approver after 3 s;
+  a requester approving their own request is refused (separation of duties).
+- **Reads cover what the persona may read**: query conditions apply (the mock ignores
+  them), a traversal withholds nodes above the persona and names the seed's own type,
+  and the dry run evaluates the rules the persona may read with the persona's own roles.
+- **Offline**, a computed read is not queued: Data Search shows the last answer to the
+  same search; Search Around and the dry run say they need the enclosure. A requested
+  approval or action is queued.
+- **The header** has no colour-mode toggle (the apps follow the system's appearance) and
+  no notifications button (disabled on the web); its account menu is the persona menu.
+  The Mac's navigation also has the row of console tiles, as on Heimdall. On the iPhone
+  the header's search box is at the top of Data Search.
+- **Tables** wider than the main column scroll sideways (the web's `overflow-x: auto`); on
+  the iPhone and at accessibility text sizes they are lists. The Mac keeps Data Search's
+  inspector rail, with a hint, before a match is picked.
+- **Colour**: Midgard's red numerals are `--midgard-300` in dark mode, where the base red
+  is under AA at 11 pt.
+
+`MidgardFlowTests` on each app opens all eleven screens and makes the approval request;
+`MidgardConsoleTests` covers the screen models against the core.
 
 ## Heimdall's MAP and 3D views (Phase I)
 
