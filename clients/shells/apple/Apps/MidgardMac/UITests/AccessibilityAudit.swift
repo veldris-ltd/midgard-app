@@ -3,7 +3,7 @@ import XCTest
 
 /// The accessibility audit of the macOS apps (clients/shells/apple/audit.sh), both
 /// editions: the sign-in screen, each console's first screen, one screen's detail, and
-/// the screens only this edition has (`Edition.auditedScreens`: the 3D view in Midgard 3D). Dynamic Type
+/// the screens only this edition has (`Edition.auditedScreens`: Heimdall's MAP and 3D views). Dynamic Type
 /// is measured on iOS only; its macOS test fails by design and the scheme skips it, so
 /// `xcodebuild test` stays green while audit.sh still reads it as not measured here.
 /// [RC-49] [AC-C-11]

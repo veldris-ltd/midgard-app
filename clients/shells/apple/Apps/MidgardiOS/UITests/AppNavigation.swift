@@ -58,8 +58,7 @@ enum AppNavigation {
     static func selectConsole(_ app: XCUIApplication, _ n: Int, file: StaticString = #filePath, line: UInt = #line) {
         let name = consoles[n - 1]
         app.buttons["mg.console.tab.\(name.lowercased())"].tap()
-        // Back to the console's list if a screen was open (two levels deep from the 3D
-        // view: its screen, then the list).
+        // Back to the console's list if a screen was open.
         let list = app.navigationBars[name]
         for _ in 0..<3 where !list.waitForExistence(timeout: 3) {
             let back = app.navigationBars.buttons["BackButton"]
@@ -80,19 +79,29 @@ enum AppNavigation {
             .waitForExistence(timeout: timeout), "the Object Fabric screen did not open")
     }
 
-    /// Heimdall's Operating Picture with its 3D view open (the 3D edition only).
-    static func openThreeD(_ app: XCUIApplication) {
-        signIn(app)
-        selectConsole(app, 3)
-        tapClearOfConsoleBar(app, app.buttons["mg.1.heimdall.operating-picture"])
-        XCTAssertTrue(app.descendants(matching: .any)["mg.content.heimdall.operating-picture"]
-            .waitForExistence(timeout: timeout), "the Operating Picture did not open")
-        let entry = app.buttons["mg.heimdall.3d"]
-        XCTAssertTrue(entry.waitForExistence(timeout: timeout), "no 3D entry in Heimdall")
-        entry.tap()
-        XCTAssertTrue(app.descendants(matching: .any)["mg.heimdall.3d.view"].waitForExistence(timeout: timeout),
-                      "the 3D view did not open")
+    /// Heimdall's Operating Picture with view `id` chosen in the navigation bar's view
+    /// switch (2D, MAP or 3D; MAP and 3D in the Maps edition only).
+    static func openView(_ app: XCUIApplication, _ id: String) {
+        let button = app.buttons["mg.heimdall.view.\(id)"]
+        if !button.exists {
+            signIn(app)
+            selectConsole(app, 3)
+            tapClearOfConsoleBar(app, app.buttons["mg.1.heimdall.operating-picture"])
+            XCTAssertTrue(app.descendants(matching: .any)["mg.content.heimdall.operating-picture"]
+                .waitForExistence(timeout: timeout), "the Operating Picture did not open")
+        }
+        XCTAssertTrue(button.waitForExistence(timeout: timeout), "no \(id) in Heimdall's view switch")
+        button.tap()
+        let shown = id == "2d" ? app.descendants(matching: .any)["mg.heimdall.track.E-0871"]
+                               : app.descendants(matching: .any)["mg.heimdall.\(id).view"]
+        XCTAssertTrue(shown.waitForExistence(timeout: timeout), "the \(id) view did not open")
     }
+
+    /// Heimdall's Operating Picture with its 3D view open (the Maps edition).
+    static func openThreeD(_ app: XCUIApplication) { openView(app, "3d") }
+
+    /// Heimdall's Operating Picture with its MAP view open (the Maps edition).
+    static func openMap(_ app: XCUIApplication) { openView(app, "map") }
 
     /// Taps a screen row where it shows. At accessibility text sizes, and more so under
     /// an edition banner, only a strip of the list shows between the navigation bar and
@@ -117,8 +126,11 @@ enum AppNavigation {
         signIn(app)
         selectConsole(app, 3)
         tapClearOfConsoleBar(app, app.buttons["mg.1.heimdall.operating-picture"])
-        XCTAssertTrue(app.descendants(matching: .any)["mg.heimdall.track.E-0871"].waitForExistence(timeout: timeout),
-                      "the Operating Picture did not open")
+        // The reference layout, should the scene have kept another view chosen.
+        let track = app.descendants(matching: .any)["mg.heimdall.track.E-0871"]
+        let reference = app.buttons["mg.heimdall.view.2d"]
+        if !track.waitForExistence(timeout: 5), reference.exists { reference.tap() }
+        XCTAssertTrue(track.waitForExistence(timeout: timeout), "the Operating Picture did not open")
     }
 
     /// Runs one of the session menu's commands.

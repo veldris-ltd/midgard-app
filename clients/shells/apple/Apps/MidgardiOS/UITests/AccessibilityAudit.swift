@@ -5,7 +5,7 @@ import XCTest
 /// iPhone apps, both editions, by clients/shells/apple/audit.sh: the sign-in screen, each
 /// console's list of screens, one screen, Heimdall's Operating Picture (the screen
 /// matched to the web suite), and the screens only this edition has
-/// (`Edition.auditedScreens`: the 3D view in Midgard 3D). [RC-49] [AC-C-11]
+/// (`Edition.auditedScreens`: Heimdall's MAP and 3D views). [RC-49] [AC-C-11]
 final class AccessibilityAudit: AccessibilityAuditBase {
     override var screens: [(XCUIApplication) -> Void] {
         var list: [(XCUIApplication) -> Void] = [AppNavigation.toSignIn]

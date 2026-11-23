@@ -75,15 +75,25 @@ enum Nav {
                       "the \(slug) detail did not appear", file: file, line: line)
     }
 
-    /// Heimdall's Operating Picture with its 3D view open (the 3D edition only).
-    static func openThreeD(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+    /// Heimdall's Operating Picture with view `id` chosen in its view switch (2D, MAP or
+    /// 3D; MAP and 3D in the Maps edition only).
+    static func openView(_ app: XCUIApplication, _ id: String, file: StaticString = #filePath, line: UInt = #line) {
         openConsole(app, 3, file: file, line: line)
-        let view = element(app, "mg.heimdall.3d.view")
-        if view.exists { return }
-        let entry = element(app, "mg.heimdall.3d")
-        XCTAssertTrue(entry.waitForExistence(timeout: 5), "no 3D entry in Heimdall", file: file, line: line)
-        entry.click()
-        XCTAssertTrue(view.waitForExistence(timeout: 5), "the 3D view did not open", file: file, line: line)
+        let button = element(app, "mg.heimdall.view.\(id)")
+        XCTAssertTrue(button.waitForExistence(timeout: 10), "no \(id) in Heimdall's view switch", file: file, line: line)
+        button.click()
+        let shown = id == "2d" ? element(app, "mg.heimdall.picture") : element(app, "mg.heimdall.\(id).view")
+        XCTAssertTrue(shown.waitForExistence(timeout: 10), "the \(id) view did not open", file: file, line: line)
+    }
+
+    /// Heimdall's Operating Picture with its 3D view open (the Maps edition).
+    static func openThreeD(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+        openView(app, "3d", file: file, line: line)
+    }
+
+    /// Heimdall's Operating Picture with its MAP view open (the Maps edition).
+    static func openMap(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+        openView(app, "map", file: file, line: line)
     }
 
     /// What a text element says: on macOS static text carries it as its value, and an

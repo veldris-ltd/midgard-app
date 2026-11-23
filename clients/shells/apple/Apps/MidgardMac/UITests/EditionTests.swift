@@ -2,7 +2,7 @@ import XCTest
 
 /// The edition the app under test says it is (Task B7), against `Edition`, which the
 /// UI-test target defines in UITests-Maps (the one edition since 23 Nov 2026): the
-/// edition banner, Heimdall's "3D view" entry, and About. The branches for an app without
+/// edition banner, Heimdall's view switch (2D, MAP, 3D), and About. The branches for an app without
 /// them stay, so the tests still hold if an edition without them returns. [FR-C-1] [AC-C-13]
 final class EditionTests: XCTestCase {
     private var app: XCUIApplication!
@@ -31,23 +31,23 @@ final class EditionTests: XCTestCase {
         }
     }
 
-    func testHeimdallOffersThe3DViewOnlyIn3D() {
+    func testHeimdallOffersTheViewSwitchOnlyIn3D() {
         Nav.openConsole(app, 3)
         XCTAssertTrue(Nav.element(app, "mg.detail.operating-picture").waitForExistence(timeout: 5))
-        let entry = Nav.element(app, "mg.heimdall.3d")
+        let globe = Nav.element(app, "mg.heimdall.3d.view")
         if Edition.isThreeD {
             Nav.openThreeD(app)
-            let view = Nav.element(app, "mg.heimdall.3d.view")
-            XCTAssertTrue((view.label + Nav.text(view)).contains("3D view"), "3D view says: \(view.label)")
-            // Another screen closes it; back on the Operating Picture it opens again.
+            // Another screen has no switch; back on the Operating Picture the view chosen
+            // is still the 3D one, as the web keeps it.
             Nav.openScreen(app, "entities")
-            XCTAssertFalse(Nav.element(app, "mg.heimdall.3d").exists, "the entry is on the Operating Picture only")
+            XCTAssertFalse(Nav.element(app, "mg.heimdall.view.3d").exists, "the switch is on the Operating Picture only")
             Nav.openScreen(app, "operating-picture")
-            XCTAssertFalse(view.exists)
-            Nav.openThreeD(app)
+            XCTAssertTrue(globe.waitForExistence(timeout: 5))
+            Nav.openView(app, "2d")
+            XCTAssertFalse(globe.exists)
         } else {
-            XCTAssertFalse(entry.exists, "the release edition has no 3D entry")
-            XCTAssertFalse(Nav.element(app, "mg.heimdall.3d.view").exists)
+            XCTAssertFalse(Nav.element(app, "mg.heimdall.view.3d").exists, "the release edition has no view switch")
+            XCTAssertFalse(globe.exists)
         }
     }
 
