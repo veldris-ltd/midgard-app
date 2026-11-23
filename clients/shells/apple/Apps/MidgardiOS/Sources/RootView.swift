@@ -423,8 +423,11 @@ struct ScreenPlaceholder: View {
     }
 }
 
-/// With an edition provider's 3D entry: the entry above the screen (a top inset), which
-/// pushes the 3D view. Without one (every release app): the screen as it is.
+/// With an edition provider's 3D entry: the entry in the navigation bar, which pushes
+/// the 3D view. Not a row above the screen: that took the room the Operating Picture's
+/// lowest track label (E-1108) needs above the console bar on an iPhone 17, and a label
+/// resting cut at the picture's visible edge fails the contrast audit. Without one
+/// (every release app): the screen as it is.
 struct ThreeDEntry: ViewModifier {
     let entry: HeimdallThreeDProvider?
     @Binding var showing: Bool
@@ -432,11 +435,8 @@ struct ThreeDEntry: ViewModifier {
     func body(content: Content) -> some View {
         if let entry {
             content
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    entry.makeEntry(showing: $showing)
-                        .padding(.horizontal, MGSpace.s4)
-                        .padding(.vertical, MGSpace.s2)
-                        .background(Color(uiColor: .systemBackground))
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) { entry.makeEntry(showing: $showing) }
                 }
                 .navigationDestination(isPresented: $showing) {
                     entry.makeView()
