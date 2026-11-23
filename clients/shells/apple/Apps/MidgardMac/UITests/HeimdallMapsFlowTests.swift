@@ -48,8 +48,15 @@ final class HeimdallMapsFlowTests: XCTestCase {
         uk.click()
         let mapSummary = Nav.element(app, "mg.heimdall.map.summary")
         XCTAssertTrue(mapSummary.waitForExistence(timeout: 5))
-        XCTAssertTrue(Nav.wait(mapSummary, labelPrefix: "Map at zoom", timeout: 10), mapSummary.label)
+        // A static text on the Mac: its words are its value, not its label.
+        let zoomed = NSPredicate { _, _ in Nav.text(mapSummary).hasPrefix("Map at zoom") }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: zoomed, object: nil)], timeout: 10), .completed,
+                       Nav.text(mapSummary))
         XCTAssertTrue(Nav.element(app, "mg.heimdall.map.track.E-0871").exists)
+        // The tracks are drawn on the map (placed for the view's size, not off screen).
+        let marker = Nav.element(app, "mg.heimdall.map.marker.E-0871")
+        XCTAssertTrue(marker.waitForExistence(timeout: 5), "no marker for E-0871 on the map")
+        XCTAssertTrue(app.windows.firstMatch.frame.contains(marker.frame), "the E-0871 marker is off the map: \(marker.frame)")
         XCTAssertTrue(Nav.element(app, "mg.heimdall.honesty").exists)
         settle(10)
         keep("mac-map")
@@ -61,8 +68,9 @@ final class HeimdallMapsFlowTests: XCTestCase {
         northSea.click()
         let summary = Nav.element(app, "mg.heimdall.3d.summary")
         XCTAssertTrue(summary.waitForExistence(timeout: 5))
-        let towards = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", "NORTH SEA"), object: summary)
-        XCTAssertEqual(XCTWaiter.wait(for: [towards], timeout: 10), .completed, summary.label)
+        let towards = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in Nav.text(summary).contains("NORTH SEA") },
+                                                object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [towards], timeout: 10), .completed, Nav.text(summary))
         Nav.element(app, "mg.heimdall.3d.style.satellite").click()
         settle(12)
         keep("mac-3d")

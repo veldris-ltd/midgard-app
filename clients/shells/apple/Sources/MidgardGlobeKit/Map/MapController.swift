@@ -144,10 +144,16 @@ final class MapController: ObservableObject {
         requestRender()
     }
 
+    /// The drawing view's size, from its layout. The markers over the map are placed
+    /// with it, so a change is published (on the next turn of the main loop: it is made
+    /// during layout): until then they were placed for a 1 × 1 viewport, off screen and
+    /// hidden, and stayed so until the camera next moved (the MAP view opened with no
+    /// track markers).
     func setViewport(_ size: CGSize) {
         guard size.width > 1, size.height > 1, size != viewport else { return }
         viewport = size
         requestRender()
+        DispatchQueue.main.async { [weak self] in self?.objectWillChange.send() }
     }
 
     func moved(_ move: TilePause.Move) {
