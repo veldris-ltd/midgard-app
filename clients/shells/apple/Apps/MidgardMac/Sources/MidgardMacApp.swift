@@ -23,6 +23,13 @@ struct MidgardMacApp: App {
         .defaultSize(width: 1400, height: 1000)
         .commands { MidgardCommands(model: delegate.model) }
 
+        // Your Data: imported files, the gateway, the feeds (Session ▸ Your Data…, ⇧⌘D).
+        Window("Your Data", id: YourDataWindow.id) {
+            YourDataView(app: delegate.model, compact: false)
+                .frame(minWidth: 560, minHeight: 560)
+        }
+        .defaultSize(width: 720, height: 860)
+
         Settings {
             SettingsView(model: delegate.model)
         }

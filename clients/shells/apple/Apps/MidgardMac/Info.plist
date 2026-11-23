@@ -24,6 +24,13 @@
 	<string>public.app-category.business</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- Your Data: plain HTTP to a gateway or feed on this Mac's loopback interface only
+		     (the SDK's address rule); everything else stays HTTPS under ATS's default. -->
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>MidgardDataSource</key>
 	<string>sample</string>
 	<key>MidgardEdition</key>

@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 @preconcurrency import MidgardCore
 import MidgardKit
 import SwiftUI
@@ -35,6 +36,37 @@ struct RootView: View {
             }
         }
         .focusedSceneValue(\.consoleRoute, $route)
+        // Files dropped on the window are imported (Your Data), and Your Data opens to
+        // say what came of it.
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            Self.urls(from: providers) { urls in
+                guard !urls.isEmpty else { return }
+                openWindow(id: YourDataWindow.id)
+                Task { await model.userData.importFiles(urls) }
+            }
+            return true
+        }
+    }
+
+    @Environment(\.openWindow) private var openWindow
+
+    /// The file URLs of a drop, on the main actor once all have loaded.
+    static func urls(from providers: [NSItemProvider], _ done: @escaping @MainActor ([URL]) -> Void) {
+        let group = DispatchGroup()
+        let lock = NSLock()
+        var urls: [URL] = []
+        for p in providers where p.canLoadObject(ofClass: URL.self) {
+            group.enter()
+            _ = p.loadObject(ofClass: URL.self) { url, _ in
+                if let url, url.isFileURL {
+                    lock.lock()
+                    urls.append(url)
+                    lock.unlock()
+                }
+                group.leave()
+            }
+        }
+        group.notify(queue: .main) { MainActor.assumeIsolated { done(urls) } }
     }
 }
 
@@ -219,6 +251,8 @@ struct HeimdallConsole: View {
     var body: some View {
         HeimdallConsoleFrame(nav: { nav }, main: { main }, aside: { aside }, trailing: { trailing })
             .task(id: persona.id) { await picture.load() }
+            // The user's feeds are read only while the picture is open.
+            .task(id: isPicture) { if isPicture { await picture.followUserData() } }
     }
 
     /// The navigation: the consoles first, as a row of tiles (numbered from 1; the

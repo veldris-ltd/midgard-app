@@ -2,14 +2,17 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <!-- Midgard (the Maps edition), team-signed builds (MIDGARD_TEAM_ID set;
-     Config/Signing.xcconfig). App Sandbox plus the client network entitlement, which only
-     the map tile loader will use (Phase I, Task I2), and nothing beyond it
-     (tools/check-edition.sh). The keychain access group for its bundle identifier.
+     Config/Signing.xcconfig). App Sandbox plus the client network entitlement, used by the
+     map tile loader (Phase I) and by Your Data for the hosts the user adds (a gateway, feed
+     URLs; Phase J), and nothing beyond it (tools/check-edition.sh); read access to the files
+     the user picks or drops for an import. The keychain access group for its bundle identifier.
      [DD-6] [FR-C-9] -->
 <dict>
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
 	<key>com.apple.security.network.client</key>
+	<true/>
+	<key>com.apple.security.files.user-selected.read-only</key>
 	<true/>
 	<key>keychain-access-groups</key>
 	<array>

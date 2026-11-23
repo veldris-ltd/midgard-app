@@ -3,11 +3,13 @@
 <plist version="1.0">
 <!-- Midgard (the Maps edition), ad-hoc builds (no MIDGARD_TEAM_ID): MidgardMacMaps.entitlements
      without keychain-access-groups. The client network entitlement is for Phase I's map
-     tiles only. [DD-6] [FR-C-9] -->
+     tiles and Phase J's user-added hosts; read access to the files the user picks. [DD-6] [FR-C-9] -->
 <dict>
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
 	<key>com.apple.security.network.client</key>
+	<true/>
+	<key>com.apple.security.files.user-selected.read-only</key>
 	<true/>
 </dict>
 </plist>

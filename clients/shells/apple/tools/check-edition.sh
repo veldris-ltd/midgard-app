@@ -18,7 +18,15 @@
 #   - it has a network entitlement other than the client one (com.apple.security.network.server,
 #     com.apple.developer.networking.*) or a temporary-exception entitlement
 #     (com.apple.security.temporary-exception.*);
-#   - (Mac) it lacks the client network entitlement.
+#   - (Mac) it lacks the client network entitlement;
+#   - (Phase J, your own data) it bundles data: a data file (.jsonl, .tsv, .csv, .mgdemo,
+#     .geojson, .ndjson), or any resource file (not a Mach-O file) naming a leak archive
+#     (Mauritius Leaks, Offshore/Panama/Pandora/Paradise Papers, ICIJ) or the local live
+#     suite's switches, live area or feed hosts. The apps fetch nothing of their own: the
+#     user adds a gateway or feed URLs at run time (Your Data), and only the map tile
+#     loader has fixed hosts. The bundled JSON allowed is the Natural Earth outlines;
+#   - its App Transport Security asks for more than NSAllowsLocalNetworking (loopback HTTP
+#     for a gateway or feed on the device): no arbitrary loads, no exception domains.
 # Debug binaries keep their symbol tables, so a symbol the linker kept is seen. B4/B5
 # must also run this on the signed Release archives (<app>... below).
 # [FR-C-1] [DD-6]
@@ -37,6 +45,11 @@ net_re='com\.apple\.(security\.network\.(client|server)|developer\.networking\.[
 
 say() { echo "check-edition: $*" >&2; }
 
+# What only local-suite or leak-archive data contains (clients/core/src/demo/guard.rs's
+# DENY_MARKERS, the ones a public bundle file can never hold innocently).
+data_re='mauritius leaks|offshore leaks|panama papers|pandora papers|paradise papers|icij|port louis|agal[eé]ga|ceb\.mu|govmu\.org|live-feeds|midgard_replay|adsb\.lol|adsbexchange|airplanes\.live|opensky|aishub|aisstream|marinetraffic|seismicportal\.eu|api\.tfl\.gov\.uk|data\.elexon\.co\.uk|api\.carbonintensity\.org\.uk|environment\.data\.gov\.uk|data\.sensor\.community'
+data_ext_re='\.(jsonl|ndjson|tsv|csv|mgdemo|geojson)$'
+
 # check_bundle <app>: prints one line per problem; returns non-zero when there is one.
 check_bundle() {
     local app="$1" bad=0 info said f ents mac=0 strong=0 net="" syms
@@ -49,7 +62,15 @@ check_bundle() {
     said="$(plutil -extract MidgardEdition raw -o - "$info" 2>/dev/null || true)"
     [ "$said" = maps ] || fail "MidgardEdition is '${said:-missing}', not maps"
     while IFS= read -r -d '' f; do
-        file -b "$f" | grep -q 'Mach-O' || continue
+        if ! file -b "$f" | grep -q 'Mach-O'; then
+            case "$f" in */_CodeSignature/*|*.car|*.ttf|*.png|*.icns|*.nib) continue ;; esac
+            if grep -Eiq "$data_ext_re" <<<"$f"; then
+                fail "bundles a data file: ${f#"$app"/}"
+            elif LC_ALL=C grep -Eiaq "$data_re" "$f"; then
+                fail "bundles local-suite or leak-archive data: ${f#"$app"/} ($(LC_ALL=C grep -Eioa "$data_re" "$f" | sort -u | head -3 | tr '\n' ' '))"
+            fi
+            continue
+        fi
         syms="$(nm -m "$f" 2>/dev/null | grep -E " _${hook}\$" || true)"
         if grep -v 'weak external' <<<"$syms" | grep -q 'external'; then strong=1; fi
         net="$net $(LC_ALL=C grep -aoE "$net_re" "$f" | sort -u | tr '\n' ' ')"
@@ -69,8 +90,13 @@ check_bundle() {
     if [ "$mac" = 1 ] && ! grep -q 'network\.client' <<<"$net"; then
         fail "lacks the network client entitlement the Mac app has"
     fi
+    local ats
+    ats="$(plutil -extract NSAppTransportSecurity json -o - "$info" 2>/dev/null || true)"
+    if [ -n "$ats" ] && [ "$ats" != '{"NSAllowsLocalNetworking":true}' ]; then
+        fail "App Transport Security asks for more than NSAllowsLocalNetworking ($ats)"
+    fi
     if [ "$bad" -eq 0 ]; then
-        echo "ok    $app: maps edition: edition library linked (strong hook), network: $( [ "$mac" = 1 ] && echo "client only, sandboxed" || echo "none on iOS")"
+        echo "ok    $app: maps edition: edition library linked (strong hook), network: $( [ "$mac" = 1 ] && echo "client only, sandboxed" || echo "none on iOS"), ATS: ${ats:-default}, no data bundled"
     fi
     return "$bad"
 }

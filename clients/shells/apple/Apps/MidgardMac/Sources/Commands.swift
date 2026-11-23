@@ -16,9 +16,14 @@ extension FocusedValues {
 /// Menu commands: ⌘1…⌘6 select a console in the key window; ⌘R syncs now, ⌘L locks,
 /// ⇧⌘O toggles offline. ⌘N (File ▸ New Window) comes with the route window group.
 /// [FR-C-1] [FR-C-9] [RC-49]
+enum YourDataWindow {
+    static let id = "your-data"
+}
+
 struct MidgardCommands: Commands {
     @ObservedObject var model: AppModel
     @FocusedBinding(\.consoleRoute) private var route: ConsoleRoute?
+    @Environment(\.openWindow) private var openWindow
 
     private var unlocked: Bool { model.isUnlocked }
 
@@ -41,6 +46,9 @@ struct MidgardCommands: Commands {
             .keyboardShortcut("o", modifiers: [.command, .shift])
             .disabled(!unlocked)
             Divider()
+            Button("Your Data…") { openWindow(id: YourDataWindow.id) }
+                .keyboardShortcut("d", modifiers: [.command, .shift])
+            Divider()
             Button("Lock") { Task { await model.lock() } }
                 .keyboardShortcut("l", modifiers: .command)
                 .disabled(!unlocked)
@@ -59,6 +67,8 @@ struct SettingsView: View {
         TabView {
             GeneralSettings(model: model)
                 .tabItem { Label("General", systemImage: "gearshape") }
+            YourDataView(app: model, compact: true)
+                .tabItem { Label("Your Data", systemImage: "tray.and.arrow.down") }
             if let about = model.about {
                 NavigationStack { about }
                     .tabItem { Label("About", systemImage: "info.circle") }
@@ -66,7 +76,7 @@ struct SettingsView: View {
             NavigationStack { AcknowledgementsView() }
                 .tabItem { Label("Acknowledgements", systemImage: "doc.text") }
         }
-        .frame(width: 520, height: 340)
+        .frame(width: 560, height: 560)
     }
 }
 

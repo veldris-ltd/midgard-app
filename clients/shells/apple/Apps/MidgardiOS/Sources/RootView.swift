@@ -511,6 +511,7 @@ struct SessionMenu: View {
     @ObservedObject var model: AppModel
     let persona: PersonaInfo
     @State private var showingAbout = false
+    @State private var showingData = false
 
     var body: some View {
         let offline = model.isOffline
@@ -542,6 +543,12 @@ struct SessionMenu: View {
             }
             .accessibilityIdentifier("mg.session.offline")
             Button {
+                showingData = true
+            } label: {
+                Label("Your data", systemImage: "tray.and.arrow.down")
+            }
+            .accessibilityIdentifier("mg.session.yourdata")
+            Button {
                 Task { await model.lock() }
             } label: {
                 Label("Lock", systemImage: "lock")
@@ -562,6 +569,19 @@ struct SessionMenu: View {
         .accessibilityLabel(Text("Session: \(persona.display)"))
         .accessibilityIdentifier("mg.0.session-menu")
         .modifier(AboutSheet(about: model.about, showing: $showingAbout))
+        .sheet(isPresented: $showingData) {
+            NavigationStack {
+                YourDataView(app: model, compact: true)
+                    .navigationTitle("Your data")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showingData = false }
+                                .accessibilityIdentifier("mg.yourdata.done")
+                        }
+                    }
+            }
+        }
     }
 }
 

@@ -5,7 +5,8 @@
 # with the edition library. Each seeded failure fails naming its reason: no edition or
 # another one, no strong hook (the edition library not linked, or only the weak default),
 # a Mac app without the sandbox or without the client entitlement, the server, a
-# developer networking or a temporary-exception entitlement. A tree with no app fails
+# developer networking or a temporary-exception entitlement, App Transport Security
+# beyond loopback HTTP, a bundled data file or leak-archive data in a resource. A tree with no app fails
 # closed. The bundles are built with cc and signed ad hoc with codesign, so the bundle
 # checks run on macOS only; elsewhere they say SKIP. [FR-C-1] [DD-6]
 #
@@ -118,6 +119,19 @@ make_app SeedTemp mac maps "$globe" "$sandbox$client$temp"
 check "seeded: a temporary-exception entitlement fails" "fails SeedTemp 'beyond the network client'"
 make_app SeedNoSandbox mac maps "$globe" "$client"
 check "seeded: a Mac app without the sandbox fails" "fails SeedNoSandbox 'not sandboxed'"
+# Phase J: no data is bundled, and ATS asks for loopback HTTP at most.
+PLIST_EXTRA='<key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>' \
+    make_app MapsLocal mac maps "$globe" "$sandbox$client"
+check "a Mac app allowing loopback HTTP (NSAllowsLocalNetworking) passes" "passes MapsLocal"
+PLIST_EXTRA='<key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoads</key><true/></dict>' \
+    make_app SeedArbitrary mac maps "$globe" "$sandbox$client"
+check "seeded: arbitrary loads fail" "fails SeedArbitrary 'App Transport Security'"
+make_app SeedJsonl mac maps "$globe" - && printf '{}\n' >"$work/SeedJsonl.app/Contents/Resources/feed.jsonl" \
+    && codesign --force --sign - --entitlements "$work/Maps.entitlements" "$work/SeedJsonl.app" >/dev/null 2>&1
+check "seeded: a bundled data file fails" "fails SeedJsonl 'bundles a data file'"
+make_app SeedLeak mac maps "$globe" - && printf '{"source":"Mauritius Leaks"}\n' >"$work/SeedLeak.app/Contents/Resources/x.json" \
+    && codesign --force --sign - --entitlements "$work/Maps.entitlements" "$work/SeedLeak.app" >/dev/null 2>&1
+check "seeded: leak-archive data in a resource fails" "fails SeedLeak 'leak-archive data'"
 check "both apps in one run pass together" "bash $script $work/Maps.app $work/MapsFlat.app >/dev/null 2>&1"
 check "one failing bundle among passing ones fails the run" \
     "! bash $script $work/Maps.app $work/SeedServer.app >/dev/null 2>&1"
