@@ -12,7 +12,8 @@ import SwiftUI
 let minTarget: CGFloat = 44
 let isCompactPlatform = true
 #else
-let minTarget: CGFloat = 24
+/// The Mac's smallest targets, as the console's own (26–34 pt).
+let minTarget: CGFloat = 28
 let isCompactPlatform = false
 #endif
 
@@ -37,7 +38,7 @@ struct Panel<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) { content }
             .padding(10)
-            .background(RoundedRectangle(cornerRadius: MGRadius.sm).fill(MGWeb.bgSunken.opacity(0.86)))
+            .background(RoundedRectangle(cornerRadius: MGRadius.sm).fill(MGWeb.bgSunken.opacity(0.92)))
             .background(RoundedRectangle(cornerRadius: MGRadius.sm).fill(.ultraThinMaterial))
             .overlay(RoundedRectangle(cornerRadius: MGRadius.sm).strokeBorder(MGWeb.divider))
     }
@@ -196,7 +197,7 @@ struct CreditsStrip: View {
             .multilineTextAlignment(.leading)
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
-            .background(RoundedRectangle(cornerRadius: 3).fill(MGWeb.bgSunken.opacity(0.85)))
+            .background(RoundedRectangle(cornerRadius: 3).fill(MGWeb.bgSunken.opacity(0.92)))
             .accessibilityLabel(Text("Map data: " + credits.map(\.short).joined(separator: ", ")))
             .accessibilityIdentifier("mg.heimdall.credits.strip")
     }
@@ -247,5 +248,19 @@ struct MarkerShape: Shape {
             p.addEllipse(in: CGRect(origin: pt(0.38, 0.38), size: CGSize(width: 1.24 * m, height: 1.24 * m)))
         }
         return p
+    }
+}
+
+/// A track's label drawn into a canvas (not a text element over the imagery): mono 9,
+/// `--text-faint` (the selected one `--text-heading`), with the web's sunken halo.
+func drawTrackLabel(_ ctx: inout GraphicsContext, _ text: String, at p: CGPoint, selected: Bool) {
+    let label = Text(text)
+        .font(MGWebFont.mono(9))
+        .tracking(0.08 * MGWebFont.monoSize(9))
+        .foregroundColor(selected ? MGWeb.textHeading : MGWeb.textMuted)
+    ctx.drawLayer { layer in
+        layer.addFilter(.shadow(color: MGWeb.bgSunken, radius: 2))
+        layer.addFilter(.shadow(color: MGWeb.bgSunken, radius: 1))
+        layer.draw(label, at: p, anchor: .top)
     }
 }

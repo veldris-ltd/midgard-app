@@ -124,16 +124,20 @@ struct HeimdallMapView: View {
 
     @State private var showingCredits = false
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+
     private var compact: some View {
-        VStack(spacing: 0) {
+        let large = typeSize.isAccessibilitySize
+        let row = large ? AnyLayout(VStackLayout(spacing: 6)) : AnyLayout(HStackLayout(spacing: 6))
+        return VStack(spacing: 0) {
             HStack {
-                Panel { readout }.frame(maxWidth: 200)
-                Spacer()
+                Panel { readout }.frame(maxWidth: large ? .infinity : 200)
+                Spacer(minLength: 0)
             }
             .padding(8)
             Spacer(minLength: 0)
-            VStack(spacing: 6) {
-                HStack(spacing: 6) {
+            CompactControlArea(large: large) {
+                row {
                     RegionMenu(regions: regions, current: current, choose: flyToRegion)
                     TrackMenu(picture: picture, idPrefix: "mg.heimdall.map.track", choose: { select($0, fly: true) })
                     zoomButtons
@@ -141,8 +145,6 @@ struct HeimdallMapView: View {
                 }
                 CreditsStrip(credits: credits).frame(maxWidth: .infinity, alignment: .trailing)
             }
-            .padding(8)
-            .background(MGWeb.bgSunken.opacity(0.86))
         }
         .sheet(isPresented: $showingCredits) { CreditsSheet(credits: credits) }
     }
@@ -164,6 +166,19 @@ struct HeimdallMapView: View {
         let cam = c.camera
         _ = cam
         return ZStack(alignment: .topLeading) {
+            // The labels, drawn (not text elements over the map), under the markers.
+            Canvas { ctx, size in
+                for t in placed {
+                    guard let pos = SamplePositions.position(t.id) else { continue }
+                    let p = c.project(pos.lat, pos.lon)
+                    guard p.x > -40, p.y > -40, p.x < size.width + 40, p.y < size.height + 40 else { continue }
+                    let warn = t.track == "anomalous"
+                    drawTrackLabel(&ctx, "\(t.id)\(warn ? " ⚠\u{FE0E}" : "") · \(Int(t.hdg))°", at: CGPoint(x: p.x, y: p.y + 10),
+                                   selected: t.id == picture.selected)
+                }
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
             ForEach(placed, id: \.id) { t in
                 if let pos = SamplePositions.position(t.id) {
                     marker(t, at: c.project(pos.lat, pos.lon))
@@ -185,7 +200,6 @@ struct HeimdallMapView: View {
     private func marker(_ t: HeimdallTrack, at p: CGPoint) -> some View {
         let tone = Tone.of(t)
         let selected = t.id == picture.selected
-        let warn = t.track == "anomalous"
         let side: CGFloat = t.layer == "ground" ? 10 : 12
         let corner: CGFloat = t.layer == "maritime" ? 2 : t.layer == "ground" ? 1 : 6
         let hit = max(minTarget, 24)
@@ -220,15 +234,6 @@ struct HeimdallMapView: View {
             .accessibilityLabel(Text(TrackRow.label(t, placed: true)))
             .accessibilityAddTraits(selected ? [.isSelected] : [])
             .accessibilityIdentifier("mg.heimdall.map.marker.\(t.id)")
-            Text("\(t.id)\(warn ? " ⚠\u{FE0E}" : "") · \(Int(t.hdg))°")
-                .font(MGWebFont.mono(9))
-                .tracked(0.08, 9)
-                .foregroundStyle(selected ? MGWeb.textHeading : MGWeb.textMuted)
-                .shadow(color: MGWeb.bgSunken, radius: 2)
-                .fixedSize()
-                .offset(y: 18)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
         }
         .position(p)
         .opacity(p.x < -40 || p.y < -40 || p.x > c.viewport.width + 40 || p.y > c.viewport.height + 40 ? 0 : 1)

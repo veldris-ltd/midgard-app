@@ -16,6 +16,13 @@ struct GlobeMarkers: View {
         let markers = controller.markers
         ZStack(alignment: .topLeading) {
             Canvas { ctx, _ in
+                for m in markers where m.labelled {
+                    let t = track(m.id)
+                    let warn = t?.track == "anomalous"
+                    let text = "\(m.id)\(warn ? " ⚠\u{FE0E}" : "")\(t.map { " · \(Int($0.hdg))°" } ?? "")"
+                    drawTrackLabel(&ctx, text, at: CGPoint(x: m.point.x, y: m.point.y + Self.markerPx / 2 + 3),
+                                   selected: m.id == picture.selected)
+                }
                 for m in markers where m.visible {
                     let tone = Tone.of(m.tone)
                     if let g = m.ground {
@@ -38,9 +45,6 @@ struct GlobeMarkers: View {
             }
             .allowsHitTesting(false)
             .accessibilityHidden(true)
-            ForEach(markers.filter(\.labelled)) { m in
-                label(m)
-            }
             ForEach(markers.filter(\.visible)) { m in
                 marker(m)
             }
@@ -83,21 +87,6 @@ struct GlobeMarkers: View {
         .accessibilityLabel(Text(t.map { TrackRow.label($0, placed: true) } ?? m.id))
         .accessibilityAddTraits(selected ? [.isSelected] : [])
         .accessibilityIdentifier("mg.heimdall.3d.marker.\(m.id)")
-    }
-
-    private func label(_ m: MarkerScreen) -> some View {
-        let t = track(m.id)
-        let warn = t?.track == "anomalous"
-        let text = "\(m.id)\(warn ? " ⚠\u{FE0E}" : "")\(t.map { " · \(Int($0.hdg))°" } ?? "")"
-        return Text(text)
-            .font(MGWebFont.mono(9))
-            .tracked(0.08, 9)
-            .foregroundStyle(m.id == picture.selected ? MGWeb.textHeading : MGWeb.textMuted)
-            .shadow(color: MGWeb.bgSunken, radius: 2)
-            .fixedSize()
-            .position(x: m.point.x, y: m.point.y + Self.markerPx + 2)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
     }
 }
 
@@ -338,18 +327,22 @@ struct GlobeCompactControls: View {
     let summary: String
     @State private var showingCredits = false
     @State private var showingHeights = false
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
+        let large = typeSize.isAccessibilitySize
+        // At accessibility text sizes the controls stack, wrap and scroll, so no label is cut.
+        let row = large ? AnyLayout(VStackLayout(spacing: 6)) : AnyLayout(HStackLayout(spacing: 6))
         VStack(spacing: 0) {
             HStack(alignment: .top) {
                 Panel { CameraReadout(camera: c.settled, current: current, summary: summary) }
-                    .frame(maxWidth: 200)
-                Spacer()
+                    .frame(maxWidth: large ? .infinity : 200)
+                Spacer(minLength: 0)
             }
             .padding(8)
             Spacer(minLength: 0)
-            VStack(spacing: 6) {
-                HStack(spacing: 6) {
+            CompactControlArea(large: large) {
+                row {
                     RegionMenu(regions: regions, current: current, choose: flyToRegion)
                     TrackMenu(picture: picture, idPrefix: "mg.heimdall.3d.track", choose: chooseTrack)
                     Menu {
@@ -365,7 +358,7 @@ struct GlobeCompactControls: View {
                     .accessibilityIdentifier("mg.heimdall.3d.style")
                     CreditsButton(showing: $showingCredits)
                 }
-                HStack(spacing: 6) {
+                row {
                     ControlButton(accessibility: "Zoom in", identifier: "mg.heimdall.3d.zoomin", action: { c.nudge(dx: 0, dy: 0, zoom: 0.6) }) {
                         Text("+").font(MGWebFont.mono(15))
                     }
@@ -382,8 +375,6 @@ struct GlobeCompactControls: View {
                 }
                 CreditsStrip(credits: credits).frame(maxWidth: .infinity, alignment: .trailing)
             }
-            .padding(8)
-            .background(MGWeb.bgSunken.opacity(0.86))
         }
         .sheet(isPresented: $showingCredits) { CreditsSheet(credits: credits) }
         .sheet(isPresented: $showingHeights) {
@@ -399,12 +390,39 @@ struct GlobeCompactControls: View {
     }
 }
 
-struct MenuLabel: View {
-    let text: String
+/// The iPhone's bottom control area: a translucent band; at accessibility text sizes it
+/// scrolls, up to half the view, so stacked controls never run off the screen.
+struct CompactControlArea<Content: View>: View {
+    let large: Bool
+    @ViewBuilder let content: () -> Content
 
     var body: some View {
+        Group {
+            if large {
+                ViewThatFits(in: .vertical) {
+                    VStack(spacing: 6) { content() }
+                    ScrollView { VStack(spacing: 6) { content() } }
+                }
+                .containerRelativeFrame(.vertical, alignment: .bottom) { h, _ in h * 0.55 }
+                .fixedSize(horizontal: false, vertical: false)
+            } else {
+                VStack(spacing: 6) { content() }
+            }
+        }
+        .padding(8)
+        .background(MGWeb.bgSunken.opacity(0.92))
+    }
+}
+
+struct MenuLabel: View {
+    let text: String
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        let large = typeSize.isAccessibilitySize
         HStack(spacing: 4) {
-            Text(text).lineLimit(1).minimumScaleFactor(0.7)
+            Text(text).lineLimit(large ? nil : 1).minimumScaleFactor(large ? 1 : 0.7)
+                .fixedSize(horizontal: false, vertical: large)
             Image(systemName: "chevron.up.chevron.down").font(.system(size: 9)).accessibilityHidden(true)
         }
         .font(MGWebFont.mono(10))
