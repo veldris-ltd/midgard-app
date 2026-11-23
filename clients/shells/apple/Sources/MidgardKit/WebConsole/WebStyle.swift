@@ -36,6 +36,15 @@ public enum MGWeb {
     public static let warnText = Color(mgLight: (MGToken.ToneText.warnLight, 1), dark: (MGToken.warn, 1))
     public static let secureText = Color(mgLight: (MGToken.ToneText.secureLight, 1), dark: (MGToken.secure, 1))
     public static let infoText = Color(mgLight: (MGToken.ToneText.infoLight, 1), dark: (MGToken.ToneText.infoDark, 1))
+    /// Danger-coloured text (`--midgard-300` on its tint in dark mode; its tone-text
+    /// shade on paper).
+    public static let dangerText = Color(mgLight: (MGToken.ToneText.dangerLight, 1), dark: (MGToken.ToneText.dangerDark, 1))
+    public static let danger = Color(mgHex: MGToken.danger)
+    public static let secureTint = Color(mgHex: MGToken.secureTint.0, opacity: MGToken.secureTint.1)
+    public static let dangerTint = Color(mgHex: MGToken.dangerTint.0, opacity: MGToken.dangerTint.1)
+    public static let infoTint = Color(mgHex: MGToken.infoTint.0, opacity: MGToken.infoTint.1)
+    /// `--grey-300`: badge, pill and terminal text.
+    public static let grey300 = Color(mgLight: MGToken.Light.grey300, dark: (MGToken.grey300, 1))
 
     /// Whether the picture's smallest readouts (scale, ring and focus labels) are
     /// decoration, spoken through the picture's own label. On the Mac they stay at the
@@ -60,6 +69,10 @@ public struct MGWebAccent {
     public let hex: UInt32
     public let tint: Color
     public let glow: Color
+    /// The numeral colour on paper: the darker shade that reads AA there.
+    var baseTextLight: UInt32 = MGToken.ToneText.warnLight
+    /// The numeral colour in dark mode, when the base accent does not read AA there.
+    var baseTextDark: UInt32?
 
     public static let heimdall = MGWebAccent(
         fill: Color(mgHex: MGToken.heimdall500),
@@ -68,8 +81,21 @@ public struct MGWebAccent {
         tint: Color(mgHex: MGToken.heimdallTint.0, opacity: MGToken.heimdallTint.1),
         glow: Color(mgHex: MGToken.heimdallGlow.0, opacity: MGToken.heimdallGlow.1))
 
+    /// Midgard's scope (`.theme-midgard`), also Admin's. Accent text is `--accent-hover`
+    /// (`--midgard-300` in dark mode, `--midgard-600` on paper).
+    public static let midgard = MGWebAccent(
+        fill: Color(mgHex: MGToken.midgard500),
+        text: Color(mgLight: MGToken.Light.accentHover, dark: (MGToken.midgard300, 1)),
+        hex: MGToken.midgard500,
+        tint: Color(mgHex: MGToken.midgardTint.0, opacity: MGToken.midgardTint.1),
+        glow: Color(mgHex: MGToken.midgardGlow.0, opacity: MGToken.midgardGlow.1),
+        baseTextLight: MGToken.Light.accentHover.0,
+        // The base red is 3.6:1 on the dark page, under AA for the numerals' 11 pt:
+        // lifted to `--midgard-300`, as the web's accent text is.
+        baseTextDark: MGToken.midgard300)
+
     /// `--accent` used as text (section numerals): the base accent in dark mode.
-    public var baseText: Color { Color(mgLight: (MGToken.ToneText.warnLight, 1), dark: (hex, 1)) }
+    public var baseText: Color { Color(mgLight: (baseTextLight, 1), dark: (baseTextDark ?? hex, 1)) }
 }
 
 /// The web's type at its pixel sizes (`typography.css`): on macOS a CSS pixel is a point;

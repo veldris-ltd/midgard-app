@@ -86,20 +86,25 @@ public struct WebProductMark: View {
 
 /// `StatusPill`: a dot in the status colour and mono 12 text on an inset pill.
 public struct WebStatusPill: View {
-    public enum Status { case secure, online, warn, offline }
+    public enum Status { case secure, online, healthy, warn, offline, danger, live, gated }
     let status: Status
     let label: String
+    let live: Color
 
-    public init(_ status: Status, _ label: String) {
+    /// `live` is the console's accent text (`--accent-hover`), the colour of a live dot.
+    public init(_ status: Status, _ label: String, live: Color = MGWebAccent.midgard.text) {
         self.status = status
         self.label = label
+        self.live = live
     }
 
     private var dot: Color {
         switch status {
-        case .secure, .online: return MGWeb.secure
-        case .warn: return MGWeb.warn
+        case .secure, .online, .healthy: return MGWeb.secure
+        case .warn, .gated: return MGWeb.warn
         case .offline: return MGWeb.decorFaint
+        case .danger: return MGWeb.dangerText
+        case .live: return live
         }
     }
 
@@ -122,9 +127,10 @@ public struct WebStatusPill: View {
     }
 }
 
-/// `Badge`: mono 11, tracked 0.06 em, on a tint (warn) or a raised fill (neutral).
+/// `Badge`: mono 11, tracked 0.06 em, on its tone's tint (secure, warn, danger, info)
+/// or a raised fill (neutral).
 public struct WebBadge: View {
-    public enum Tone { case neutral, warn }
+    public enum Tone { case neutral, secure, warn, danger, info }
     let text: String
     let tone: Tone
 
@@ -133,15 +139,27 @@ public struct WebBadge: View {
         self.tone = tone
     }
 
+    private var colours: (fg: Color, bg: Color, border: Color) {
+        switch tone {
+        case .neutral: return (MGWeb.textBody, MGWeb.surfaceRaised, MGWeb.border)
+        case .secure: return (MGWeb.secureText, MGWeb.secureTint, .clear)
+        case .warn: return (MGWeb.warnText, MGWeb.warnTint, .clear)
+        case .danger: return (MGWeb.dangerText, MGWeb.dangerTint, .clear)
+        case .info: return (MGWeb.infoText, MGWeb.infoTint, .clear)
+        }
+    }
+
     public var body: some View {
+        let c = colours
         Text(text)
             .font(MGWebFont.mono(11).weight(.medium))
             .mgTracking(0.06, size: MGWebFont.monoSize(11))
-            .foregroundStyle(tone == .warn ? MGWeb.warnText : MGWeb.textBody)
+            .lineLimit(1)
+            .foregroundStyle(c.fg)
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
-            .background(RoundedRectangle(cornerRadius: MGRadius.xs).fill(tone == .warn ? MGWeb.warnTint : MGWeb.surfaceRaised))
-            .overlay(RoundedRectangle(cornerRadius: MGRadius.xs).strokeBorder(tone == .warn ? Color.clear : MGWeb.border))
+            .background(RoundedRectangle(cornerRadius: MGRadius.xs).fill(c.bg))
+            .overlay(RoundedRectangle(cornerRadius: MGRadius.xs).strokeBorder(c.border))
     }
 }
 
@@ -214,6 +232,8 @@ public struct WebStatBlock: View {
             Text(value)
                 .font(MGWebFont.display(24, .title).weight(.black))
                 .mgTracking(-0.02, size: 24)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
                 .foregroundStyle(accent?.text ?? MGWeb.textHeading)
                 .accessibilityLabel(Text("\(label.capitalized): \(value)"))
             Text(label)
@@ -290,10 +310,13 @@ public struct WebHumanGate: View {
     let busy: Bool
     let onAuthorise: () -> Void
     let onReject: () -> Void
+    /// The identifiers' prefix: `<prefix>.authorise`, `<prefix>.reject`, …
+    let idPrefix: String
     @Environment(\.dynamicTypeSize) private var typeSize
 
     public init(title: String, detail: String, state: State, accent: MGWebAccent, busy: Bool,
-                onAuthorise: @escaping () -> Void, onReject: @escaping () -> Void) {
+                onAuthorise: @escaping () -> Void, onReject: @escaping () -> Void, idPrefix: String = "mg.heimdall") {
+        self.idPrefix = idPrefix
         self.title = title
         self.detail = detail
         self.state = state
@@ -321,7 +344,7 @@ public struct WebHumanGate: View {
                         .font(MGWebFont.mono(10))
                         .mgTracking(0.08, size: MGWebFont.monoSize(10))
                         .foregroundStyle(MGWeb.secureText)
-                        .accessibilityIdentifier("mg.heimdall.gate.authorised")
+                        .accessibilityIdentifier("\(idPrefix).gate.authorised")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             case .rejected:
@@ -330,7 +353,7 @@ public struct WebHumanGate: View {
                     .mgTracking(0.08, size: MGWebFont.monoSize(10))
                     .foregroundStyle(MGWeb.textFaint)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityIdentifier("mg.heimdall.gate.rejected")
+                    .accessibilityIdentifier("\(idPrefix).gate.rejected")
             case .pending, .queued:
                 pending
             }
@@ -372,7 +395,7 @@ public struct WebHumanGate: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(busy || state == .queued)
-                .accessibilityIdentifier("mg.heimdall.authorise")
+                .accessibilityIdentifier("\(idPrefix).authorise")
                 Button(action: onReject) {
                     Text("Reject")
                         .font(MGWebFont.sans(12, .caption).weight(.semibold))
@@ -383,7 +406,7 @@ public struct WebHumanGate: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(busy)
-                .accessibilityIdentifier("mg.heimdall.reject")
+                .accessibilityIdentifier("\(idPrefix).reject")
             }
         }
     }
