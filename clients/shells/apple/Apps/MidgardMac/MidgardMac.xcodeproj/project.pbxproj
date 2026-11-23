@@ -17,6 +17,7 @@
 		77F4E9F69A57F44114EEC216 /* MidgardGlobeKit in Frameworks */ = {isa = PBXBuildFile; productRef = EE23DBF9141C5F560345AF5E /* MidgardGlobeKit */; };
 		B287ABE05ADEA0D4817EA019 /* Edition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DD19DFA1EAC44DB4FDAD0DD /* Edition.swift */; };
 		B49FACBEE692C1E16D13B28B /* EditionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 409BD2BC78EA7C8AC526937B /* EditionTests.swift */; };
+		B796320A2DF3DA7BC0CBE1A0 /* MidgardFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CEA33545D3C1CF51BA1CDBF /* MidgardFlowTests.swift */; };
 		D01CAB038C6B7641EE310CD8 /* SessionFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 045679D09ABCFB0DD5FEA121 /* SessionFlowTests.swift */; };
 		D4BCD3FB96BA4D8A0439EFD1 /* MidgardMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE50FAAE4AEAE9CF3E1FD9AD /* MidgardMacApp.swift */; };
 		E6A14827750C3C1D86D15E84 /* Navigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DF1958D6BF627B9AF388C03 /* Navigation.swift */; };
@@ -41,6 +42,7 @@
 		4E316CDB290820D0E2F2E46E /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 		5DD19DFA1EAC44DB4FDAD0DD /* Edition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Edition.swift; sourceTree = "<group>"; };
 		6380628501D676F695AF0FA9 /* MidgardMacMaps.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MidgardMacMaps.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		6CEA33545D3C1CF51BA1CDBF /* MidgardFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidgardFlowTests.swift; sourceTree = "<group>"; };
 		9DF1958D6BF627B9AF388C03 /* Navigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Navigation.swift; sourceTree = "<group>"; };
 		D9109BDEA8E137AD4677F664 /* MidgardMacMapsUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MidgardMacMapsUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E26511B12D395787805057D2 /* HeimdallPictureFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeimdallPictureFlowTests.swift; sourceTree = "<group>"; };
@@ -102,6 +104,7 @@
 				409BD2BC78EA7C8AC526937B /* EditionTests.swift */,
 				4A6B209DB7388FF87BD77F44 /* HeimdallMapsFlowTests.swift */,
 				E26511B12D395787805057D2 /* HeimdallPictureFlowTests.swift */,
+				6CEA33545D3C1CF51BA1CDBF /* MidgardFlowTests.swift */,
 				9DF1958D6BF627B9AF388C03 /* Navigation.swift */,
 				045679D09ABCFB0DD5FEA121 /* SessionFlowTests.swift */,
 			);
@@ -287,6 +290,7 @@
 				B49FACBEE692C1E16D13B28B /* EditionTests.swift in Sources */,
 				1FE5A9F191889D5B5548CF97 /* HeimdallMapsFlowTests.swift in Sources */,
 				6F592540DDEA0EFB1B67CE64 /* HeimdallPictureFlowTests.swift in Sources */,
+				B796320A2DF3DA7BC0CBE1A0 /* MidgardFlowTests.swift in Sources */,
 				E6A14827750C3C1D86D15E84 /* Navigation.swift in Sources */,
 				D01CAB038C6B7641EE310CD8 /* SessionFlowTests.swift in Sources */,
 			);

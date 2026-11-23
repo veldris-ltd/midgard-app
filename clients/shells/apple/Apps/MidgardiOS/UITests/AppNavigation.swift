@@ -75,8 +75,18 @@ enum AppNavigation {
         signIn(app)
         selectConsole(app, 1)
         tapClearOfConsoleBar(app, app.buttons["mg.1.midgard.object-fabric"])
-        XCTAssertTrue(app.descendants(matching: .any)["mg.placeholder.midgard.object-fabric"]
+        XCTAssertTrue(app.descendants(matching: .any)["mg.content.midgard.object-fabric"]
             .waitForExistence(timeout: timeout), "the Object Fabric screen did not open")
+    }
+
+    /// One of Midgard's screens (`slug`, e.g. `policies`), opened from its list.
+    static func openMidgard(_ app: XCUIApplication, _ slug: String) {
+        signIn(app)
+        selectConsole(app, 1)
+        let row = app.buttons.matching(NSPredicate(format: "identifier MATCHES %@", "mg\\.[0-9]+\\.midgard\\.\(slug)")).firstMatch
+        tapClearOfConsoleBar(app, row)
+        XCTAssertTrue(app.descendants(matching: .any)["mg.content.midgard.\(slug)"]
+            .waitForExistence(timeout: timeout), "Midgard's \(slug) screen did not open")
     }
 
     /// Heimdall's Operating Picture with view `id` chosen in the navigation bar's view

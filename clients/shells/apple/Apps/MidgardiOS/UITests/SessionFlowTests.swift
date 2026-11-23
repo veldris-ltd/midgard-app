@@ -89,8 +89,12 @@ final class SessionFlowTests: XCTestCase {
                                                         "mg\\.[0-9]+\\.\(AppNavigation.consoles[index].lowercased())\\..*"))
             XCTAssertEqual(rows.count, count, "\(AppNavigation.consoles[index]) lists \(rows.count) screens")
         }
+        // Midgard's screens are built (Phase C); a later console's still say when they come.
         AppNavigation.openDetail(app)
-        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'Phase C'")).firstMatch.exists)
+        AppNavigation.selectConsole(app, 2)
+        AppNavigation.tapClearOfConsoleBar(app, app.buttons["mg.1.admin.overview"])
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'Phase D'")).firstMatch
+            .waitForExistence(timeout: AppNavigation.timeout))
     }
 
     func testSearchFiltersTheScreens() {

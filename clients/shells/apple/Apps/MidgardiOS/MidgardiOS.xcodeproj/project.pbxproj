@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		2BCF3AED59747988FC7DD14E /* MidgardGlobeKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4F1560A8F53E3761A484D3E7 /* MidgardGlobeKit */; };
 		37549767AF849D7B48163655 /* MidgardKit in Frameworks */ = {isa = PBXBuildFile; productRef = E92ECC69BDBB66C2316FE0C8 /* MidgardKit */; };
+		3856C18D3015F16729C0F287 /* MidgardFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D039A818E322D133521F3E9A /* MidgardFlowTests.swift */; };
 		40BC10DD225D6FC6CDF25E6F /* HeimdallPictureFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0921C9C2A4C059101F8C3936 /* HeimdallPictureFlowTests.swift */; };
 		4E05142893FE5E23FA9C0EDC /* HeimdallMapsFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AE7A3A5938BADB873A1EBDC /* HeimdallMapsFlowTests.swift */; };
 		590023073AC207A06265843C /* MidgardiOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEAD789E2E1859BD0DD1CC83 /* MidgardiOSApp.swift */; };
@@ -43,6 +44,7 @@
 		C0A1F88DE6ACCB2DD549C22F /* MidgardiOSMaps.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MidgardiOSMaps.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C7C7C5AB080B324A94894BFF /* AppNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppNavigation.swift; sourceTree = "<group>"; };
 		CDA680AC8C5741514BEDB7FE /* Edition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Edition.swift; sourceTree = "<group>"; };
+		D039A818E322D133521F3E9A /* MidgardFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidgardFlowTests.swift; sourceTree = "<group>"; };
 		FCA691AC4CE9B877E1875A4D /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		FEAD789E2E1859BD0DD1CC83 /* MidgardiOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidgardiOSApp.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -104,6 +106,7 @@
 				57336E7E400D5D3788353F2B /* EditionTests.swift */,
 				9AE7A3A5938BADB873A1EBDC /* HeimdallMapsFlowTests.swift */,
 				0921C9C2A4C059101F8C3936 /* HeimdallPictureFlowTests.swift */,
+				D039A818E322D133521F3E9A /* MidgardFlowTests.swift */,
 				BF02CDCC2435DDB79E9FBD42 /* SessionFlowTests.swift */,
 			);
 			path = UITests;
@@ -275,6 +278,7 @@
 				F634EC179EDC270D1F74C498 /* EditionTests.swift in Sources */,
 				4E05142893FE5E23FA9C0EDC /* HeimdallMapsFlowTests.swift in Sources */,
 				40BC10DD225D6FC6CDF25E6F /* HeimdallPictureFlowTests.swift in Sources */,
+				3856C18D3015F16729C0F287 /* MidgardFlowTests.swift in Sources */,
 				A6CA25FADB86F5188BE750EE /* SessionFlowTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
