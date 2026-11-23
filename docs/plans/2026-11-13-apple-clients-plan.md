@@ -7127,3 +7127,52 @@ the screen models and views in `Sources/MidgardKit/Consoles/Midgard/`).
 
 The README's "Midgard's screens (Phase C)" section lists where the apps knowingly differ
 from the web.
+
+## Phase D done (23 Nov 2026)
+
+Admin's eight screens are built on both apps, matched to the rc.3 web console over the
+release's sample data, following the Phase C pattern (the screen models and views in
+`Sources/MidgardKit/Consoles/Admin/`; `AdminChrome.swift` and the design system's
+RiskBadge, GuardedAction and BreakGlass in `Sources/MidgardKit/WebConsole/`; one
+`WebConsoleFrame` for Midgard and Admin on the Mac). Admin renders under Midgard's
+accent with the web's grey ADMIN mark.
+
+- **Actions:** `AdminMock`'s, ported into `SampleSource`
+  (`clients/core/src/demo/actions/admin.rs`): `admin.approve` (the approver the persona
+  signed in; self-approval refused and recorded, AC-AD-4), `admin.simulateConfig`,
+  `admin.commitConfig` and `admin.rollbackConfig` (v482 on from the mock's v481),
+  `admin.searchLedger` (the mock's tokens, over what the persona may read) and
+  `admin.requestBreakGlass`, all audited, denials included (AC-AD-6), in the runtime
+  `admin.audit`, seeded with the mock stream's three records and numbered as the mock
+  numbers its ledger (`A-9111` from 14:02:13). The module lists where the port differs
+  from the mock.
+- **Platforms:** the Mac in the web's frame (the screen's toolbar item in the header, the
+  inspector at the web's width per screen); the iPhone's list in the web's order and
+  words, each screen under the console's banner and header with its tables as lists and
+  its inspector in a sheet.
+- **Tests:** `clients/core/tests/admin_actions.rs` (success, refusal and audit per
+  action), `AdminConsoleTests`, one `AdminFlowTests` per app (all eight screens and an
+  approval by a second persona); the audit adds Admin's Overview on both apps and
+  Approvals on the Mac.
+- **Phase C leftovers:** the Mac's Policies figures and "Query time" line, the MAP and 3D
+  readouts (now 11 pt in the heading colour) and Admin's overview item pass the
+  contrast audit; on the iPhone a list row and the Inspect button are one element over
+  hidden drawn text (`WholeElement`), so the Policies text-detection finding is gone.
+- **Audit (two passes, `MIDGARD_AUDIT_KBD=keep`):** both apps pass screen-reader labels
+  (the Mac's table roles of 8e1e12dc confirmed), focus order, hit targets and reduced
+  motion; keyboard navigation is not measured (the setting kept, and iOS as before).
+  Still failing at the second pass: contrast on the iPhone (Object Fabric's Facility
+  row, cut above the console bar: its wrapped cells were not hidden by the row) and on
+  the Mac (Object Fabric's audit-lineage cells and the dual-control card's "IAM" in the
+  body grey); both are fixed after it (cells hidden one by one; the brighter grey) but
+  not re-measured. Dynamic Type still fails on opening Policies at the largest text
+  size: with the accessibility-size chrome the console's list has no room left, and
+  neither the list's search (8e1e12dc) nor putting the keyboard away brought the row
+  back; this is the owner's to decide (a smaller chrome at those sizes, or another way
+  in).
+- **For the owner:** Deny (like Heimdall's Reject, raised in R1) stays on screen, as on
+  the web, and is not audited; the controls the web leaves without a handler are
+  disabled with a reason.
+
+The README's "Admin's screens (Phase D)" section lists where the apps knowingly differ
+from the web.

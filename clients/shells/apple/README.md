@@ -129,7 +129,7 @@ With a team in `Signing.local.xcconfig` the first signed build may need
 `-allowProvisioningUpdates`.
 
 `test` runs the scheme's UI tests (`SessionFlowTests`, `MidgardFlowTests`,
-`HeimdallPictureFlowTests`, `HeimdallMapsFlowTests`, `EditionTests` and
+`AdminFlowTests`, `HeimdallPictureFlowTests`, `HeimdallMapsFlowTests`, `EditionTests` and
 `AccessibilityAudit`; add
 `-only-testing:MidgardMacMapsUITests/HeimdallPictureFlowTests`, or
 `MidgardiOSMapsUITests/...`, for one class). The UI tests launch the app with
@@ -213,7 +213,9 @@ November 2026): exactly what the `v0.1.0-rc.3` web consoles show in mock mode
   audit row is numbered and stamped as `HeimdallMock` numbers them (`D-4473`, from
   14:39:04). Midgard's, ported from `MockGateway` (Phase C, see
   [Midgard's screens](#midgards-screens-phase-c)), are numbered as it numbers them
-  (`AUD-1043`, from 14:32:10). The rows' wording stays the core's (`applied ·
+  (`AUD-1043`, from 14:32:10), and Admin's, ported from `AdminMock` (Phase D, see
+  [Admin's screens](#admins-screens-phase-d)), as it numbers its ledger (`A-9111`, from
+  14:02:13, in the runtime `admin.audit`). The rows' wording stays the core's (`applied ·
   heimdall.authoriseWorkflow`), which the device's audit key checks before signing it.
   The other consoles' actions come with their phases and are refused as unknown until
   then;
@@ -298,6 +300,85 @@ Where the apps knowingly differ from the web console:
 `MidgardFlowTests` on each app opens all eleven screens and makes the approval request;
 `MidgardConsoleTests` covers the screen models against the core.
 
+## Admin's screens (Phase D)
+
+All eight of Admin's screens are built on both apps, matched to the rc.3 web console
+(`products/admin/ui/src/screens/`) over the release's sample data:
+`Sources/MidgardKit/Consoles/Admin/` (the screen models and views) and, shared with
+Midgard, `Sources/MidgardKit/WebConsole/` (`AdminChrome.swift`, the console's frame;
+`WebAdminComponents.swift`, the design system's RiskBadge, GuardedAction and BreakGlass;
+`WebConsoleFrame`, the Mac frame both consoles use). Admin has no accent of its own: it
+renders under Midgard's, with the web's grey ADMIN mark. The Mac shows each screen in the
+web's frame (the management-zone banner, the header with its seals, the screen's toolbar
+item and the search box, the navigation's OVERSEE, ADMINISTER, EMERGENCY and ASSIST
+sections in the web's order, words and badges, the screen and its inspector at the web's
+width); the iPhone lists the screens in the same order and words, and shows each under
+the console's banner and header (the toolbar item at the header's end, wrapping under
+the mark when it does not fit) with its tables as lists and its inspector in a sheet.
+
+| Screen | What it does here |
+|---|---|
+| Overview | subsystem health and SLOs, the security events, the break-glass review strip, the panel binding of the selected subsystem; Audit search opens the ledger |
+| Approvals | the dual-control queue; Approve · step-up auth decides as the persona signed in (`admin.approve`): a requester's own approval is denied (AC-AD-4) and recorded on the item, a second person's granted; both are audited and head the "AUDIT · INCLUDING DENIALS" tail with their audit ids |
+| IAM | roles (scope, ceiling, read-only, holders) and bindings; the selected role's can / cannot split |
+| Config | the versioned changes; Simulate (`admin.simulateConfig`), Commit (`admin.commitConfig`, v482, v483, …) and Rollback… (`admin.rollbackConfig`), each signed and audited |
+| Registry | the model registry, agent governance, evals gates and releases; the selected model's lifecycle and verification, or the candidate's dual-control card |
+| Ledger | the ledger across the subsystems, its search (`admin.searchLedger`, the `actor:`, `subsystem:` and `since:` tokens), the selected entry, the investigation assistant, and the ledger lineage (`admin.audit`) |
+| Break-Glass | the state strip and its phases; Request break-glass (`admin.requestBreakGlass`) opens it active, 00:59:59, held by the requester; the post-hoc review |
+| Copilot | the advisory thread (message, proposal, refusal with its named code), the three assistants and the refusal codes |
+
+The actions are the core's ports of `AdminMock` (`clients/core/src/demo/actions/admin.rs`,
+which lists where the port knowingly differs), numbered as the mock numbers its ledger
+(`A-9111` from 14:02:13). Rows above the persona are withheld by count: the break-glass
+state is confidential (K. Rao and A. Holt do not see it, and cannot request it), the
+ledger restricted (A. Holt does not see it).
+
+Where the apps knowingly differ from the web console:
+- **The approver is the persona signed in.** The web screen passes each item's routed
+  approver, so its self-approval check never fires from the screen; here J. Benjamin
+  approving his own A-9110 is denied, and K. Osei approving it is granted (the item then
+  names K. Osei as its approver). A decided approval is not decided again.
+- **Deny stays on screen**, as on the web: it is the second controller's own decision,
+  not sent and not audited (as Heimdall's Reject, raised in R1 for this phase), and kept
+  until the app quits.
+- **The ledger lineage is the core's.** It starts with the mock stream's three seed
+  records (UNSIGNED: they carry no signature) and gains a row for every Admin action, in
+  the core's wording (`refused · admin.approve`); there is no synthetic live stream, so
+  "LEDGER LINEAGE · LIVE" reads without "live". The ledger's "SIGNED · TAMPER-EVIDENT"
+  figure counts the lineage rows the core checked (the web shows a fixed 100%), and the
+  selected entry's `sig` line says UNSIGNED.
+- **The tables show what the core holds now**: a commit or rollback changes the change's
+  state in the table (the web re-reads nothing), and a rollback says ROLLED BACK · vN.
+- **Controls the web leaves without a handler are disabled with a reason**: New binding,
+  Export for auditors, Open review · second officer, Export transcript, Simulate → review
+  → commit, Discard and Send (the copilot thread is read-only in this release). Audit
+  search opens the ledger. The Ledger's filter tags select as the web's do and, as on
+  the web, filter nothing; the Registry candidate's Approve and the Break-glass phase
+  tags are the web screens' own on-screen state.
+- **The header's search box** opens the ledger searched for its text (the web's box does
+  nothing); there is no colour-mode toggle or notifications button, and the account menu
+  is the persona menu. On the iPhone the screen's toolbar item is in its header, and the
+  Ledger's own search box is the only one.
+- **Overview's break-glass strip** is the web's fixed text, shown only to a persona who
+  may read the break-glass state; otherwise it says the state is withheld.
+- **Small type and tone**, for the contrast audit: on the dual-control card the keys
+  (REQUESTER, APPROVER), the subsystem and "JUSTIFICATION · MANDATORY" (11 pt, the web's
+  9 px) are in the body grey rather than the faint one, and the separation check is in
+  medium weight; on the break-glass strip the keys and "SECURITY OFFICERS ALERTED" are
+  in the body grey; the Registry's unavailable lifecycle steps are drawn in the muted
+  colour rather than at 45 % opacity. The break-glass dot does not pulse. IAM's Holders
+  and State columns are wider than the web's hints, as a browser widens them.
+- **iPhone accessibility**: a table row shown as a list, and the Inspect button, are one
+  element over their drawn text, which they say (so one the screen's edge cuts above
+  the console bar is measured whole); a stat block's label is its own element, after
+  its figure.
+
+`AdminFlowTests` on each app opens all eight screens and approves A-9110 as K. Osei;
+`AdminConsoleTests` covers the screen models against the core and
+`clients/core/tests/admin_actions.rs` the actions. The audit covers Admin's Overview on
+both apps and its Approvals on the Mac; where it stood after Phase D is in the plan's
+"Phase D done" note.
+
 ## Heimdall's MAP and 3D views (Phase I)
 
 The Operating Picture has the web console's view switch, **2D / MAP / 3D** (the Mac's
@@ -368,8 +449,10 @@ point the region's globe view looks at (the web centres the map on the tilted gl
 camera's own position, so its UK & IRELAND map lands on northern Spain); the iPhone
 puts REGION, TRACKS (with the LAYERS switches) and STYLE in menus along the bottom, and
 HEIGHTS in a sheet, where the web narrows its two panels; the credits strip is always
-shown beside the folding ⓘ CREDITS; and a decode past its time limit is abandoned rather
-than its worker killed, since a Swift task cannot be stopped from outside.
+shown beside the folding ⓘ CREDITS; the camera and map readouts are 11 pt in the
+heading colour (the web's 9 px; at 9 pt the Mac's contrast audit failed them); and a
+decode past its time limit is abandoned rather than its worker killed, since a Swift
+task cannot be stopped from outside.
 
 ## Signing
 
