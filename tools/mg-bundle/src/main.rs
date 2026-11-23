@@ -6,9 +6,11 @@
 //!                  SPEC...
 //!     where SPEC = [<component>=]<id>:<version>:<path>
 //!     <component> is service (the default), tool, client, model-bundle, attestation,
-//!     image (an OCI image archive) or deploy (what an offline install needs besides
-//!     the images: the chart, its values, images.lock and the deploy kit).
-//!     An adjacent <path>.sbom.cdx.json is bundled as the artefact's SBOM if present.
+//!     ui-bundle or npm-package (the release's JavaScript artefacts,
+//!     tools/ci/js-artefacts.sh), image (an OCI image archive) or deploy (what an
+//!     offline install needs besides the images: the chart, its values, images.lock and
+//!     the deploy kit). An adjacent <path>.sbom.cdx.json is bundled as the artefact's
+//!     SBOM if present.
 //!
 //! Consumer (air-gapped site, fully offline):
 //!   mg-bundle import (--trust-anchor ANCHORS | --trust-key TRUSTFILE) [--out-dir DIR] FILE
@@ -42,15 +44,21 @@ use bifrost_bundle::{
 };
 use pqc_agility::{SecretBytes, SigId, SigningKey, VerifyingKey};
 
-/// The components an artefact in a bundle may be. `image` and `deploy` carry what an
-/// install from the bundle alone needs: the release's image archives, and its chart,
-/// values, images.lock and deploy kit. [VLD-ANB-MIDGARD-0035]
-const COMPONENTS: [&str; 7] = [
+/// The components an artefact in a bundle may be: every kind the release gates and
+/// admits (supply-chain/release-artefacts.txt and tools/ci/js-artefacts.sh), so the
+/// bundle carries each artefact as the registry recorded it, and the kinds that travel
+/// only in bundles. tools/ci/tests/release-artefacts.test.sh checks the release's
+/// kinds against this list. `image` and `deploy` carry what an install from the bundle
+/// alone needs: the release's image archives, and its chart, values, images.lock and
+/// deploy kit. [VLD-ANB-MIDGARD-0035]
+const COMPONENTS: [&str; 9] = [
     "service",
     "tool",
     "client",
     "model-bundle",
     "attestation",
+    "ui-bundle",
+    "npm-package",
     "image",
     "deploy",
 ];
@@ -427,6 +435,11 @@ mod tests {
         );
         // An `=` in the path is not a component.
         assert_eq!(parse_spec("a:1:/x=y/a").unwrap().component, "service");
+        // The release's JavaScript artefacts keep the kind the registry admitted them as.
+        let ui = parse_spec("ui-bundle=midgard-console:0.1.0:out/midgard-console.ui.tar").unwrap();
+        assert_eq!(ui.component, "ui-bundle");
+        let npm = parse_spec("npm-package=midgard-sdk:0.1.0:out/midgard-sdk-0.0.0.tgz").unwrap();
+        assert_eq!(npm.component, "npm-package");
     }
 
     #[test]

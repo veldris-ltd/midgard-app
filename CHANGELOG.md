@@ -23,6 +23,103 @@ CONTRIBUTING.md for the version policy.
   the chart, compose and kind. `mg-bundle` accepts the `image` and `deploy` components,
   and `deploy/kind/cluster.yaml` pins `kindest/node` by digest. [FR-B-5]
   [VLD-ANB-MIDGARD-0035]
+
+### Changed
+- **`install.sh` installs from the bundle alone, and no longer rebuilds the images on
+  site.** It runs from a directory holding only the bundle, the operator's anchors and
+  the tools, and refuses, having changed nothing, when a member is missing, an image
+  archive is not its pin in `images.lock` or `externals.lock`, the bundled release anchor
+  is not the operator's (`--release-trust FILE` or `sha256:<hex>`, now required), the
+  script is not the installer the bundle carries, or a registry install has neither
+  skopeo nor crane. It pushes with skopeo or crane, which keep each digest, and checks
+  the digest the registry reports (`docker push` is no longer used), or loads into kind
+  under the names the chart resolves, and deploys the bundled chart with the seed, model
+  and egress images at the enclosure's registry by their pinned digests. `--rebuild`
+  keeps the on-site build as an opt-in, and its comparison with the signed chart values
+  now always runs. The release preflight checks the external images instead of a pulled
+  seed image (`MIDGARD_EXTERNAL_IMAGES_PATH`, docs/ops/PKI.md). [FR-B-5]
+  [VLD-ANB-MIDGARD-0035]
+
+### Security
+- **The release workflows' passphrase mappings are held by tests on both forges.**
+  [VLD-ANB-MIDGARD-0007] (The mappings themselves shipped in 0.1.0-rc.2.)
+  `workflows.test.sh` fails if a job that opens a keystore loses either passphrase
+  mapping in `release.yml`, if such a GitLab job does not extend `.signing`, or if
+  `.gitlab-ci.yml` sets either variable, which would shadow the CI/CD variable; and
+  `release-preflight.test.sh` covers a passphrase file that is absent or inside the
+  workspace, and checks the preflight never prints one.
+- **A release needs no forge.** [VLD-ANB-MIDGARD-0035] Signing, releasing and
+  publishing Midgard no longer depend on GitHub or GitLab being reachable, or existing.
+  - `verify-tag.sh` and `tag-release.sh` check that a tag is on `main` without having to
+    fetch it: a failed fetch is a warning, and with no forge `MIDGARD_MAINLINE_REF`
+    (`refs/heads/main`) names `main` locally. A pipeline may not set it.
+  - `run.sh release`, run outside a pipeline, verifies the signed release tag itself
+    before anything is signed; in a pipeline the preflight job has already done so.
+  - `run.sh release-publish` outside a pipeline checks the release as a pipeline's
+    publish does (every artefact the manifest names, with its `.sig` and `.att`, at the
+    recorded digest), then copies it, and the gate run it rests on, to `target/release-publish/<tag>/` (or `MIDGARD_RELEASE_DIR`) with a
+    `SHA256SUMS`, and never writes over a published release. It used to fail there.
+  - `run.sh release-offline <tag>` runs every release step in the release workflow's
+    order on one machine. `workflows.test.sh` fails if the two orders drift apart.
+  - `docs/ops/PKI.md` gains "Releasing without a forge". `docs/ops/KEY_CEREMONY.md`
+    describes a ceremony with this repository's own tools, with Dvalin as the
+    enterprise option; without a forge, `allowed_signers` alone decides who may release.
+
+### Fixed
+- **Publishing a tag no longer releases it again.** A manual release run with `publish`
+  set ran the whole release job before drafting, and the Bifrost registry refuses a
+  second release of a version it holds: every signature is fresh, so the new `.sig`
+  files conflict with those already admitted. A publish run is now made on the tag and
+  starts no preflight, audit or release job. `release-publish` takes the output of the
+  tag's own successful release run (on GitLab, its `release` job), checks every
+  artefact against the release manifest, and drafts that. `docs/dev/CI.md` has the
+  command.
+
+## [0.1.0-rc.3] — release candidate
+
+The third release candidate. `v0.1.0-rc.2` was tagged on 2026-11-10 and never
+released: its run gated, signed and admitted every artefact, then stopped on the
+faults fixed below, which no earlier run had reached. Apart from those fixes and the
+version, rc.3 is the tree rc.2 tagged, and the entries under 0.1.0-rc.2 describe it.
+**A release candidate is not a supported release**; GA remains blocked as under
+0.1.0-rc.1. See `docs/releases/v0.1.0-rc.3.md`.
+
+### Fixed
+- **A tagged release reaches its images and its bundle.** The toolchain container runs
+  as root, so on the signing runner the release left `target/release-out` owned by
+  root: the images step, run as the runner's user, could not write into it, and the
+  runner's job-completed hook could not clear the workspace. `tools/ci/in-toolchain.sh`
+  now hands `target/` back to the calling user when each command ends, on a Linux host
+  whose user is not root (`MIDGARD_TOOLCHAIN_OWNER` names another).
+- **The release chart pins the `mimir-probe` image.** The release builds an image for
+  each one `supply-chain/release-artefacts.txt` names, six in all, and
+  `deploy/helm/set-digests.sh` refuses a lock naming an image the chart has no digest
+  entry for; `values.yaml` named five. It now names `mimir-probe` too, and
+  `tools/ci/tests/helm-digests.test.sh` checks the chart's entries against the
+  release's image list.
+- **The release renders its chart.** The chart refuses the kubernetes secrets provider
+  without `secrets.acknowledgeEtcdEncryption`, and the release's reference rendering
+  did not set it. It now does, as `deploy/k8s/render.sh` does; an operator on another
+  provider renders the signed `values.yaml` with their own.
+- **The air-gap bundle carries the JavaScript artefacts.** `mg-bundle` refused the
+  `ui-bundle` and `npm-package` kinds the release gates and admits, so the bundle step
+  failed. It packs both now, and `tools/ci/tests/release-artefacts.test.sh` checks
+  every kind the release gates against the ones it packs.
+- **The bundle unseals its keystore.** `deploy/air-gap-bundle/produce.sh` did not pass
+  the admission keystore's passphrase file to `mg-bundle`; it now passes
+  `MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE`, as the release provides it.
+
+## [0.1.0-rc.2] — release candidate, tagged 2026-11-10, never released
+
+The second release candidate. `v0.1.0-rc.1` was tagged on 2026-11-09 and never
+released: three faults in the release workflow kept its run from the signing jobs (the
+first three entries under Fixed), and a tag's run uses its own commit's workflow files,
+so no re-run could release it. Apart from those fixes and the version, rc.2 is the
+tree rc.1 tagged: every other entry below was already in it. **A release candidate is
+not a supported release**; GA remains blocked as under 0.1.0-rc.1. See
+`docs/releases/v0.1.0-rc.2.md`.
+
+### Added
 - **Shamir secret sharing in the crypto core.** `pqc_agility::shamir` splits a secret
   k of n over GF(2^8) in constant time and zeroises its intermediates. Dvalin
   uses it, when key fragmentation is chosen, to split the escrow key that
@@ -42,20 +139,6 @@ CONTRIBUTING.md for the version policy.
   [MG-SEC-03] [MG-SEC-05]
 
 ### Changed
-- **`install.sh` installs from the bundle alone, and no longer rebuilds the images on
-  site.** It runs from a directory holding only the bundle, the operator's anchors and
-  the tools, and refuses, having changed nothing, when a member is missing, an image
-  archive is not its pin in `images.lock` or `externals.lock`, the bundled release anchor
-  is not the operator's (`--release-trust FILE` or `sha256:<hex>`, now required), the
-  script is not the installer the bundle carries, or a registry install has neither
-  skopeo nor crane. It pushes with skopeo or crane, which keep each digest, and checks
-  the digest the registry reports (`docker push` is no longer used), or loads into kind
-  under the names the chart resolves, and deploys the bundled chart with the seed, model
-  and egress images at the enclosure's registry by their pinned digests. `--rebuild`
-  keeps the on-site build as an opt-in, and its comparison with the signed chart values
-  now always runs. The release preflight checks the external images instead of a pulled
-  seed image (`MIDGARD_EXTERNAL_IMAGES_PATH`, docs/ops/PKI.md). [FR-B-5]
-  [VLD-ANB-MIDGARD-0035]
 - **The key ceremony is held with Dvalin**, a separate application
   (veldris-ltd/dvalin-app): a guided Windows and Linux app, with a console
   form, whose key generation, signing and verification are this repository's
@@ -75,32 +158,6 @@ CONTRIBUTING.md for the version policy.
   [VLD-ANB-MIDGARD-0094] [VLD-ANB-MIDGARD-0023]
 
 ### Security
-- **A tagged release is handed its keystore passphrase files.** [VLD-ANB-MIDGARD-0007]
-  `run.sh`, `release.sh` and the preflight need `MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE`
-  and `MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE`, but no workflow set them, so a release
-  stopped at its preflight however the key ceremony went. The `preflight` and `release`
-  jobs in `release.yml` now map both from runner secrets of the same names, the names
-  `docs/ops/PKI.md` gives; on GitLab they are CI/CD variables of those names, which the
-  release jobs (extending `.signing`) receive as they are. Only the paths are mapped,
-  and `run.sh` still mounts each file read-only. The preflight's message for a missing
-  passphrase now names that secret, not `..._PASSPHRASE_FILE_PATH`. `workflows.test.sh`
-  fails if a job that opens a keystore loses either mapping, and
-  `release-preflight.test.sh` covers a missing, absent or in-workspace passphrase file.
-- **A release needs no forge.** [VLD-ANB-MIDGARD-0035] Signing, releasing and
-  publishing Midgard no longer depend on GitHub or GitLab being reachable, or existing.
-  - `verify-tag.sh` and `tag-release.sh` check that a tag is on `main` without having to
-    fetch it: a failed fetch is a warning, and with no forge `MIDGARD_MAINLINE_REF`
-    (`refs/heads/main`) names `main` locally. A pipeline may not set it.
-  - `run.sh release`, run outside a pipeline, verifies the signed release tag itself
-    before anything is signed; in a pipeline the preflight job has already done so.
-  - `run.sh release-publish` outside a pipeline copies the release, and the gate run it
-    rests on, to `target/release-publish/<tag>/` (or `MIDGARD_RELEASE_DIR`) with a
-    `SHA256SUMS`, and never writes over a published release. It used to fail there.
-  - `run.sh release-offline <tag>` runs every release step in the release workflow's
-    order on one machine. `workflows.test.sh` fails if the two orders drift apart.
-  - `docs/ops/PKI.md` gains "Releasing without a forge". `docs/ops/KEY_CEREMONY.md`
-    describes a ceremony with this repository's own tools, with Dvalin as the
-    enterprise option; without a forge, `allowed_signers` alone decides who may release.
 - **The Heimdall, Forge, Bifrost and admin bridges no longer default to
   UNCLASSIFIED.** `MimirOptionProvider`, `MimirSuggester`, `MimirAdvisor` and
   `MimirCopilot` take the caller's posture in `new(inference, marking)`;
@@ -1569,11 +1626,37 @@ CONTRIBUTING.md for the version policy.
     namespace mimir-server shares with it; that is now a recorded trust assumption.
 
 ### Fixed
-- **`release-images` refused the release's own `images.lock`.** The release builds an
-  image for `mimir-probe`, which had no `image.digests` entry in the chart, so
-  `set-digests.sh` refused the lock and the release's chart values were never written.
-  The chart now names it, and `tools/ci/tests/helm-digests.test.sh` requires an entry
-  for every image the release builds. [VLD-ANB-MIDGARD-0012]
+- **A waived pre-release now reaches its release job on GitHub.** The gate, admit,
+  account job needed the client shell audits as a whole to succeed, which they never
+  do before the shells exist: an audit that fails is covered by `continue-on-error`, but
+  the apple audit asked for `macos-14`, an image GitHub retired on 2026-11-02, and a job
+  GitHub cancels before it starts is not. So every `v0.1.0-rc.1` run skipped the release
+  and ended cancelled, although its preflight and the "every shell audited" gate passed
+  under the rc.1 waiver. `shell-audit.yml` now outputs the gate's verdict, written only
+  once the gate passes, and the release job runs on that verdict and a passed preflight,
+  never in a cancelled run. The apple audit runs on `macos-15`. `tools/ci/tests/workflows.test.sh`
+  checks the condition, the output and where the verdict is written. [RC-49] [AC-C-11]
+- **The release workflow passes each keystore's passphrase file to the signing runner.**
+  Since each keystore's root became wrapped under a passphrase of its own, the preflight
+  and `release.sh` have required `MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE` and
+  `MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE`, but `release.yml` passed neither to the
+  preflight or to the gate, admit, account job, so a tagged release stopped at the
+  preflight even with both runner secrets set; the `v0.1.0-rc.1` run did. Both jobs now
+  map the runner secrets of those names, as `docs/ops/PKI.md` names them, and the
+  preflight's message for an unset passphrase file names that secret rather than one
+  ending in `_PATH`. `tools/ci/tests/release-preflight.test.sh` checks that every job on
+  the signing runner is given each keystore, passphrase file and the registry, from the
+  secret the preflight names. The `.gitlab-ci.yml` header lists the two CI/CD
+  variables. [VLD-ANB-MIDGARD-0007]
+- **A release tag now verifies on the signing runner.** `tools/ci/verify-tag.sh` fetches
+  the tag afresh from origin in a pipeline before judging it. The checkout
+  `actions/checkout` makes for a tag's run holds a lightweight stand-in for an annotated
+  tag, because the action fetches the pushed commit over the tag when the tag's object
+  is not that commit, which an annotated tag's never is; the stand-in carries no
+  signature, so the first `v0.1.0-rc.1` preflight refused it. The tag origin holds is
+  the one judged, the signature, the pinned signers and the main check deciding as
+  before; on a developer's shell the tag in the checkout is still the one judged, as
+  `tag-release.sh` needs. [AC-RF-CA-6a] [VLD-ANB-MIDGARD-0035]
 - **A deeply nested JSON body no longer takes the gateway down.** The request parser
   in `services/runtime` recursed once per nesting level with no bound, and the edge
   parses bodies of up to 1 MiB with it before authentication, so one unauthenticated
@@ -1590,7 +1673,7 @@ CONTRIBUTING.md for the version policy.
   publishes to be committed, so committing them failed. The anchors are now excepted;
   other `.pub` files stay ignored, and `tools/ci/tests/ceremony.test.sh` holds both.
 
-## [0.1.0-rc.1] — release candidate, not yet tagged
+## [0.1.0-rc.1] — release candidate, tagged 2026-11-09, never released
 
 The first release candidate: from verified libraries to a platform that can be
 deployed and used. **A release candidate is not a supported release.** It exercises

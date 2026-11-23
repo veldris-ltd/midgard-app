@@ -75,6 +75,6 @@ The set of artefacts to release is derived from the workspace (`just release-man
 
 Both pipelines call the same jobs in `tools/ci/run.sh`; see [docs/dev/CI.md](../dev/CI.md).
 
-See [the release candidate notes](../releases/v0.1.0-rc.1.md) and `docs/ops/PKI.md`.
+See [the release candidate notes](../releases/v0.1.0-rc.3.md) and `docs/ops/PKI.md`.
 
 At run time, each release image's entrypoint, `mg-verify --run-service` on a distroless runtime with no shell, re-verifies the signature, SBOM and provenance against the pinned release trust key before it runs any service, so a tampered or unsigned binary refuses to start.

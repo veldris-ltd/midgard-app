@@ -85,11 +85,12 @@ any set of artefacts by hand:
 
 ```bash
 # produce.sh OUT.mgbundle ID LABEL KEYSTORE  [<component>=]<id>:<ver>:<path> ...
-bash deploy/air-gap-bundle/produce.sh midgard-0.1.0-rc.1.mgbundle midgard-0.1.0-rc.1 v0.1.0-rc.1 \
+bash deploy/air-gap-bundle/produce.sh midgard-0.1.0-rc.3.mgbundle midgard-0.1.0-rc.3 v0.1.0-rc.3 \
     "$MIDGARD_BIFROST_KEYSTORE" \
-    http-gateway:0.1.0-rc.1:target/verified/http-gateway \
-    attestation=http-gateway.sig:0.1.0-rc.1:target/verified/http-gateway.sig \
-    image=http-gateway.oci.tar:0.1.0-rc.1:target/release-out/images/http-gateway.oci.tar
+    http-gateway:0.1.0-rc.3:target/verified/http-gateway \
+    attestation=http-gateway.sig:0.1.0-rc.3:target/verified/http-gateway.sig \
+    attestation=http-gateway.att:0.1.0-rc.3:target/verified/http-gateway.att \
+    image=http-gateway.oci.tar:0.1.0-rc.3:target/release-out/images/http-gateway.oci.tar
 ```
 
 The keystore is sealed (`mg-sign keygen --alg ML-DSA-65`), and the signing key is
@@ -113,9 +114,9 @@ it from the verified bundle first, then run it in a directory holding only the b
 the anchors:
 
 ```bash
-mg-bundle import --trust-anchor bifrost-trust.pub --out-dir kit midgard-0.1.0-rc.1.mgbundle
+mg-bundle import --trust-anchor bifrost-trust.pub --out-dir kit midgard-0.1.0-rc.3.mgbundle
 tar -xOf kit/deploy-kit.tar deploy/air-gap-bundle/install.sh > install.sh && rm -rf kit
-bash install.sh midgard-0.1.0-rc.1.mgbundle \
+bash install.sh midgard-0.1.0-rc.3.mgbundle \
     --bundle-trust bifrost-trust.pub --release-trust release-trust.pub \
     --registry registry.enclosure.local/midgard --push
 ```
