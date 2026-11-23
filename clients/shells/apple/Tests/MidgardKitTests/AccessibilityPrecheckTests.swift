@@ -397,7 +397,11 @@ final class AccessibilityPrecheckTests: XCTestCase {
                                                   file: StaticString = #filePath, line: UInt = #line) throws {
         let (host, window) = laidOut(view)
         var controls: [NSRect] = []
+        // Not a scroll view's scrollers: the sign-in screen scrolls (four personas at
+        // accessibility text sizes), and its hidden overlay scroller is the system's,
+        // which the on-device hit-region audit measures.
         func walk(_ view: NSView) {
+            if view is NSScroller { return }
             if String(describing: type(of: view)).contains("FocusRing") || view is NSControl { controls.append(view.frame) }
             view.subviews.forEach(walk)
         }

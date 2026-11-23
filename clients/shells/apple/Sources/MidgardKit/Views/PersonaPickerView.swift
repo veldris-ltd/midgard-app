@@ -16,35 +16,34 @@ public struct PersonaPickerView: View {
     public init(model: AppModel) { self.model = model }
 
     public var body: some View {
-        // Scrolls only when it must: four personas at accessibility text sizes are taller
-        // than the iPhone's screen.
-        ViewThatFits(in: .vertical) {
-            picker
-            ScrollView { picker }
-        }
-    }
-
-    private var picker: some View {
-        LazyVStack(alignment: .leading, spacing: MGSpace.s4) {
-            Text("Sign in").font(MGFonts.display(.title)).accessibilityAddTraits(.isHeader)
-            Text("Demo personas").font(MGFonts.mono(.caption)).foregroundStyle(MGStyle.secondaryText)
-            ForEach(Array(model.personas.enumerated()), id: \.element.id) { index, persona in
-                Button {
-                    Task { await model.signIn(persona) }
-                } label: {
-                    PersonaLabel(persona: persona, stacked: typeSize.isAccessibilitySize)
+        // Four personas at accessibility text sizes are taller than the iPhone's screen:
+        // always a scroll view, which bounces only when the list does not fit. A plain
+        // VStack inside it, not a ViewThatFits choosing between the list and a scroll
+        // view of a LazyVStack: the iOS Dynamic Type audit reported every text that
+        // version showed as clipped.
+        ScrollView {
+            VStack(alignment: .leading, spacing: MGSpace.s4) {
+                Text("Sign in").font(MGFonts.display(.title)).accessibilityAddTraits(.isHeader)
+                Text("Demo personas").font(MGFonts.mono(.caption)).foregroundStyle(MGStyle.secondaryText)
+                ForEach(Array(model.personas.enumerated()), id: \.element.id) { index, persona in
+                    Button {
+                        Task { await model.signIn(persona) }
+                    } label: {
+                        PersonaLabel(persona: persona, stacked: typeSize.isAccessibilitySize)
+                    }
+                    .buttonStyle(.bordered)
+                    // A rounded rectangle: the default capsule cut into the stacked lines at
+                    // large text sizes.
+                    .buttonBorderShape(.roundedRectangle)
+                    .accessibilityLabel(Text("\(persona.display), \(persona.role), clearance \(persona.clearanceLabel)"))
+                    .accessibilityIdentifier("mg.\(index).persona.\(persona.id)")
                 }
-                .buttonStyle(.bordered)
-                // A rounded rectangle: the default capsule cut into the stacked lines at
-                // large text sizes.
-                .buttonBorderShape(.roundedRectangle)
-                .accessibilityLabel(Text("\(persona.display), \(persona.role), clearance \(persona.clearanceLabel)"))
-                .accessibilityIdentifier("mg.\(index).persona.\(persona.id)")
+                MessageView(message: model.message)
             }
-            MessageView(message: model.message)
+            .padding(MGSpace.s5)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(MGSpace.s5)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .scrollBounceBehavior(.basedOnSize)
         .tint(MGStyle.accent)
     }
 }

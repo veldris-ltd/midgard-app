@@ -33,16 +33,19 @@ public struct WebClassificationBanner: View {
         let font = MGWebFont.mono(size).weight(.semibold)
         #endif
         // At accessibility text sizes the level alone (the whole line is the spoken
-        // label): the full line was taller than the iPhone's visible screen.
+        // label): the full line was taller than the iPhone's visible screen. The line
+        // wraps rather than truncates, and the label is the text's own, as on the demo
+        // banner: as a container over a text child, the iOS Dynamic Type audit reported
+        // the level as clipped.
         Text(large ? (text.components(separatedBy: " · ").first ?? text).uppercased() : text.uppercased())
             .font(font)
             .mgTracking(large ? 0 : 0.18, size: size)
             .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
             .foregroundStyle(Color(mgHex: MGContrast.ink(on: fill)))
             .padding(.horizontal, MGSpace.s2)
             .frame(maxWidth: .infinity, minHeight: compact ? 20 : 26)
             .background(Color(mgHex: fill))
-            .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text("Classification: \(text)"))
             .accessibilityAddTraits(.isStaticText)
             .accessibilityIdentifier("mg.classification")

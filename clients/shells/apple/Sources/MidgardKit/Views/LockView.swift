@@ -84,7 +84,15 @@ public struct SessionRootView<Content: View>: View {
                 }
             case let .unlocked(persona):
                 VStack(spacing: 0) {
-                    if let chips = model.chipsPresentation { StatusChipsView(chips).padding(MGSpace.s2) }
+                    if let chips = model.chipsPresentation {
+                        // On the iPhone a narrower band, so the consoles' lists keep the
+                        // room they need above the console bar.
+                        #if os(iOS)
+                        StatusChipsView(chips).padding(.horizontal, MGSpace.s2).padding(.vertical, MGSpace.s1)
+                        #else
+                        StatusChipsView(chips).padding(MGSpace.s2)
+                        #endif
+                    }
                     MessageView(message: model.message)
                     content(persona)
                 }
