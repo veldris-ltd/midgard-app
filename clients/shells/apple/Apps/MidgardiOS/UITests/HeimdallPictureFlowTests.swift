@@ -43,19 +43,48 @@ final class HeimdallPictureFlowTests: XCTestCase {
         XCTAssertTrue(done.label.contains("AUDIT #D-4473"), "gate says: \(done.label)")
     }
 
-    /// The readouts at the top of the picture never overlap: on an iPhone the focus
-    /// track's three lines start under the north, scale and vector lines. [FR-H-4]
-    func testThePictureReadoutsDoNotOverlap() {
+    /// The readouts (north, scale, vector, any withheld count, and the focus track) are
+    /// a strip above the picture on the iPhone: none lies over a track's symbol or its
+    /// label, and every label lies inside the picture (none cut at its right edge). At
+    /// the default text size and at XXXL, the largest before the accessibility sizes.
+    /// [FR-H-4] [DD-7] [RC-49] [AC-C-11]
+    func testTheReadoutsClearEveryTrackAndLabel() {
+        checkReadoutsClearTheTracks()
+    }
+
+    func testTheReadoutsClearEveryTrackAndLabelAtXXXL() {
+        app.terminate()
+        app.launchArguments = ["-MidgardUITesting", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryXXXL"]
+        app.launch()
+        checkReadoutsClearTheTracks()
+    }
+
+    private func matching(_ format: String) -> [XCUIElement] {
+        app.descendants(matching: .any).matching(NSPredicate(format: format)).allElementsBoundByIndex
+    }
+
+    private func checkReadoutsClearTheTracks(file: StaticString = #filePath, line: UInt = #line) {
         AppNavigation.openPicture(app)
-        let vector = app.staticTexts["VECTOR · 1 MIN PROJECTION"]
-        XCTAssertTrue(vector.exists, "no vector readout")
-        let focus = app.staticTexts.matching(NSPredicate(
-            format: "label BEGINSWITH 'FOCUS · ' OR label CONTAINS ' KT · ' OR label MATCHES '^[0-9]+ NM · [0-9]+ FEEDS · .*'"))
-            .allElementsBoundByIndex
-        XCTAssertEqual(focus.count, 3, "the focus readout has three lines: \(focus.map(\.label))")
-        for line in focus {
-            XCTAssertFalse(line.frame.intersects(vector.frame),
-                           "\(line.label) \(line.frame) overlaps the vector readout \(vector.frame)")
+        let readouts = matching("identifier BEGINSWITH 'mg.heimdall.readout.' OR identifier == 'mg.heimdall.withheld'")
+        XCTAssertEqual(Set(readouts.map(\.identifier)),
+                       ["mg.heimdall.readout.north", "mg.heimdall.readout.scale", "mg.heimdall.readout.vector",
+                        "mg.heimdall.readout.focus"], file: file, line: line)
+        let tracks = matching("identifier BEGINSWITH 'mg.heimdall.track.'")
+        let labels = matching("identifier BEGINSWITH 'mg.heimdall.tracklabel.'")
+        XCTAssertEqual(tracks.count, 5, "track symbols: \(tracks.map(\.identifier))", file: file, line: line)
+        XCTAssertEqual(labels.count, 5, "track labels: \(labels.map(\.identifier))", file: file, line: line)
+        let picture = element("mg.heimdall.picture").frame
+        for label in labels {
+            XCTAssertTrue(picture.contains(label.frame),
+                          "\(label.identifier) \(label.frame) is cut by the picture \(picture)", file: file, line: line)
+        }
+        for readout in readouts {
+            XCTAssertFalse(readout.frame.isEmpty, "\(readout.identifier) has no frame", file: file, line: line)
+            for other in tracks + labels {
+                XCTAssertFalse(readout.frame.intersects(other.frame),
+                               "\(readout.identifier) \(readout.frame) overlaps \(other.identifier) \(other.frame)",
+                               file: file, line: line)
+            }
         }
     }
 
