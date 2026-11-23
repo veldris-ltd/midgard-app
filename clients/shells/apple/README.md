@@ -156,7 +156,8 @@ drops the release-only and 3D-only apps):
 | Bundle ID | `io.veldris.midgardmaps.mac` | `io.veldris.midgardmaps.ios` |
 | Shown as | "Midgard" (`CFBundleDisplayName`; the product is `Midgard.app`) | "Midgard" (`CFBundleDisplayName`) |
 | Info.plist `MidgardEdition` | `maps` | `maps` |
-| Entitlements | `MidgardMacMaps.entitlements` (team), `MidgardMacMaps-AdHoc.entitlements`: App Sandbox and the client network entitlement | `MidgardiOSMaps.entitlements` (team), `MidgardiOSMaps-NoTeam.entitlements`; iOS has no network entitlement |
+| Entitlements | `MidgardMacMaps.entitlements` (team), `MidgardMacMaps-AdHoc.entitlements`: App Sandbox, the client network entitlement and read access to the files the user picks (Your Data) | `MidgardiOSMaps.entitlements` (team), `MidgardiOSMaps-NoTeam.entitlements`; iOS has no network entitlement |
+| App Transport Security | the default, plus `NSAllowsLocalNetworking` only (loopback HTTP for a gateway or feed on this Mac) | the default |
 
 Both link `MidgardGlobeKit`. Content: the signed release `v0.1.0-rc.3` (`ea5899ab`),
 plus Heimdall's MAP and 3D views with their map tiles (Phase I; the planned tag is
@@ -194,7 +195,8 @@ failures.
 
 The apps show the signed release's own built-in sample data (owner decision, 22
 November 2026): exactly what the `v0.1.0-rc.3` web consoles show in mock mode
-(`sdk/ts/src/mock/`), with no feeds and no network. Each app's `Info.plist` has
+(`sdk/ts/src/mock/`), with no feeds and no network of its own (the user may add
+their own data, a gateway or feeds: [Your data](#your-data-phase-j)). Each app's `Info.plist` has
 `MidgardDataSource = sample`, so:
 
 - the data is `clients/demo/sample/<release>/sample.json`, compiled into the core
@@ -418,7 +420,9 @@ numbers of the web console on `heimdall_3dmaps` (`products/heimdall/ui/src/globe
   CC BY 4.0, the 2016 layer only), Mapzen terrain tiles (terrarium, AWS Open Data,
   attribution), VersaTiles OpenStreetMap vector tiles (ODbL), Natural Earth (public
   domain, bundled).
-- **The tile loader** (`Tiles/`), the app's only network use: the three hosts
+- **The tile loader** (`Tiles/`), the app's only network use with fixed hosts (the
+  hosts the user adds in Your Data are a separate list, see
+  [Your data](#your-data-phase-j)): the three hosts
   `tiles.maps.eox.at`, `s3.amazonaws.com` and `tiles.versatiles.org`, and only the one URL
   spelling each tile has (`TileSet.allowed`); HTTPS only (App Transport Security's
   default, no exception); no cookies, credentials, URL cache or redirects (a redirect is
@@ -453,6 +457,81 @@ shown beside the folding ⓘ CREDITS; the camera and map readouts are 11 pt in t
 heading colour (the web's 9 px; at 9 pt the Mac's contrast audit failed them); and a
 decode past its time limit is abandoned rather than its worker killed, since a Swift
 task cannot be stopped from outside.
+
+## Your data (Phase J)
+
+Both apps let the user add their own data, as the guides describe, from one **Your
+Data** screen: on the Mac Session ▸ Your Data… (⇧⌘D), its own window, and a Settings
+tab, and files dropped on any window are imported; on the iPhone the session menu's
+"Your data". It lists:
+
+- **Sample**: the release's signed sample data (always there, never live).
+- **Imported files**: pick an `ontology.json` and JSON Lines data files (`.jsonl`, or
+  `.json` holding lines) with the system picker (the Mac's open panel, the iPhone's
+  Files), as [Import your own data](../../../docs/guides/IMPORT_YOUR_OWN_DATA.md)
+  describes. They are checked in the core by the very parsers `mg-admin import` and
+  the gateway use (`services/ontology-import`): all or nothing, the first bad line
+  refuses the whole import and is named with its file (`bad.jsonl: import refused: line
+  1 (transformer/TX-9): "rating_kva" must be an integer, not "500"`), an import never
+  replaces an object, links must resolve, and objects without the purpose `operations`
+  import but nobody can read them (the summary says how many). The import is the
+  audited action `midgard.importData` in Midgard's ledger; removal is
+  `midgard.removeImportedData`. The files are kept sealed under the device root
+  (`user-data.sealed`, AES-256-GCM under the ML-KEM-wrapped key, as the state files)
+  and installed again, checked again, at each sign-in. Imported objects keep their
+  marking and compartments: rows above a persona are withheld, as sample rows are.
+  They show in Object Fabric (each imported type's "updated" reads `imported ·
+  <files>`), Data Search, Search Around (over the imported links, as the gateway walks
+  them) and the inspectors; an imported action's effect is applied in memory. Heimdall
+  observation files (`samples/4-heimdall-observations/`, and the tab-separated lines
+  `convert.py observations` writes) are accepted too.
+- **Enclosure gateway**: an address, username, password and, if the account has one,
+  an authenticator code, over the gateway's documented API (`/login`, `/whoami`,
+  `/object-types`, `/query`, `/search-around`, `/approvals`, `/actions`, `/audit`,
+  `/policies`, `/policy/simulate`, the platform read models, `/logout`). The address
+  follows the SDK's rule (`https://` anywhere, `http://` only on loopback; on the iPhone
+  ATS keeps it to HTTPS). Connected, the banner reads "LIVE · <host> · Midgard's
+  screens read this gateway…", Midgard's eleven screens read the gateway (its answers
+  checked strictly against the console's read models, the keys a gateway adds beyond
+  them left out), its actions and computed reads go to it, and Admin's screens say
+  they are not served by it and stay empty. Other consoles keep the sample data under
+  their own banners. The token is held in memory only, never written, logged or sent
+  elsewhere; Disconnect revokes it (`/logout`) and returns to the sample and imported
+  data.
+- **Feeds**: a name, an `https://` URL serving Heimdall observations (JSON, or JSON
+  Lines) and an interval (30 s at least, 60 s by default), read only while Heimdall's
+  Operating Picture is open. Not signed by a certified mesh identity, so each is an
+  **UNVERIFIED FEED** layer, legend entry and Feeds row (`heimdall.feeds`, `auth`
+  false), never fused into a signed track.
+- **Addresses**: the gateway's and the feeds' addresses, the only hosts the app may
+  reach for the user's data (`UserHTTPClient`, hardened as the tile loader: an
+  ephemeral session, no cookies, credentials store or URL cache, the User-Agent
+  `MidgardMaps/0.1`, redirects refused, 15 s, bodies capped at 8 MiB). The tile hosts are
+  a separate list.
+
+On the picture the user's layers are drawn apart from the tracks: an open diamond in
+the warning tone for each observation of an UNVERIFIED FEED, a square in the accent for
+each imported object with a float `lat`/`lon` (or `latitude`/`longitude`); MAP and 3D
+place them exactly, with a legend; the 2D reference layout, a schematic, places them by
+the least-squares fit of the five sample tracks' two layouts (within about 5 %), and
+leaves off what falls outside it. The LAYERS list has a switch per layer.
+
+`check-edition.sh` still guarantees that nothing is bundled: it fails an app carrying a
+data file (`.jsonl`, `.tsv`, `.csv`, `.mgdemo`, `.geojson`, `.ndjson`) or a resource that
+names a leak archive or the local live suite's area, switches or feed hosts, and one
+whose ATS asks for more than `NSAllowsLocalNetworking`. Tests: `clients/core/tests/
+user_data.rs` (the guide's example and the sample sets accepted, the ontology fixtures
+refused, all or nothing, withheld imported rows, observations, the address rule);
+`UserDataTests` (a loopback stub: sign-in, a query, redirects, a feed poll) and
+`AppModelTests` (import, refusal, restore, removal over the real core); one
+`YourDataFlowTests` per app.
+
+Where the apps knowingly differ from the guide: imported data has one ontology (another
+is refused until the imported data is removed); an object type the sample data already
+declares (`aircraft`, `facility`, `sensor_feed`, `crew_member`, `maintenance_event`) is
+refused; no `policy.json` is imported (imported actions follow the sample's personas and
+its human gate, and their effects last until the app quits); a file of the same name is
+not imported twice; and refusals say "this app" where `mg-admin` says "the enclosure".
 
 ## Signing
 
