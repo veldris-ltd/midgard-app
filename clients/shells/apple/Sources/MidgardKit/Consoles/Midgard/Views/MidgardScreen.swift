@@ -94,12 +94,12 @@ struct MidgardScreenContext {
 
     /// On the iPhone the console's banner and header open the page (the web's narrow
     /// layout), in the scroll.
-    @ViewBuilder func header(_ screen: String) -> some View {
+    @MainActor @ViewBuilder func header(_ screen: String) -> some View {
         if compact {
             VStack(spacing: 0) {
                 WebClassificationBanner(level: MidgardChrome.banner.level, text: MidgardChrome.banner.text, compact: true)
                 WebConsoleHeader(product: "Midgard", accent: .midgard,
-                                 context: MidgardChrome.item(for: screen)?.context ?? "", seals: MidgardChrome.seals,
+                                 context: MidgardChrome.item(for: screen)?.context ?? "", seals: MidgardChrome.seals(live: app.userData.live),
                                  compact: true) { EmptyView() }
             }
         }
@@ -148,13 +148,16 @@ struct MidgardWithheld: View {
 /// the navigation beside the screen, 1 pt rules between. [DD-7]
 public struct MidgardConsoleFrame<Nav: View, Content: View, Trailing: View>: View {
     let context: String
+    let seals: [(WebStatusPill.Status, String)]
     let nav: Nav
     let content: Content
     let trailing: Trailing
 
-    public init(context: String, @ViewBuilder nav: () -> Nav, @ViewBuilder content: () -> Content,
-                @ViewBuilder trailing: () -> Trailing) {
+    /// `seals` are the header's (`MidgardChrome.seals(live:)`).
+    public init(context: String, seals: [(WebStatusPill.Status, String)] = MidgardChrome.seals, @ViewBuilder nav: () -> Nav,
+                @ViewBuilder content: () -> Content, @ViewBuilder trailing: () -> Trailing) {
         self.context = context
+        self.seals = seals
         self.nav = nav()
         self.content = content()
         self.trailing = trailing()
@@ -162,7 +165,7 @@ public struct MidgardConsoleFrame<Nav: View, Content: View, Trailing: View>: Vie
 
     public var body: some View {
         WebConsoleFrame(banner: MidgardChrome.banner, product: "Midgard", accent: .midgard, context: context,
-                        seals: MidgardChrome.seals) {
+                        seals: seals) {
             nav
         } content: {
             content

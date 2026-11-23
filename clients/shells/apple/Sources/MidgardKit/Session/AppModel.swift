@@ -57,6 +57,13 @@ public final class AppModel: ObservableObject {
 
     public var chipsPresentation: StatusChipsPresentation? { chips.map(StatusChipsPresentation.init) }
 
+    /// The name the persona chip shows for `persona`: connected to a gateway, the
+    /// subject the gateway signed in (its `/whoami`), never a sample persona's name;
+    /// otherwise the sample persona's. [AC-C-13]
+    public func signedInName(_ persona: PersonaInfo) -> String {
+        userData.live?.subject ?? persona.display
+    }
+
     /// Whether a persona is signed in (the console shell is shown).
     public var isUnlocked: Bool {
         if case .unlocked = phase { return true }

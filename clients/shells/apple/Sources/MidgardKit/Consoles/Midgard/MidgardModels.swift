@@ -64,8 +64,11 @@ public enum MidgardOutcome: Equatable {
 extension AppModel {
     /// Make an action, sync, and say what became of it. [FR-C-4]
     func midgardRun(_ verb: String, _ target: String, _ params: [(String, String)] = []) async -> MidgardOutcome {
-        // Connected: the gateway runs it, and audits it.
-        if userData.live != nil { return await userData.liveRun(verb, target, params) }
+        // Connected: the gateway runs Midgard's and Admin's, and audits them; the other
+        // consoles are not served by it and keep acting on the sample data.
+        if userData.live != nil, verb.hasPrefix("midgard.") || verb.hasPrefix("admin.") {
+            return await userData.liveRun(verb, target, params)
+        }
         let input = ActionInput(verb: verb, target: target, params: params.map { KeyValue(key: $0.0, value: $0.1) })
         guard let id = await requestAction(input) else {
             return .failed(message ?? "The action could not be made.")

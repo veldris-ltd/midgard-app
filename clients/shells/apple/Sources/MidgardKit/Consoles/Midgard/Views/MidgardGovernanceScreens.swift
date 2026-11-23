@@ -281,7 +281,7 @@ struct AuditScreen: View {
         let rows = model.rows
         WebPageHeader(number: 9, section: "AUDIT", title: "Audit lineage") {
             WebStatBlock(value: "\(model.total)", label: "RECORDS")
-            WebStatBlock(value: "\(model.signedPercent)%", label: "ML-DSA SIGNED", accent: .midgard)
+            WebStatBlock(value: model.signedPercent.map { "\($0)%" } ?? "—", label: "ML-DSA SIGNED", accent: .midgard)
             WebStatBlock(value: "\(model.total - model.signed)", label: "UNVERIFIED")
             exportButton
         }

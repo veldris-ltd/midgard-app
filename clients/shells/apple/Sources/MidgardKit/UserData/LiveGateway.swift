@@ -18,6 +18,15 @@ public struct LiveSession: Sendable {
     public let roles: [String]
     public let compartments: [String]
     public let purpose: String
+
+    /// What this app knows of the connection's transport, for the header: "HTTPS", or
+    /// "LOOPBACK" for plain HTTP to this device (the address rule allows no other).
+    public var transport: String {
+        if base.scheme?.lowercased() == "https" { return "HTTPS" }
+        let h = (base.host ?? "").lowercased()
+        if h == "localhost" || h == "::1" || h == "[::1]" || h.hasPrefix("127.") { return "LOOPBACK" }
+        return "HTTP"
+    }
 }
 
 /// Why a gateway call did not give an answer.

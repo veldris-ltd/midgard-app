@@ -172,7 +172,8 @@ public final class AuditModel: ObservableObject {
 
     public var total: Int { records.count }
     public var signed: Int { records.filter { $0.signature == .verified || $0.signature == .device }.count }
-    public var signedPercent: Int { total == 0 ? 100 : Int((100 * Double(signed) / Double(total)).rounded()) }
+    /// The share of records signed, or nil with no records (shown as "—", never 100 %).
+    public var signedPercent: Int? { total == 0 ? nil : Int((100 * Double(signed) / Double(total)).rounded()) }
 
     public var currentIndex: Int? {
         let r = rows

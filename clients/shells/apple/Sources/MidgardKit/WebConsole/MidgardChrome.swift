@@ -10,7 +10,18 @@ import SwiftUI
 public enum MidgardChrome {
     /// `ClassificationBanner level="confidential"` with its default text.
     public static let banner = (level: MarkingLevelChip.confidential, text: "CONFIDENTIAL · RECIPIENT EYES ONLY")
+    /// The web console's seals over the sample data (its own fixed chrome).
     public static let seals: [(WebStatusPill.Status, String)] = [(.secure, "PQ-SEALED"), (.online, "AIR-GAP")]
+
+    /// The seals the header shows: the web's over the sample data; connected to a
+    /// gateway, only what this app knows of the connection, its transport ("HTTPS", or
+    /// "LOOPBACK" for plain HTTP to this device). A gateway reached over HTTPS or
+    /// loopback is neither PQ-sealed nor air-gapped from the app's point of view, so
+    /// those seals are not shown then. [AC-C-13]
+    public static func seals(live: LiveSession?) -> [(WebStatusPill.Status, String)] {
+        guard let live else { return seals }
+        return [(.online, "LIVE · \(live.transport)")]
+    }
     public static let accent = MGWebAccent.midgard
 
     /// One navigation item: the web's id, label and icon, and the screen it opens.
