@@ -108,6 +108,7 @@ struct MidgardScreenContext {
 /// The iPhone's button that opens a screen's inspector sheet ("Inspect …").
 struct MidgardInspectButton: View {
     let title: String
+    var identifier = "mg.midgard.inspect"
     let action: () -> Void
 
     var body: some View {
@@ -124,7 +125,7 @@ struct MidgardInspectButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier("mg.midgard.inspect")
+        .accessibilityIdentifier(identifier)
     }
 }
 
@@ -160,9 +161,49 @@ public struct MidgardConsoleFrame<Nav: View, Content: View, Trailing: View>: Vie
     }
 
     public var body: some View {
+        WebConsoleFrame(banner: MidgardChrome.banner, product: "Midgard", accent: .midgard, context: context,
+                        seals: MidgardChrome.seals) {
+            nav
+        } content: {
+            content
+        } trailing: {
+            trailing
+        }
+    }
+}
+
+/// A console's frame on the Mac (`ConsoleShell`): the classification banner, the header
+/// (mark, the screen's context, the seals, then the toolbar the app passes), and the
+/// navigation beside the screen, 1 pt rules between. Midgard's and Admin's. [DD-7]
+public struct WebConsoleFrame<Nav: View, Content: View, Trailing: View>: View {
+    let banner: (level: MarkingLevelChip, text: String)
+    let product: String
+    let accent: MGWebAccent
+    let tile: WebProductMark.Tile?
+    let context: String
+    let seals: [(WebStatusPill.Status, String)]
+    let nav: Nav
+    let content: Content
+    let trailing: Trailing
+
+    public init(banner: (level: MarkingLevelChip, text: String), product: String, accent: MGWebAccent,
+                tile: WebProductMark.Tile? = nil, context: String, seals: [(WebStatusPill.Status, String)],
+                @ViewBuilder nav: () -> Nav, @ViewBuilder content: () -> Content, @ViewBuilder trailing: () -> Trailing) {
+        self.banner = banner
+        self.product = product
+        self.accent = accent
+        self.tile = tile
+        self.context = context
+        self.seals = seals
+        self.nav = nav()
+        self.content = content()
+        self.trailing = trailing()
+    }
+
+    public var body: some View {
         VStack(spacing: 0) {
-            WebClassificationBanner(level: MidgardChrome.banner.level, text: MidgardChrome.banner.text)
-            WebConsoleHeader(product: "Midgard", accent: .midgard, context: context, seals: MidgardChrome.seals) { trailing }
+            WebClassificationBanner(level: banner.level, text: banner.text)
+            WebConsoleHeader(product: product, accent: accent, context: context, seals: seals, tile: tile) { trailing }
             HStack(spacing: 0) {
                 nav
                     .frame(width: 232)

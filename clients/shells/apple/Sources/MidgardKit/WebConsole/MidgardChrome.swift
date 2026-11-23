@@ -73,23 +73,67 @@ public struct WebConsoleHeader<Trailing: View>: View {
     let context: String
     let seals: [(WebStatusPill.Status, String)]
     let compact: Bool
+    let tile: WebProductMark.Tile?
     let trailing: Trailing
 
     public init(product: String, accent: MGWebAccent, context: String, seals: [(WebStatusPill.Status, String)],
-                compact: Bool = false, @ViewBuilder trailing: () -> Trailing) {
+                compact: Bool = false, tile: WebProductMark.Tile? = nil, @ViewBuilder trailing: () -> Trailing) {
         self.product = product
         self.accent = accent
         self.context = context
         self.seals = seals
         self.compact = compact
+        self.tile = tile
         self.trailing = trailing()
     }
 
+    private var shownSeals: [(WebStatusPill.Status, String)] { compact ? Array(seals.prefix(1)) : seals }
+
     public var body: some View {
+        Group {
+            if compact && !typeSize.isAccessibilitySize {
+                // The web's narrow header wraps (`flex-wrap`): the toolbar goes under the
+                // mark and seal when the three do not fit on one line.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) {
+                        WebProductMark(name: product, accent: accent, tile: tile)
+                        Spacer(minLength: 8)
+                        seal
+                        trailing
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 8) {
+                            WebProductMark(name: product, accent: accent, tile: tile)
+                            Spacer(minLength: 8)
+                            seal
+                        }
+                        trailing
+                    }
+                }
+            } else {
+                full
+            }
+        }
+        .padding(.horizontal, compact ? 10 : 16)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+        .background(MGWeb.bgSunken)
+        .overlay(alignment: .bottom) { Rectangle().fill(MGWeb.border).frame(height: 1) }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text("\(product) header"))
+    }
+
+    private var seal: some View {
+        ForEach(Array(shownSeals.enumerated()), id: \.offset) { _, seal in
+            WebStatusPill(seal.0, seal.1, live: accent.text)
+        }
+    }
+
+    private var full: some View {
         (typeSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
             : AnyLayout(HStackLayout(spacing: compact ? 8 : 14))) {
-            WebProductMark(name: product, accent: accent)
+            WebProductMark(name: product, accent: accent, tile: tile)
             if !compact {
                 Text(context)
                     .font(MGWebFont.mono(11))
@@ -100,18 +144,9 @@ public struct WebConsoleHeader<Trailing: View>: View {
                     .accessibilityIdentifier("mg.header.context")
             }
             if !typeSize.isAccessibilitySize { Spacer(minLength: 8) }
-            ForEach(Array((compact ? Array(seals.prefix(1)) : seals).enumerated()), id: \.offset) { _, seal in
-                WebStatusPill(seal.0, seal.1, live: accent.text)
-            }
+            seal
             trailing
         }
-        .padding(.horizontal, compact ? 10 : 16)
-        .padding(.vertical, 6)
-        .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
-        .background(MGWeb.bgSunken)
-        .overlay(alignment: .bottom) { Rectangle().fill(MGWeb.border).frame(height: 1) }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(Text("\(product) header"))
     }
 }
 
@@ -125,18 +160,22 @@ public struct WebConsolePage<Main: View, Aside: View, AsideFoot: View>: View {
     let asideIdentifier: String
     @Binding var inspecting: Bool
     let top: AnyView?
+    let asideWidth: CGFloat
     let main: Main
     let aside: Aside
     let asideFoot: AsideFoot
 
-    /// `top` heads the scroll on the iPhone (the console's banner and header).
+    /// `top` heads the scroll on the iPhone (the console's banner and header);
+    /// `asideWidth` is the screen's inspector rail on the Mac (the web's `asideWidth`).
     public init(compact: Bool, identifier: String, asideIdentifier: String, inspecting: Binding<Bool>, top: AnyView? = nil,
-                @ViewBuilder main: () -> Main, @ViewBuilder aside: () -> Aside, @ViewBuilder asideFoot: () -> AsideFoot) {
+                asideWidth: CGFloat = 340, @ViewBuilder main: () -> Main, @ViewBuilder aside: () -> Aside,
+                @ViewBuilder asideFoot: () -> AsideFoot) {
         self.compact = compact
         self.identifier = identifier
         self.asideIdentifier = asideIdentifier
         self._inspecting = inspecting
         self.top = top
+        self.asideWidth = asideWidth
         self.main = main()
         self.aside = aside()
         self.asideFoot = asideFoot()
@@ -162,7 +201,7 @@ public struct WebConsolePage<Main: View, Aside: View, AsideFoot: View>: View {
             HStack(spacing: 0) {
                 mainColumn(padding: EdgeInsets(top: 20, leading: 24, bottom: 24, trailing: 24))
                 Rectangle().fill(MGWeb.border).frame(width: 1).accessibilityHidden(true)
-                asideColumn.frame(width: 340)
+                asideColumn.frame(width: asideWidth)
             }
         }
     }

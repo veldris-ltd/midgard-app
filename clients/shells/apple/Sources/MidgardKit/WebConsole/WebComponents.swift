@@ -57,21 +57,38 @@ public struct WebClassificationBanner: View {
 /// `ProductMark` (size sm, no descriptor): the initial tile in the product tint and the
 /// Oxanium word mark.
 public struct WebProductMark: View {
+    /// A mark's own tile colours, where the product has no accent of its own (Admin's
+    /// grey `--grey-100` initial on a neutral tint).
+    public struct Tile {
+        public let text: Color
+        public let tint: Color
+
+        public init(text: Color, tint: Color) {
+            self.text = text
+            self.tint = tint
+        }
+
+        /// `ProductMark product="admin"`.
+        public static let admin = Tile(text: MGWeb.grey100, tint: Color(mgHex: 0x7F7F7F, opacity: 0.16))
+    }
+
     let name: String
     let accent: MGWebAccent
+    let tile: Tile?
 
-    public init(name: String, accent: MGWebAccent) {
+    public init(name: String, accent: MGWebAccent, tile: Tile? = nil) {
         self.name = name
         self.accent = accent
+        self.tile = tile
     }
 
     public var body: some View {
         HStack(spacing: 7) {
             Text(String(name.prefix(1)))
                 .font(MGWebFont.display(13, .footnote).weight(.black))
-                .foregroundStyle(accent.text)
+                .foregroundStyle(tile?.text ?? accent.text)
                 .frame(minWidth: 26, minHeight: 26)
-                .background(RoundedRectangle(cornerRadius: 7).fill(accent.tint))
+                .background(RoundedRectangle(cornerRadius: 7).fill(tile?.tint ?? accent.tint))
                 .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(MGWeb.borderStrong))
             Text(name.uppercased())
                 .font(MGWebFont.display(13, .footnote).weight(.bold))
@@ -260,15 +277,18 @@ public struct WebSectionLabel: View {
     let number: Int
     let text: String
     let accent: MGWebAccent
+    let muted: Bool
 
-    public init(number: Int, _ text: String, accent: MGWebAccent) {
+    /// `muted`: the numeral in the faint colour too (the web's `muted` prop).
+    public init(number: Int, _ text: String, accent: MGWebAccent, muted: Bool = false) {
         self.number = number
         self.text = text
         self.accent = accent
+        self.muted = muted
     }
 
     public var body: some View {
-        (Text(String(format: "%02d //  ", number)).foregroundStyle(accent.baseText)
+        (Text(String(format: "%02d //  ", number)).foregroundStyle(muted ? MGWeb.textFaint : accent.baseText)
             + Text(text.uppercased()).foregroundStyle(MGWeb.textMuted))
             .font(MGWebFont.mono(11))
             .mgTracking(0.14, size: MGWebFont.monoSize(11))
@@ -295,9 +315,9 @@ public struct WebProvenanceTag: View {
             .padding(.vertical, 1)
             .background(RoundedRectangle(cornerRadius: MGRadius.xs).fill(MGWeb.surfaceInset))
             .overlay(RoundedRectangle(cornerRadius: MGRadius.xs).strokeBorder(MGWeb.border))
-            .help(title)
+            .help(title.isEmpty ? id : title)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text("\(id): \(title)"))
+            .accessibilityLabel(Text(title.isEmpty ? id : "\(id): \(title)"))
             .accessibilityAddTraits(.isStaticText)
     }
 }

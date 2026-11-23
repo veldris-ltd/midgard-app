@@ -66,6 +66,12 @@ public enum WebIcon {
         case "cpu": return "cpu"
         case "clock": return "clock"
         case "git-branch": return "arrow.triangle.branch"
+        case "git-commit": return "smallcircle.filled.circle"
+        case "gauge": return "gauge.with.dots.needle.33percent"
+        case "users": return "person.2"
+        case "alert-triangle": return "exclamationmark.triangle"
+        case "sparkles": return "sparkles"
+        case "undo-2": return "arrow.uturn.backward"
         default: return "square"
         }
     }
