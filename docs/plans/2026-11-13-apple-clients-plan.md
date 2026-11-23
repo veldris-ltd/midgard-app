@@ -7045,3 +7045,23 @@ owner's sign-off:
 - **The 3D entry is in the navigation bar** in the 3D and Maps iPhone apps, not a row
   above the picture, so the picture's lowest track label stays above the console bar.
 - **The Authorise button has dark text** on the accent fill, for contrast.
+
+## 23 Nov: two apps, one branch
+
+Owner decision (23 Nov 2026), replacing the three editions per platform of 22 Nov:
+
+- **Two apps only**, both the Maps edition (the 3D view now, Phase I's map tiles to come):
+  the Mac app `MidgardMacMaps` (bundle `io.veldris.midgardmaps.mac`) and the iPhone app
+  `MidgardiOSMaps` (`io.veldris.midgardmaps.ios`), each shown as "Midgard". The
+  release-only apps (`io.veldris.midgard.*`) and the 3D-only apps
+  (`io.veldris.midgard3d.*`) are dropped, with their targets, schemes, Info.plists,
+  entitlements and UI-test targets.
+- **One branch, `clients_apple`**, holds both apps and replaces `clients_mac` and
+  `clients_iphone`, which are kept unchanged until the owner decides about them.
+  `clients_shared` stays the shared base and is merged into `clients_apple` as before.
+- `tools/check-edition.sh`, `apple-projects.test.sh`, `apple-edition.test.sh`,
+  `audit.sh` and its test cover the one edition. The sandbox, own-entitlements and
+  no-unexpected-network checks stay: the client network entitlement only (required on
+  the Mac), and no server, networking or temporary-exception entitlement.
+- `MidgardGlobeKit` and its link-time hook are unchanged.
+- The planned tag is `apple-midgard3dmaps-v0.1.0-rc.3` (Stage 3); it is not created yet.
