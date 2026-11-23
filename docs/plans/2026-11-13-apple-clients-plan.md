@@ -7176,3 +7176,48 @@ accent with the web's grey ADMIN mark.
 
 The README's "Admin's screens (Phase D)" section lists where the apps knowingly differ
 from the web.
+
+## Phase J done (your own data) (23 Nov 2026)
+
+Both apps let the user add their own data, as the guides describe, from one Your Data
+screen (Mac: Session ▸ Your Data…, ⇧⌘D, and a Settings tab, and files dropped on a
+window; iPhone: the session menu). The README's "Your data (Phase J)" section has the
+detail.
+
+- **Import JSON files** (`docs/guides/IMPORT_YOUR_OWN_DATA.md`): the ontology and import
+  parsers moved from `http-gateway` and the JSON codec, strict readers and marking
+  bands from `service-runtime` into `services/ontology-import` (re-exported at their
+  old paths; `cargo test -p http-gateway` passes), which the client core links
+  (`clients/core/src/user_data.rs`). All or nothing, the first bad line named with its
+  file, never replacing an object, links resolved, the `operations` purpose noted. The
+  import and its removal are audited actions (`midgard.importData`,
+  `midgard.removeImportedData`); the files are kept sealed under the device root
+  (`user-data.sealed`) and checked again at each sign-in. Imported objects keep their
+  markings (withheld above a persona) and show in Object Fabric, Data Search, Search
+  Around (over the imported links) and the inspectors. Heimdall observation files and
+  `heimdall-source` lines are accepted as UNVERIFIED FEED layers.
+- **Live:** an enclosure gateway (address by the SDK's rule, username, password,
+  authenticator code): Midgard's screens read it under a LIVE banner naming the host;
+  Admin's say they are not served; the token is in memory only. Feed URLs are polled
+  while Heimdall's picture is open (30 s at least, 60 s by default) and drawn as
+  UNVERIFIED FEED layers, never fused. One hardened client (`UserHTTPClient`) for the
+  user's hosts; the tile hosts stay a separate list. The Mac app gains read access to
+  user-selected files and ATS `NSAllowsLocalNetworking` only; `check-edition.sh` now
+  fails a bundled data file, leak-archive or live-suite markers in a resource, and ATS
+  beyond loopback HTTP.
+- **Phase D leftover:** on the iPhone at accessibility text sizes the banners and
+  status chips fold into one 44 pt header (and the status line stays one line), so a
+  console's list keeps room above the console bar.
+- **Verified:** the Mac app signed in to a local gateway built from this tree (state in
+  the scratchpad, the utility example imported, one user enrolled) and read Object
+  Fabric and Audit live; feeds from a loopback server polled on both apps.
+
+Deviations from the docs: one ontology per device's imported data (another is refused
+until the data is removed); an object type the sample data declares is refused; no
+`policy.json` is imported (imported actions follow the sample personas and human gate,
+their effects kept in memory only); a file name is imported once; refusals say "this
+app" where `mg-admin` says "the enclosure"; keys a gateway adds beyond the console
+contract (the audit row's `outcome`) are left out before the strict decode; the 2D
+reference layout places user points by a fit of the sample tracks' two layouts (MAP
+and 3D place them exactly); the system file pickers are not driven by the UI tests
+(their files come from the launch environment).
