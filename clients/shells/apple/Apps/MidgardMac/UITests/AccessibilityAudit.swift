@@ -3,8 +3,9 @@ import XCTest
 
 /// The accessibility audit of the macOS apps (clients/shells/apple/audit.sh), both
 /// editions: the sign-in screen, each console's first screen (Admin's Overview among
-/// them), two more of Midgard's (Data Search, Policies) and Admin's Approvals, and the
-/// screens only this edition has (`Edition.auditedScreens`: Heimdall's MAP and 3D
+/// them), two more of Midgard's (Data Search, Policies), Admin's Approvals, Heimdall's
+/// Workflows and Decision Lineage, the Your Data window, and the screens only this
+/// edition has (`Edition.auditedScreens`: Heimdall's MAP and 3D
 /// views). Dynamic Type is measured on iOS only; its macOS test fails by design and the
 /// scheme skips it, so `xcodebuild test` stays green while audit.sh still reads it as
 /// not measured here. [RC-49] [AC-C-11]
@@ -24,6 +25,21 @@ final class AccessibilityAudit: AccessibilityAuditBase {
             Nav.openConsole(app, 2)
             Nav.openScreen(app, "approvals")
         }
-        return list + Edition.auditedScreens
+        for slug in ["workflows", "decision-lineage"] {
+            list.append { app in
+                Nav.openConsole(app, 3)
+                Nav.openScreen(app, slug)
+            }
+        }
+        // Last, as on the iPhone (here it is a window of its own).
+        let yourData: (XCUIApplication) -> Void = { app in
+            Nav.signedIn(app)
+            if !app.windows.containing(.any, identifier: "mg.yourdata").firstMatch.exists {
+                app.typeKey("d", modifierFlags: [.command, .shift])
+            }
+            XCTAssertTrue(app.windows.containing(.any, identifier: "mg.yourdata").firstMatch.waitForExistence(timeout: 10),
+                          "Your Data did not open")
+        }
+        return list + Edition.auditedScreens + [yourData]
     }
 }
