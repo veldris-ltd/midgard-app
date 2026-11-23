@@ -26,7 +26,9 @@
 //!   heimdall.authoriseWorkflow` on `heimdall.workflows/<id>`, where the mock writes
 //!   `Authorise · <title>` on `workflow/<id>`): that wording is what this device's
 //!   audit key checks before it signs the row, so the row shows as signed. The
-//!   workflow row itself does not change (nor does the mock's).
+//!   workflow row itself does not change (nor does the mock's). A refusal is audited
+//!   too and takes the next number in the same sequence (so a refused attempt moves
+//!   the next applied row to `D-4474`), as every action the enclosure decides is.
 //!
 //! The other consoles' actions come with their phases (Phases C to H, Task 2); until
 //! then an action on them is refused as unknown ("no such action").
@@ -97,6 +99,8 @@ fn authorise_workflow(state: &mut DemoState, _grant: &Grant, req: &ActionRequest
         .find(|(k, _)| k == "humanGateToken")
         .map(|(_, v)| v.as_str())
         .filter(|v| !v.is_empty());
+    // In sample mode the human gate is the operator's Authorise press itself: the token
+    // only shows it happened, and no handler may ever send one automatically.
     if gated && token.is_none() {
         return Outcome::Refused(format!("Human gate required for action \"{title}\""));
     }
