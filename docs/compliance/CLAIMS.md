@@ -1256,7 +1256,7 @@ Personal data can be erased and exported per subject, and each durable store enf
 - Source:
   - [`docs/compliance/RETENTION.md:1`](../../docs/compliance/RETENTION.md)
   - [`services/iam/src/directory.rs:67`](../../services/iam/src/directory.rs)
-  - [`docs/compliance/DATA_RESIDENCY.md:57:Act as data controller`](../../docs/compliance/DATA_RESIDENCY.md)
+  - [`docs/compliance/DATA_RESIDENCY.md:64:Act as data controller`](../../docs/compliance/DATA_RESIDENCY.md)
 
 ## Outside this repository
 
