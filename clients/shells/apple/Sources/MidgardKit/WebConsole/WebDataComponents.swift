@@ -411,6 +411,7 @@ public struct WebTerminal: View {
         .overlay(RoundedRectangle(cornerRadius: MGRadius.md).strokeBorder(MGWeb.border))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(([title].compactMap { $0 } + lines).joined(separator: ". ")))
+        .accessibilityAddTraits(.isStaticText)
     }
 
     @ViewBuilder private func lineView(_ line: String) -> some View {
@@ -821,6 +822,7 @@ public struct WebTable<Row>: View {
         .clipShape(RoundedRectangle(cornerRadius: MGRadius.md))
         .overlay(RoundedRectangle(cornerRadius: MGRadius.md).strokeBorder(MGWeb.border))
         .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text("Table: " + columns.map(\.header).joined(separator: ", ")))
         .accessibilityIdentifier(identifier)
     }
 
@@ -924,6 +926,7 @@ public struct WebTable<Row>: View {
             content
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text(spoken(row)))
+                .accessibilityAddTraits(.isStaticText)
                 .accessibilityIdentifier("\(identifier).row.\(id(row))")
         }
     }

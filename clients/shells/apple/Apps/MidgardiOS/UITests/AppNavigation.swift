@@ -84,8 +84,13 @@ enum AppNavigation {
         signIn(app)
         selectConsole(app, 1)
         let row = app.buttons.matching(NSPredicate(format: "identifier MATCHES %@", "mg\\.[0-9]+\\.midgard\\.\(slug)")).firstMatch
-        // At accessibility text sizes the row can be several screens down the list.
-        for _ in 0..<8 where !row.exists { app.swipeUp() }
+        // At accessibility text sizes the row can be screens down the list: the list's
+        // search brings it to the top.
+        if !row.exists {
+            let field = app.descendants(matching: .any)["mg.search.midgard"]
+            field.tap()
+            field.typeText(String(slug.prefix(5)))
+        }
         tapClearOfConsoleBar(app, row)
         XCTAssertTrue(app.descendants(matching: .any)["mg.content.midgard.\(slug)"]
             .waitForExistence(timeout: timeout), "Midgard's \(slug) screen did not open")
