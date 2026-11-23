@@ -7065,3 +7065,36 @@ Owner decision (23 Nov 2026), replacing the three editions per platform of 22 No
   the Mac), and no server, networking or temporary-exception entitlement.
 - `MidgardGlobeKit` and its link-time hook are unchanged.
 - The planned tag is `apple-midgard3dmaps-v0.1.0-rc.3` (Stage 3); it is not created yet.
+
+## Phase I done (23 Nov 2026)
+
+Heimdall's MAP and 3D views are in both apps, ported from the web console on
+`heimdall_3dmaps` (its public demo build) and nothing else; the `md_unified` and
+Environment Agency sources above are superseded.
+
+- **View switch:** 2D / MAP / 3D, as the web's `ViewSwitch`, in the Mac's header and the
+  iPhone's navigation bar; the placeholder "3D view" entry is gone. MAP and 3D share the
+  picture's layers, selection and inspector.
+- **3D:** Metal: the lit sphere with day and night from the subsolar point, the
+  graticule, the bundled Natural Earth outlines, the atmosphere; the web's camera
+  (limits, easing, tilt and heading, the presets and REGION list); the five sample
+  tracks at the web build's positions with altitude stems; terrain relief from the
+  terrarium tiles, and the CLEAN, TOPOGRAPHIC and SATELLITE styles.
+- **MAP:** VersaTiles vector tiles over the bundled land, with the web's caps (500
+  labels a tile, 400 candidates a frame, labels cut to 200 characters) and the tracks
+  on top.
+- **Tiles:** one loader in `MidgardGlobeKit` (no separate `MidgardTileKit`: the release
+  and 3D-only apps it was to be kept out of are gone): the three hosts, HTTPS, no
+  cookies, no redirects, a generic User-Agent, the web's byte, size, feature, point and
+  time limits, requests only while a view is open, a 500 MB least-recently-used disk
+  cache, the credits strip, the tile pause after track-driven moves, and the offline
+  fallback.
+- **Entitlements:** unchanged: the Mac app's client network entitlement only; the
+  iPhone app has none and keeps App Transport Security's default.
+- **Tests:** package tests for the geometry, camera and presets against the web values,
+  tile maths, the terrarium sampler, decoding and its limits, the loader's host, scheme,
+  redirect and byte refusals, and cache eviction, on three recorded tiles; one UI test
+  per app (`HeimdallMapsFlowTests`).
+
+The README's "Heimdall's MAP and 3D views" section lists where the apps knowingly differ
+from the web.

@@ -41,9 +41,9 @@ files that are only on `clients_apple`.
 | `Sources/MidgardKit/` | everything both apps share: session (`AppModel`, `AppEnvironment`, the UI-testing environment), Secure Enclave key root, storage paths, design tokens and fonts, the console catalogue, sign-in, lock, chips, banner, acknowledgements |
 | `Sources/MidgardAuditKit/` | `AccessibilityAuditBase`, the accessibility audit each app's UI-test target subclasses |
 | `Sources/MidgardHooks/` | C: the link-time hooks `MidgardKit` reads, as weak defaults (see [Edition](#edition)) |
-| `Sources/MidgardGlobeKit/` | the edition library: Heimdall's "3D view" (a placeholder until Phase I), registered at link time |
+| `Sources/MidgardGlobeKit/` | the edition library, registered at link time: Heimdall's MAP and 3D views and their map tiles (see [Heimdall's MAP and 3D views](#heimdalls-map-and-3d-views-phase-i)), the edition banner and About |
 | `Tests/MidgardKitTests/` | the package tests, including `ContractTests` over every exported binding |
-| `Tests/MidgardGlobeKitTests/` | the edition library's tests: linking it registers it |
+| `Tests/MidgardGlobeKitTests/` | the edition library's tests: linking it registers it; the globe's geometry, presets and camera against the web's values; tile maths, decoding, limits, caches and the loader on three recorded tiles (`Fixtures/`) |
 | `Apps/MidgardMac/` | the macOS app (`clients_apple` only) |
 | `Apps/MidgardiOS/` | the iPhone app (`clients_apple` only) |
 | `audit.sh`, `accessibility.toml`, `audits/` | the on-device accessibility audit and the affordances it measures |
@@ -129,7 +129,7 @@ With a team in `Signing.local.xcconfig` the first signed build may need
 `-allowProvisioningUpdates`.
 
 `test` runs the scheme's UI tests (`SessionFlowTests`, `HeimdallPictureFlowTests`,
-`EditionTests` and `AccessibilityAudit`; add
+`HeimdallMapsFlowTests`, `EditionTests` and `AccessibilityAudit`; add
 `-only-testing:MidgardMacMapsUITests/HeimdallPictureFlowTests`, or
 `MidgardiOSMapsUITests/...`, for one class). The UI tests launch the app with
 `-MidgardUITesting`, which in Debug builds only selects a key root that never prompts and
@@ -158,17 +158,17 @@ drops the release-only and 3D-only apps):
 | Entitlements | `MidgardMacMaps.entitlements` (team), `MidgardMacMaps-AdHoc.entitlements`: App Sandbox and the client network entitlement | `MidgardiOSMaps.entitlements` (team), `MidgardiOSMaps-NoTeam.entitlements`; iOS has no network entitlement |
 
 Both link `MidgardGlobeKit`. Content: the signed release `v0.1.0-rc.3` (`ea5899ab`),
-plus a 3D view in Heimdall; Phase I's map tiles come here (the planned tag is
-`apple-midgard3dmaps-v0.1.0-rc.3`). Until the tile loader (Task I2, its own module
-`MidgardTileKit`) the apps are the 3D view with the Maps edition's banner and
-entitlements. The banners are "Demonstration data. …" (the web consoles' notice) and
+plus Heimdall's MAP and 3D views with their map tiles (Phase I; the planned tag is
+`apple-midgard3dmaps-v0.1.0-rc.3`). The tile loader lives in `MidgardGlobeKit` itself:
+with the release-only and 3D-only apps gone there is no app it must be kept out of, so
+the separate `MidgardTileKit` of the 22 November notes was not needed. The banners are "Demonstration data. …" (the web consoles' notice) and
 "Maps edition, not in the signed release" (`mg.banner.editionmaps`).
 
 Everything the edition shows lives in `MidgardGlobeKit`: the edition banner (at
 accessibility text sizes the compact "Maps edition · not the signed release", with the
 full text as its accessibility label), the About screen (Settings on the Mac, the session
 menu on the iPhone; it names the edition and says it is not the signed release), and
-Heimdall's "3D view" entry on the Operating Picture. MidgardKit only asks an
+Heimdall's MAP and 3D views behind the Operating Picture's view switch. MidgardKit only asks an
 `EditionProvider` for them, and a package test holds its sources (and MidgardHooks') to
 no edition wording, no `Globe` and no Metal import. A missing or unknown `MidgardEdition`
 is the "app misconfigured" failed state, as with `MidgardDataSource`.
@@ -233,6 +233,79 @@ the web's frame (classification banner, header with seals, navigation, picture,
 inspector); the iPhone app shows the picture first and the inspector as a sheet. Where the
 web's colours fail WCAG AA they are lifted to the nearest that passes (`MGWeb`), so the
 accessibility audit still holds.
+
+## Heimdall's MAP and 3D views (Phase I)
+
+The Operating Picture has the web console's view switch, **2D / MAP / 3D** (the Mac's
+header; the iPhone's navigation bar, each button 44 pt). 2D is the reference layout and
+the default; the choice is kept for the window or scene, as the web keeps it for the
+browser. MAP and 3D come from `MidgardGlobeKit` (`GlobeRegistration`, through
+`AppModel.pictureViews`) and share the picture's model: the LAYERS switches, the
+selected track and the inspector are the same in every view (on the iPhone a track
+chosen in MAP or 3D opens the inspector sheet). Both views port the behaviour and the
+numbers of the web console on `heimdall_3dmaps` (`products/heimdall/ui/src/globe/`,
+`map/`, `tiles/`, `tileSource.ts`, `tilePause.ts`), its public demo build.
+
+- **3D** (`Globe/`): Metal, drawn on demand. A lit sphere with day and night shading
+  from the subsolar point (`sun.ts`), the graticule, the bundled Natural Earth 5.1.2
+  outlines (1:110m far out, 1:50m below 3,000 km; `Resources/Outlines`, the web's own
+  files), the atmosphere rim, or a sky inside its shell. The camera has the web's
+  limits and easing (`camera.ts`, `view.ts`): 50–40,000 km, down to the 1.5 km close-up
+  and 150 m over the terrain while tiles are drawn, tilt to 75° (less far out), heading,
+  the sight-line tilt limit over hills, and the presets and REGION list of `presets.ts`
+  (SNOWDONIA and SOUTHERN UPLANDS while the terrain tiles are drawn). Drag to pan; pinch
+  or scroll to zoom; on the Mac the right button, ⌥ or ⌃ to tilt and turn, a trackpad
+  rotate to turn, and arrow keys (Shift to tilt and turn), + and − once the globe has
+  focus; on the iPhone a two-finger twist turns and a two-finger move tilts. The tracks
+  stand at their positions with altitude stems and ground shadows (HEIGHTS ×1–×20, ×4 by
+  default). The styles are CLEAN, TOPOGRAPHIC (tints, hillshade and contours from the
+  terrain) and SATELLITE, with terrain relief from zoom 6.
+- **MAP** (`Map/`): CoreGraphics. VersaTiles vector tiles (OpenStreetMap, Shortbread)
+  over the bundled land, drawn from the nearest loaded ancestor while a tile loads,
+  with the web's caps: 500 labels kept per tile, labels cut to 200 characters, 400
+  label candidates measured a frame (60 drawn), 96 tiles asked for at once, a 64 MB
+  cache besides a 128 MB on-screen cap. The tracks are drawn on top.
+- **The sample tracks' positions.** The signed release's sample tracks carry only the
+  reference layout's x/y. The five tracks are placed at the `lat`/`lon` the web console's
+  build gives them (`SamplePositions`); they are the release's built-in sample data.
+- **Sources** (each listed in the always-shown credits strip and the folding ⓘ CREDITS
+  with its licence and attribution): EOX Sentinel-2 cloudless 2016 (`s2cloudless_3857`,
+  CC BY 4.0, the 2016 layer only), Mapzen terrain tiles (terrarium, AWS Open Data,
+  attribution), VersaTiles OpenStreetMap vector tiles (ODbL), Natural Earth (public
+  domain, bundled).
+- **The tile loader** (`Tiles/`), the app's only network use: the three hosts
+  `tiles.maps.eox.at`, `s3.amazonaws.com` and `tiles.versatiles.org`, and only the one URL
+  spelling each tile has (`TileSet.allowed`); HTTPS only (App Transport Security's
+  default, no exception); no cookies, credentials, URL cache or redirects (a redirect is
+  refused, never followed); the User-Agent `MidgardMaps/0.1`, naming no user, machine or
+  address; 15 s per request; bodies capped as they arrive (1 MB terrain, 2 MB imagery
+  and vector tiles, the web's `MAX_TILE_BYTES`; a larger declared length is refused
+  before reading); raster tiles checked for format and size (256, or 512 for terrain)
+  before and after decoding; vector tiles' features (50,000 a layer, 100,000 a tile) and
+  points (1,000,000) counted before any geometry is built; decoding limited to 2 s.
+  Requests are made only while MAP or 3D is on screen; closing the view destroys the
+  loader and cancels everything queued or in flight. Bodies that passed the checks are
+  kept on disk in the app's caches directory (`<Caches>/<bundle id>/tiles`, in the
+  sandbox container on the Mac), at most 500 MB, least recently used out first.
+- **Paused tiles.** A camera move the tracks decide (the first view, SECTOR NORTH,
+  flying to a track) pauses tile loading, with "MAP TILES PAUSED · PAN AWAY OR CHOOSE A
+  REGION"; the user's own move (a drag, zoom, tilt or turn, or a geographic preset)
+  resumes it, as in the web's public build: a tile request names the area in view.
+- **Offline**: with no network, after failed requests, or with the session's OFFLINE
+  chip, the views fall back to the plain globe and the bundled land with "MAP TILES NEED
+  A CONNECTION", never an error, and probe again later.
+- **Accessibility**: the camera readout speaks one sentence (`describeCamera`: altitude,
+  position, tilt, heading and the region in view), as does the map's; every control is
+  labelled; the track list reaches every track; reduced motion (the system's or
+  `MIDGARD_REDUCE_MOTION=1`) turns the fly-to easing off.
+
+Where the apps knowingly differ from the web console: a MAP preset is centred on the
+point the region's globe view looks at (the web centres the map on the tilted globe
+camera's own position, so its UK & IRELAND map lands on northern Spain); the iPhone
+puts REGION, TRACKS (with the LAYERS switches) and STYLE in menus along the bottom, and
+HEIGHTS in a sheet, where the web narrows its two panels; the credits strip is always
+shown beside the folding ⓘ CREDITS; and a decode past its time limit is abandoned rather
+than its worker killed, since a Swift task cannot be stopped from outside.
 
 ## Signing
 
