@@ -139,7 +139,7 @@ public struct WebButton: View {
             .overlay(RoundedRectangle(cornerRadius: MGRadius.sm).strokeBorder(c.border))
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(WebPressStyle())
         .disabled(disabled)
         .help(disabledReason ?? title)
         .accessibilityHint(Text(disabledReason ?? ""))
@@ -301,7 +301,7 @@ public struct WebTabs: View {
                             .font(MGWebFont.sans(14).weight(.medium))
                             .foregroundStyle(active ? MGWeb.textHeading : MGWeb.textMuted)
                         if let badge = tab.badge {
-                            Text(badge).font(MGWebFont.mono(11)).foregroundStyle(accent.text)
+                            Text(badge).font(MGWebFont.mono(12, .caption).weight(.semibold)).foregroundStyle(accent.text)
                         }
                     }
                     .padding(.horizontal, 16)
@@ -810,7 +810,7 @@ public struct WebTable<Row>: View {
     }
 
     private var table: some View {
-        VStack(spacing: 0) {
+        LazyVStack(spacing: 0) {
             if !list { header }
             ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
                 rowView(index, row)
@@ -883,7 +883,7 @@ public struct WebTable<Row>: View {
                             HStack(spacing: 6) {
                                 Text(column.header.uppercased())
                                     .font(MGWebFont.mono(11))
-                                    .foregroundStyle(MGWeb.textFaint)
+                                    .foregroundStyle(MGWeb.textBody)
                                 if column.cell != nil {
                                     cellView(column, row, first: false)
                                 } else {
@@ -952,5 +952,13 @@ public struct WebFormRow<Fields: View, Action: View>: View {
                 action
             }
         }
+    }
+}
+
+/// A plain button style that leaves a disabled button's colours as the web draws them
+/// (the system's dimming put its text under AA on the inset surface).
+struct WebPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.opacity(configuration.isPressed ? 0.85 : 1)
     }
 }

@@ -190,17 +190,16 @@ struct ObjectFabricScreen: View {
                     HStack(spacing: 8) {
                         Image(systemName: WebIcon.symbol("zap")).font(MGWebFont.sans(12)).foregroundStyle(MGWebAccent.midgard.text)
                             .accessibilityHidden(true)
-                        Text(a.name).font(MGWebFont.sans(14)).foregroundStyle(MGWeb.textBody)
+                        Text(a.name).font(MGWebFont.sans(14)).foregroundStyle(disabled ? MGWeb.textMuted : MGWeb.textBody)
                         Spacer(minLength: 4)
                         if a.humanGated { WebBadge("HUMAN GATE", tone: .warn) }
                     }
                     .padding(.vertical, 7)
                     .frame(minHeight: webTarget(32))
                     .overlay(alignment: .bottom) { Rectangle().fill(MGWeb.divider).frame(height: 1) }
-                    .opacity(disabled ? 0.5 : 1)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(WebPressStyle())
                 .disabled(disabled)
                 .help(model.target.isEmpty ? "Choose an object to act on" : a.name)
                 .accessibilityLabel(Text(a.humanGated ? "\(a.name), human gate" : a.name))
