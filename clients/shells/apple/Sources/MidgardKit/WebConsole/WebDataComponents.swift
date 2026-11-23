@@ -892,9 +892,12 @@ public struct WebTable<Row>: View {
                 cell(row)
             }
         } else {
+            // In a table whose rows do not act (its cells measured one by one on the Mac),
+            // every cell in the brighter grey: the body grey on the card failed the Mac's
+            // contrast audit in the second pass.
             Text(column.text(row))
                 .font(column.mono ? MGWebFont.mono(12, .caption) : MGWebFont.sans(14))
-                .foregroundStyle(first ? MGWeb.grey100 : MGWeb.textBody)
+                .foregroundStyle(first || (onSelect == nil && !list) ? MGWeb.grey100 : MGWeb.textBody)
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
@@ -921,6 +924,10 @@ public struct WebTable<Row>: View {
                                         .fixedSize(horizontal: false, vertical: true)
                                 }
                             }
+                            // Hidden one by one: a row's hiding did not reach the texts
+                            // inside this wrapping layout, which the second audit pass
+                            // still measured where the list's edge cut them.
+                            .accessibilityHidden(true)
                         }
                     }
                 }

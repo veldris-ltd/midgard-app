@@ -211,7 +211,7 @@ public struct WebGuardedAction: View {
             Text(subsystem)
                 .font(MGWebFont.mono(11))
                 .mgTracking(0.08, size: MGWebFont.monoSize(11))
-                .foregroundStyle(MGWeb.textBody)
+                .foregroundStyle(MGWeb.grey100)
             WebRiskBars(risk)
         }
     }
