@@ -45,10 +45,17 @@ public struct WebRiskBadge: View {
     }
 
     public var body: some View {
+        // The element is the words alone: with the bars inside it, five red bars were
+        // measured as the badge's text colour by the Mac's contrast audit.
         HStack(spacing: 7) {
             WebRiskBars(level)
-            Text("RISK \(level)").foregroundStyle(Self.text(level)).fontWeight(.medium)
-            if dualControl { Text("DUAL-CONTROL").foregroundStyle(MGWeb.textFaint) }
+            HStack(spacing: 7) {
+                Text("RISK \(level)").foregroundStyle(Self.text(level)).fontWeight(.medium)
+                if dualControl { Text("DUAL-CONTROL").foregroundStyle(MGWeb.textBody) }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text("Risk \(level)" + (dualControl ? ", dual control" : "")))
+            .accessibilityAddTraits(.isStaticText)
         }
         .font(MGWebFont.mono(11))
         .mgTracking(0.07, size: MGWebFont.monoSize(11))
@@ -57,9 +64,6 @@ public struct WebRiskBadge: View {
         .padding(.vertical, 3)
         .background(RoundedRectangle(cornerRadius: MGRadius.xs).fill(MGWeb.surfaceInset))
         .overlay(RoundedRectangle(cornerRadius: MGRadius.xs).strokeBorder(MGWeb.border))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text("Risk \(level)" + (dualControl ? ", dual control" : "")))
-        .accessibilityAddTraits(.isStaticText)
     }
 }
 
@@ -134,11 +138,13 @@ public struct WebGuardedAction: View {
             }
             if let justification {
                 VStack(alignment: .leading, spacing: 3) {
-                    // 11 pt (the web's 9 px): the Mac's contrast audit reads this card.
+                    // 11 pt in the body grey (the web's 9 px, faint), each text its own
+                    // element: on the card the Mac's contrast audit failed the faint
+                    // label, and the box as one element.
                     Text("JUSTIFICATION · MANDATORY")
                         .font(MGWebFont.mono(11))
                         .mgTracking(0.1, size: MGWebFont.monoSize(11))
-                        .foregroundStyle(MGWeb.textFaint)
+                        .foregroundStyle(MGWeb.textBody)
                     Text(justification)
                         .font(MGWebFont.sans(12, .caption))
                         .foregroundStyle(MGWeb.textBody)
@@ -149,14 +155,16 @@ public struct WebGuardedAction: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(RoundedRectangle(cornerRadius: MGRadius.sm).fill(MGWeb.surfaceInset))
                 .overlay(RoundedRectangle(cornerRadius: MGRadius.sm).strokeBorder(MGWeb.border))
-                .accessibilityElement(children: .combine)
             }
+            // Keys in the body grey and names in the brighter one (the web's faint keys
+            // failed the Mac's contrast audit on the card); the check in medium weight.
             FlowRow(spacing: 14) {
-                (Text("REQUESTER ").foregroundStyle(MGWeb.textFaint) + Text(requester).foregroundStyle(MGWeb.textBody))
-                (Text("APPROVER ").foregroundStyle(MGWeb.textFaint)
+                (Text("REQUESTER ").foregroundStyle(MGWeb.textBody) + Text(requester).foregroundStyle(MGWeb.grey100))
+                (Text("APPROVER ").foregroundStyle(MGWeb.textBody)
                     + Text(approver.isEmpty ? "unassigned" : approver)
-                        .foregroundStyle(approver.isEmpty ? MGWeb.textFaint : MGWeb.textBody))
+                        .foregroundStyle(approver.isEmpty ? MGWeb.textBody : MGWeb.grey100))
                 Text(violated ? "SEPARATION VIOLATED" : "SEPARATION ✓")
+                    .fontWeight(.medium)
                     .foregroundStyle(violated ? MGWeb.dangerText : MGWeb.secureText)
             }
             .font(MGWebFont.mono(11))
@@ -203,7 +211,7 @@ public struct WebGuardedAction: View {
             Text(subsystem)
                 .font(MGWebFont.mono(11))
                 .mgTracking(0.08, size: MGWebFont.monoSize(11))
-                .foregroundStyle(MGWeb.textFaint)
+                .foregroundStyle(MGWeb.textBody)
             WebRiskBars(risk)
         }
     }
@@ -315,14 +323,16 @@ public struct WebBreakGlass: View {
                         .accessibilityIdentifier("mg.admin.breakglass.remaining")
                 }
             }
+            // Keys and the alert line in the body grey, names in the brighter one: on the
+            // tint the web's faint keys failed the Mac's contrast audit.
             FlowRow(spacing: 14) {
                 if let holder {
-                    (Text("HOLDER ").foregroundStyle(MGWeb.textFaint) + Text(holder).foregroundStyle(MGWeb.textBody))
+                    (Text("HOLDER ").foregroundStyle(MGWeb.textBody) + Text(holder).foregroundStyle(MGWeb.grey100))
                 }
                 if let scope {
-                    (Text("SCOPE ").foregroundStyle(MGWeb.textFaint) + Text(scope).foregroundStyle(MGWeb.textBody))
+                    (Text("SCOPE ").foregroundStyle(MGWeb.textBody) + Text(scope).foregroundStyle(MGWeb.grey100))
                 }
-                Text("SECURITY OFFICERS ALERTED · REAL-TIME").foregroundStyle(MGWeb.textFaint)
+                Text("SECURITY OFFICERS ALERTED · REAL-TIME").foregroundStyle(MGWeb.textBody)
             }
             .font(MGWebFont.mono(11))
             if let justification {
@@ -338,7 +348,22 @@ public struct WebBreakGlass: View {
         .background(RoundedRectangle(cornerRadius: MGRadius.md).fill(active ? MGWeb.dangerTint : MGWeb.warnTint))
         .overlay(RoundedRectangle(cornerRadius: MGRadius.md).strokeBorder(tone))
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(Text(active ? "Break-glass active" : "Post-hoc review required"))
+        .modifier(StripLabel(text: active ? "Break-glass active" : "Post-hoc review required"))
         .accessibilityIdentifier("mg.admin.breakglass.strip")
+    }
+}
+
+/// The strip's name as a container on the Mac, which VoiceOver announces there; on the
+/// iPhone the strip's own texts say it (a named container over drawn text was reported
+/// by the iPhone's text-detection audit).
+struct StripLabel: ViewModifier {
+    let text: String
+
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        content
+        #else
+        content.accessibilityLabel(Text(text))
+        #endif
     }
 }

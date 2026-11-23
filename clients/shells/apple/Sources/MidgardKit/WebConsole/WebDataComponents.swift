@@ -941,33 +941,76 @@ public struct WebTable<Row>: View {
             if isSelected { Rectangle().fill(accent.fill).frame(width: 2) }
         }
         .contentShape(Rectangle())
-        // As a list (the iPhone), the row's own texts are not separate elements: the row
-        // says them all, and its frame covers them, so a row the list's edge cuts is
-        // measured as one element rather than as cut-off pieces of text.
-        let drawn = content.accessibilityHidden(list)
-        if let onSelect {
-            Button { onSelect(index) } label: { drawn }
+        // As a list (the iPhone) a row is one element over its drawn texts, which are
+        // hidden: it says them all and covers them, so a row the list's edge cuts is not
+        // measured as cut-off pieces of text (`WholeElement`). On the Mac a row that acts
+        // is a button; one that does not is a group named by what it says, its cells
+        // each measured on their own (as one text element the whole row's colours were
+        // measured together).
+        if list {
+            content.modifier(WholeElement(label: spoken(row),
+                                          traits: onSelect == nil ? [] : isSelected ? [.isButton, .isSelected] : [.isButton],
+                                          identifier: "\(identifier).row.\(id(row))",
+                                          action: onSelect.map { select in { select(index) } }))
+        } else if let onSelect {
+            Button { onSelect(index) } label: { content }
                 .buttonStyle(.plain)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text(spoken(row)))
                 .accessibilityAddTraits(isSelected ? [.isSelected, .isButton] : [.isButton])
                 .accessibilityIdentifier("\(identifier).row.\(id(row))")
-        } else if list {
-            drawn
-                .overlay {
-                    Color.clear
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel(Text(spoken(row)))
-                        .accessibilityAddTraits(.isStaticText)
-                        .accessibilityIdentifier("\(identifier).row.\(id(row))")
-                }
         } else {
             content
-                .accessibilityElement(children: .ignore)
+                .accessibilityElement(children: .contain)
                 .accessibilityLabel(Text(spoken(row)))
-                .accessibilityAddTraits(.isStaticText)
                 .accessibilityIdentifier("\(identifier).row.\(id(row))")
         }
+    }
+}
+
+/// One accessibility element over a drawn area whose own texts are hidden: a clear
+/// layer on top carries the label, the traits, the identifier and (when it acts) the
+/// tap. For what an iPhone scroll edge can cut (list rows, the Inspect button): XCUITest
+/// reports a SwiftUI button's label texts even when they are hidden, and a text the edge
+/// cuts fails the contrast audit; hidden texts of a plain view are not reported, and the
+/// layer's frame is the whole area. [RC-49] [AC-C-11]
+struct WholeElement: ViewModifier {
+    let label: String
+    let traits: AccessibilityTraits
+    let identifier: String
+    let action: (() -> Void)?
+
+    func body(content: Content) -> some View {
+        content
+            .accessibilityHidden(true)
+            .overlay {
+                Color.clear
+                    .modifier(Tappable(action))
+                    .accessibilityElement()
+                    .accessibilityLabel(Text(label))
+                    .accessibilityAddTraits(traits)
+                    .modifier(OptionalAction(action))
+                    .modifier(OptionalIdentifier(identifier.isEmpty ? nil : identifier))
+            }
+    }
+}
+
+/// A tap target over the whole layer, when the area acts.
+struct Tappable: ViewModifier {
+    let action: (() -> Void)?
+    init(_ action: (() -> Void)?) { self.action = action }
+
+    func body(content: Content) -> some View {
+        if let action { content.contentShape(Rectangle()).onTapGesture { action() } } else { content }
+    }
+}
+
+struct OptionalAction: ViewModifier {
+    let action: (() -> Void)?
+    init(_ action: (() -> Void)?) { self.action = action }
+
+    func body(content: Content) -> some View {
+        if let action { content.accessibilityAction { action() } } else { content }
     }
 }
 

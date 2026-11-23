@@ -80,30 +80,31 @@ enum AppNavigation {
     }
 
     /// One of Midgard's screens (`slug`, e.g. `policies`), opened from its list.
-    static func openMidgard(_ app: XCUIApplication, _ slug: String) {
-        signIn(app)
-        selectConsole(app, 1)
-        let row = app.buttons.matching(NSPredicate(format: "identifier MATCHES %@", "mg\\.[0-9]+\\.midgard\\.\(slug)")).firstMatch
-        // At accessibility text sizes the row can be screens down the list: the list's
-        // search brings it to the top.
-        if !row.exists {
-            let field = app.descendants(matching: .any)["mg.search.midgard"]
-            field.tap()
-            field.typeText(String(slug.prefix(5)))
-        }
-        tapClearOfConsoleBar(app, row)
-        XCTAssertTrue(app.descendants(matching: .any)["mg.content.midgard.\(slug)"]
-            .waitForExistence(timeout: timeout), "Midgard's \(slug) screen did not open")
-    }
+    static func openMidgard(_ app: XCUIApplication, _ slug: String) { open(app, console: 1, slug) }
 
     /// One of Admin's screens (`slug`, e.g. `overview`), opened from its list.
-    static func openAdmin(_ app: XCUIApplication, _ slug: String) {
+    static func openAdmin(_ app: XCUIApplication, _ slug: String) { open(app, console: 2, slug) }
+
+    /// One of console `n`'s screens, opened from its list. At accessibility text sizes the
+    /// row can be screens down the list: the list's search brings it to the top, and
+    /// Return puts the keyboard away (with the keyboard up the list has no room left
+    /// between the navigation bar and the console bar).
+    static func open(_ app: XCUIApplication, console n: Int, _ slug: String) {
         signIn(app)
-        selectConsole(app, 2)
-        let row = app.buttons.matching(NSPredicate(format: "identifier MATCHES %@", "mg\\.[0-9]+\\.admin\\.\(slug)")).firstMatch
+        selectConsole(app, n)
+        let name = consoles[n - 1].lowercased()
+        let row = app.buttons.matching(NSPredicate(format: "identifier MATCHES %@", "mg\\.[0-9]+\\.\(name)\\.\(slug)")).firstMatch
+        if !row.exists {
+            let field = app.descendants(matching: .any)["mg.search.\(name)"]
+            field.tap()
+            field.typeText(String(slug.prefix(5)) + "\n")
+            if app.keyboards.firstMatch.waitForExistence(timeout: 1) {
+                app.navigationBars.firstMatch.tap()
+            }
+        }
         tapClearOfConsoleBar(app, row)
-        XCTAssertTrue(app.descendants(matching: .any)["mg.content.admin.\(slug)"]
-            .waitForExistence(timeout: timeout), "Admin's \(slug) screen did not open")
+        XCTAssertTrue(app.descendants(matching: .any)["mg.content.\(name).\(slug)"]
+            .waitForExistence(timeout: timeout), "\(consoles[n - 1])'s \(slug) screen did not open")
     }
 
     /// Heimdall's Operating Picture with view `id` chosen in the navigation bar's view

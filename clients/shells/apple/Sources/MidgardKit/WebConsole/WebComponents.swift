@@ -241,33 +241,42 @@ public struct WebStatBlock: View {
         self.accent = accent
     }
 
+    /// On the Mac the figure's element says the label too and the label is not read
+    /// twice; on the iPhone each says its own text (the iPhone's text-detection audit
+    /// reports drawn text that no element says).
+    static var labelSpoken: Bool {
+        #if os(iOS)
+        return true
+        #else
+        return false
+        #endif
+    }
+
     public var body: some View {
         // Two elements, each only its own text (one element over both measured the
-        // readout's colour against the label's in the contrast audit): the value speaks
-        // the label too, and the label is not read twice.
+        // readout's colour against the label's in the contrast audit).
         VStack(alignment: .leading, spacing: 4) {
-            // A little of the page around the figure inside its element (the layout
-            // unchanged): cut to the glyphs alone, a one-digit figure ("4") was too
-            // small a sample for the Mac's contrast audit to tell its colour from the
-            // page's.
+            // The figure's element is a little larger than its glyphs, the layout
+            // unchanged (`WholeElement` over the figure and a margin): cut to the glyphs
+            // alone, a one-digit figure ("4", "8") was too small a sample for the Mac's
+            // contrast audit to tell its colour from the page's.
             Text(value)
                 .font(MGWebFont.display(24, .title).weight(.black))
                 .mgTracking(-0.02, size: 24)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
                 .foregroundStyle(accent?.text ?? MGWeb.textHeading)
-                .padding(.vertical, 1)
-                .padding(.trailing, 8)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Text("\(label.capitalized): \(value)"))
-                .accessibilityAddTraits(.isStaticText)
-                .padding(.vertical, -1)
-                .padding(.trailing, -8)
+                .padding(.vertical, 2)
+                .padding(.trailing, 10)
+                .modifier(WholeElement(label: Self.labelSpoken ? value : "\(label.capitalized): \(value)",
+                                       traits: .isStaticText, identifier: "", action: nil))
+                .padding(.vertical, -2)
+                .padding(.trailing, -10)
             Text(label)
                 .font(MGWebFont.mono(11))
                 .mgTracking(0.14, size: MGWebFont.monoSize(11))
                 .foregroundStyle(MGWeb.textFaint)
-                .accessibilityHidden(true)
+                .accessibilityHidden(!Self.labelSpoken)
         }
     }
 }

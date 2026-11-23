@@ -369,6 +369,9 @@ struct ScreenSearchField: View {
             .autocorrectionDisabled()
             .submitLabel(.search)
             .focused($focused)
+            // Search puts the keyboard away: at accessibility text sizes the keyboard
+            // leaves the list no room above the console bar.
+            .onSubmit { focused = false }
             .accessibilityLabel(Text("Search \(console.name) screens"))
             .accessibilityIdentifier("mg.search.\(console.slug)")
             if !query.isEmpty {

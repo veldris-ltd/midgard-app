@@ -105,27 +105,26 @@ struct MidgardScreenContext {
     }
 }
 
-/// The iPhone's button that opens a screen's inspector sheet ("Inspect …").
+/// The iPhone's button that opens a screen's inspector sheet ("Inspect …"): one element
+/// over its drawn text (`WholeElement`), so a button the page's edge cuts above the
+/// console bar is not measured as a cut-off text.
 struct MidgardInspectButton: View {
     let title: String
     var identifier = "mg.midgard.inspect"
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: "sidebar.right").accessibilityHidden(true)
-                Text(title).font(MGWebFont.sans(14).weight(.semibold)).lineLimit(1)
-            }
-            .foregroundStyle(MGWeb.textHeading)
-            .padding(.horizontal, 14)
-            .frame(maxWidth: .infinity, minHeight: 44)
-            .background(RoundedRectangle(cornerRadius: MGRadius.sm).fill(MGWeb.surfaceCard))
-            .overlay(RoundedRectangle(cornerRadius: MGRadius.sm).strokeBorder(MGWeb.borderStrong))
-            .contentShape(Rectangle())
+        HStack(spacing: 8) {
+            Image(systemName: "sidebar.right")
+            Text(title).font(MGWebFont.sans(14).weight(.semibold)).lineLimit(1)
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier(identifier)
+        .foregroundStyle(MGWeb.textHeading)
+        .padding(.horizontal, 14)
+        .frame(maxWidth: .infinity, minHeight: 44)
+        .background(RoundedRectangle(cornerRadius: MGRadius.sm).fill(MGWeb.surfaceCard))
+        .overlay(RoundedRectangle(cornerRadius: MGRadius.sm).strokeBorder(MGWeb.borderStrong))
+        .contentShape(Rectangle())
+        .modifier(WholeElement(label: title, traits: .isButton, identifier: identifier, action: action))
     }
 }
 
