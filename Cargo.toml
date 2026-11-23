@@ -28,6 +28,7 @@ members = [
     "services/scheduler",
     "services/telemetry",
     "services/runtime",
+    "services/ontology-import",
     "mimir/model-server",
     "mimir/mimir-server",
     "mimir/bridge",

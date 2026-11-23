@@ -29,7 +29,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use fabric::{LinkInstance, ObjectInstance, ObjectType, Value, ValueType};
 use policy::{Compartment, Marking, Purpose};
 
-use crate::enclosure::level_of;
+use crate::marking::level_of;
 use crate::json::{parse, Json};
 use crate::ontology_file::Ontology;
 use crate::strict_json::{identifier, no_repeated_keys, object, only_keys, strings, text};

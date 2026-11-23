@@ -50,7 +50,7 @@ use std::collections::BTreeSet;
 use fabric::{Cardinality, LinkType, ObjectType, PropertyType, ValueType};
 use policy::{Compartment, Marking, Purpose};
 
-use crate::enclosure::level_of;
+use crate::marking::level_of;
 use crate::json::{parse, Json};
 use crate::strict_json::{
     array, identifier, object, only_keys, optional_array, optional_bool, strings, text, unique,

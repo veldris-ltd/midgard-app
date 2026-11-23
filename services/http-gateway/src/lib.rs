@@ -27,15 +27,16 @@ pub mod cli;
 pub mod data;
 pub mod enclosure;
 pub mod http;
-pub mod import_file;
 pub mod login_throttle;
 pub mod mesh_sync;
-pub mod ontology_file;
 pub mod revocations;
 pub mod state_dir;
 pub mod webauthn_client_data;
 /// The JSON codec and the policy file, shared with the mesh services.
 pub use service_runtime::{json, policy_file, ListenerLimits, CONNECTION_STACK};
+// The ontology file and the import format are parsed in `ontology-import`, which the
+// client core links too; re-exported at their old paths.
+pub use ontology_import::{import_file, ontology_file};
 use service_runtime::{strict_json, BoundedListener};
 
 use audit_writer::{AuditContext, Outcome as AuditOutcome, Sealer};

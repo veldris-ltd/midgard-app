@@ -24,6 +24,7 @@ backend-fips = [
     "service-runtime/backend-fips",
     "gateway/backend-fips",
     "pq-mtls/backend-fips",
+    "ontology-import/backend-fips",
 ]
 
 [dependencies]
@@ -53,6 +54,8 @@ admin-privilege = { path = "../../admin/privilege" }
 # The JSON codec, strict readers, policy file and directory lock the mesh services
 # share. [NFR-SEC-2] [RC-09]
 service-runtime = { path = "../runtime" }
+# The ontology file and import format, shared with the client core.
+ontology-import = { path = "../ontology-import", default-features = false }
 # The optional mesh listener: certified workloads (the Forge worker) sync records into
 # the fabric over PQ-mTLS, authorised and audited in the one ledger. [FR-F-4] [NFR-SEC-1]
 gateway = { path = "../gateway" }

@@ -26,14 +26,16 @@ pub mod args;
 pub mod client;
 pub mod health_http;
 pub mod identity;
-pub mod json;
 pub mod lock;
-pub mod marking;
 pub mod mesh;
 pub mod policy_file;
 pub mod serve;
-pub mod strict_json;
 pub mod sync;
+
+// The JSON codec, strict readers and marking bands live in `ontology-import`, so the
+// client core reads the deployment files with the same code; re-exported at their old
+// paths.
+pub use ontology_import::{json, marking, strict_json};
 
 pub use args::Args;
 /// The keystore passphrase plumbing every service binary shares: the option, the

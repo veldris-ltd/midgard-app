@@ -1,0 +1,19 @@
+[package]
+name = "ontology-import"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The ontology file and the JSON Lines import format, parsed and checked: one implementation for `mg-admin import`, the HTTP gateway and the client core (the Apple apps' \"Import JSON files\"). std-only: the JSON codec, strict readers and marking bands the mesh services share, and the fabric's types. No I/O, no network. [DD-1] [RC-10] [NFR-SEC-2]"
+
+[features]
+default = ["backend-fips"]
+backend-fips = ["fabric/backend-fips"]
+
+[dependencies]
+# The object types, links and values an import is checked into.
+fabric = { path = "../fabric", default-features = false }
+policy = { path = "../../crypto/policy" }
+
+[lib]
+path = "src/lib.rs"

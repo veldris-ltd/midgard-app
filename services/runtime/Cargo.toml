@@ -16,9 +16,12 @@ backend-fips = [
     "attest/backend-fips",
     "kms/backend-fips",
     "governance/backend-fips",
+    "ontology-import/backend-fips",
 ]
 
 [dependencies]
+# The JSON codec, strict readers and marking bands, shared with the client core.
+ontology-import = { path = "../ontology-import", default-features = false }
 pqc-agility = { path = "../../crypto/pqc-agility" }
 # The certificate and anchor files `mg-admin mesh issue` writes, verified on load.
 pq-mtls = { path = "../../crypto/pq-mtls" }

@@ -812,6 +812,7 @@ dependencies = [
  "governance",
  "iam",
  "kms",
+ "ontology-import",
  "policy",
  "pq-mtls",
  "pqc-agility",
@@ -1158,6 +1159,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
+name = "ontology-import"
+version = "0.1.0-rc.3"
+dependencies = [
+ "fabric",
+ "policy",
+]
+
+[[package]]
 name = "opaque-debug"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1367,6 +1376,7 @@ dependencies = [
  "governance",
  "iam",
  "kms",
+ "ontology-import",
  "policy",
  "pq-mtls",
  "pqc-agility",
