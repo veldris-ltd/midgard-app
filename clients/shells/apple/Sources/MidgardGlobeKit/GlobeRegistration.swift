@@ -25,12 +25,15 @@ struct ThreeDEntryButton: View {
 
     var body: some View {
         #if os(iOS)
+        // A navigation-bar button on the iPhone (the app places it there): a symbol, with
+        // "Open 3D view" as its label. A full-width row above the picture took the room
+        // the picture's lowest track label needs above the console bar.
         Button {
             showing = true
         } label: {
-            Text("Open \(title)")
-                .font(MGFonts.sans(.body))
-                .frame(maxWidth: .infinity, minHeight: 44)
+            Label("Open \(title)", systemImage: "cube")
+                .labelStyle(.iconOnly)
+                .frame(minWidth: 44, minHeight: 44)
                 .contentShape(Rectangle())
         }
         .accessibilityIdentifier("mg.heimdall.3d")
