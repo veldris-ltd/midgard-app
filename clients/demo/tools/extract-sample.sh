@@ -25,9 +25,17 @@ case "${1:-}" in
             exit 1
         fi
         # Every mock the sample was read from is byte-identical to the signed tag's
-        # copy. Without the tag (a shallow clone) this part is skipped, and said so.
-        tag="v$release"
-        if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+        # copy, and nothing else under sdk/ts/src has moved from the tag either (the
+        # mocks import from it). Without the tag (a shallow clone) this part is skipped
+        # with a warning, unless MIDGARD_REQUIRE_TAG=1 (CI), where a missing tag fails.
+        # MIDGARD_SAMPLE_TAG names another tag or commit (the tests' seeded cases).
+        tag="${MIDGARD_SAMPLE_TAG:-v$release}"
+        if git rev-parse -q --verify "$tag^{commit}" >/dev/null; then
+            if ! git diff --quiet "$tag" -- sdk/ts/src; then
+                echo "extract-sample: sdk/ts/src differs from $tag:" >&2
+                git diff --stat "$tag" -- sdk/ts/src >&2
+                exit 1
+            fi
             node -e 'const b = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
                      for (const [p, id] of Object.entries(b.inputs)) if (p.startsWith("sdk/ts/src/mock/")) console.log(p, id);' \
                 "$committed" | while read -r path id; do
@@ -37,8 +45,11 @@ case "${1:-}" in
                     exit 1
                 fi
             done
+        elif [ "${MIDGARD_REQUIRE_TAG:-0}" = 1 ]; then
+            echo "extract-sample: tag $tag not present and MIDGARD_REQUIRE_TAG=1: cannot check the mocks against it" >&2
+            exit 1
         else
-            echo "extract-sample: tag $tag not present; compared with the tree's mocks only" >&2
+            echo "extract-sample: warning: tag $tag not present; compared with the tree's mocks only" >&2
         fi
         ;;
     --out)
