@@ -18,17 +18,12 @@
 //! web mocks', numbered and stamped as the mocks number and stamp their audit rows.
 //!
 //! Actions, as in the web mocks:
-//! - `heimdall.authoriseWorkflow` on `heimdall.workflows/<id>` (param
-//!   `humanGateToken`): a human-gated workflow without a token is refused ("Human gate
-//!   required for action \"<title>\""); otherwise it is applied. Its audit row is
-//!   numbered `D-4473`, `D-4474`, … and stamped from `14:39:04` in steps of 2 s, as
-//!   `HeimdallMock` does. The row keeps the core's wording (`applied ·
-//!   heimdall.authoriseWorkflow` on `heimdall.workflows/<id>`, where the mock writes
-//!   `Authorise · <title>` on `workflow/<id>`): that wording is what this device's
-//!   audit key checks before it signs the row, so the row shows as signed. The
-//!   workflow row itself does not change (nor does the mock's). A refusal is audited
-//!   too and takes the next number in the same sequence (so a refused attempt moves
-//!   the next applied row to `D-4474`), as every action the enclosure decides is.
+//! - Heimdall's, ported from `HeimdallMock` (`crate::demo::actions::heimdall`, which
+//!   lists them and where they knowingly differ): `heimdall.authoriseWorkflow` on
+//!   `heimdall.workflows/<id>` (param `humanGateToken`), a human-gated workflow refused
+//!   without a token ("Human gate required for action \"<title>\""). Its rows go to
+//!   `heimdall.audit`, numbered `D-4473`, `D-4474`, … from `14:39:04`, as
+//!   `HeimdallMock` numbers them, refusals included.
 //!
 //! - Midgard's, ported from `MockGateway` (`crate::demo::actions::midgard`, which lists
 //!   them and where they knowingly differ): the dual-control object action
@@ -47,12 +42,12 @@
 //!   to the runtime collection `admin.audit`, seeded with the mock stream's three
 //!   records and numbered `A-9111`, `A-9112`, … from `14:02:13`, as `AdminMock` does.
 //!
-//! The other consoles' actions come with their phases (Phases E to H, Task 2); until
+//! The other consoles' actions come with their phases (Phases F to H, Task 2); until
 //! then an action on them is refused as unknown ("no such action").
 
 use attest::json::{parse, Json};
 
-use crate::demo::actions::{admin, midgard};
+use crate::demo::actions::{admin, heimdall, midgard};
 use crate::demo::canon;
 use crate::demo::enclosure::{
     ActionRequest, Collection, DemoEnclosure, DemoState, MockAuditClock, Outcome, StoredRow,
@@ -68,15 +63,9 @@ pub const SAMPLE_RELEASE: &str = "0.1.0-rc.3";
 /// The sample body, as extracted (canonical JSON).
 pub const SAMPLE_JSON: &str = include_str!("../../demo/sample/0.1.0-rc.3/sample.json");
 
-/// Heimdall's audit numbering in `HeimdallMock`: ids after `D-4472`, stamps after
-/// `14:39:02`, each `1 + floor(180 / 100)` = 2 s later (the console's default 180 ms
-/// latency).
-pub const HEIMDALL_CLOCK: MockAuditClock = MockAuditClock {
-    prefix: "D-",
-    seq: 4472,
-    clock: 14 * 3600 + 39 * 60 + 2,
-    step: 2,
-};
+/// Heimdall's audit numbering in `HeimdallMock` (kept here, where earlier phases named
+/// it; the port is `crate::demo::actions::heimdall`).
+pub const HEIMDALL_CLOCK: MockAuditClock = heimdall::HEIMDALL_CLOCK;
 
 /// The source over the compiled-in sample data.
 pub struct SampleSource {
@@ -116,7 +105,7 @@ impl SampleSource {
             .state_mut()
             .collections
             .insert(admin::AUDIT.to_string(), admin::seeded_audit());
-        inner.register("heimdall.authoriseWorkflow", authorise_workflow);
+        inner.register("heimdall.authoriseWorkflow", heimdall::authorise_workflow);
         inner.register("midgard.requestApproval", midgard::request_approval);
         inner.register("midgard.decideApproval", midgard::decide_approval);
         inner.register("midgard.applyAction", midgard::apply_action);
@@ -306,30 +295,6 @@ fn remove_imported_data(state: &mut DemoState, _grant: &Grant, req: &ActionReque
 
 fn str_field<'a>(item: &'a Json, key: &str) -> Option<&'a str> {
     item.get(key).and_then(Json::as_str)
-}
-
-/// `HeimdallMock.authoriseWorkflow(id, humanGateToken)`.
-fn authorise_workflow(state: &mut DemoState, _grant: &Grant, req: &ActionRequest) -> Outcome {
-    let Some(("heimdall.workflows", id)) = req.target.split_once('/') else {
-        return Outcome::Refused("a workflow is authorised on heimdall.workflows/<id>".into());
-    };
-    let Some(row) = state.row("heimdall.workflows", id) else {
-        return Outcome::Refused("no such target".into());
-    };
-    let title = str_field(&row.item, "title").unwrap_or(id).to_string();
-    let gated = matches!(row.item.get("humanGated"), Some(Json::Bool(true)));
-    let token = req
-        .params
-        .iter()
-        .find(|(k, _)| k == "humanGateToken")
-        .map(|(_, v)| v.as_str())
-        .filter(|v| !v.is_empty());
-    // In sample mode the human gate is the operator's Authorise press itself: the token
-    // only shows it happened, and no handler may ever send one automatically.
-    if gated && token.is_none() {
-        return Outcome::Refused(format!("Human gate required for action \"{title}\""));
-    }
-    Outcome::Applied(Json::Obj(vec![("applied".into(), Json::Bool(true))]))
 }
 
 impl DataSource for SampleSource {

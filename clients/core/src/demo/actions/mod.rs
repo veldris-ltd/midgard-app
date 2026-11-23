@@ -1,6 +1,6 @@
 //! The consoles' actions in the sample mode, each ported from the release's web mock
-//! for that console (Phases C to H, Task 2). Heimdall's one action, from Task R1, is in
-//! `crate::sample_source`. `[FR-C-4]`
+//! for that console (Phases C to H, Task 2). `[FR-C-4]`
 
 pub mod admin;
+pub mod heimdall;
 pub mod midgard;
