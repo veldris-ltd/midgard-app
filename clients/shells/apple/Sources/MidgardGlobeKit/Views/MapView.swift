@@ -45,7 +45,7 @@ struct HeimdallMapView: View {
                                                               : "Arrow keys pan, plus and minus zoom. The track list reaches each track."))
                     .accessibilityIdentifier("mg.heimdall.map.surface")
                 markers.frame(width: geo.size.width, height: geo.size.height)
-                notices.frame(width: geo.size.width).padding(.top, context.compact ? 64 : 12)
+                notices.frame(width: geo.size.width).padding(.top, context.compact ? 120 : 12)
                 if context.compact {
                     compact.frame(width: geo.size.width, height: geo.size.height)
                 } else {
@@ -109,6 +109,7 @@ struct HeimdallMapView: View {
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isStaticText)
         .accessibilityLabel(Text(summary.isEmpty ? "Map" : summary))
         .accessibilityIdentifier("mg.heimdall.map.summary")
     }

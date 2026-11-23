@@ -83,7 +83,7 @@ struct HeimdallGlobeView: View {
                     select(id, fly: false)
                 }
                 .frame(width: geo.size.width, height: geo.size.height)
-                notices.frame(width: geo.size.width).padding(.top, context.compact ? 64 : 12)
+                notices.frame(width: geo.size.width).padding(.top, context.compact ? 120 : 12)
                 if context.compact {
                     GlobeCompactControls(c: c, picture: picture, regions: regions, current: current, credits: credits,
                                          style: style, offline: offline, heights: $heights,

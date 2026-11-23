@@ -218,6 +218,7 @@ struct CameraReadout: View {
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isStaticText)
         .accessibilityLabel(Text(summary.isEmpty ? "Camera" : summary))
         .accessibilityIdentifier("mg.heimdall.3d.summary")
     }

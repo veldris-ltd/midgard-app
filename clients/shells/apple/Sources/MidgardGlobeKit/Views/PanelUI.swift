@@ -191,8 +191,8 @@ struct CreditsStrip: View {
 
     var body: some View {
         Text(credits.map(\.short).joined(separator: " · "))
-            .font(MGWebFont.mono(9))
-            .foregroundStyle(MGWeb.textBody)
+            .font(MGWebFont.mono(10))
+            .foregroundStyle(MGWeb.textHeading)
             .fixedSize(horizontal: false, vertical: true)
             .multilineTextAlignment(.leading)
             .padding(.horizontal, 6)
