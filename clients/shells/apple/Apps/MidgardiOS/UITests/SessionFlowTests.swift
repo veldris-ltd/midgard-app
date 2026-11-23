@@ -19,6 +19,24 @@ final class SessionFlowTests: XCTestCase {
 
     private func element(_ id: String) -> XCUIElement { app.descendants(matching: .any)[id] }
 
+    /// At the largest accessibility text size the four personas are taller than the
+    /// screen: the sign-in screen scrolls, and the last persona can be reached and
+    /// signed in as. [FR-C-9] [RC-49]
+    func testEveryPersonaCanBeReachedAtTheLargestTextSize() {
+        app.terminate()
+        app.launchArguments = ["-MidgardUITesting",
+                               "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launch()
+        AppNavigation.toSignIn(app)
+        let last = app.buttons["mg.3.persona.a.holt"]
+        XCTAssertTrue(last.exists, "no persona a.holt")
+        for _ in 0..<4 where !last.isHittable { app.scrollViews.firstMatch.swipeUp() }
+        XCTAssertTrue(last.isHittable, "the last persona cannot be reached")
+        last.tap()
+        XCTAssertTrue(AppNavigation.consoleMarker(app).waitForExistence(timeout: AppNavigation.timeout),
+                      "signing in as the last persona did not reach the consoles")
+    }
+
     func testSampleDataSessionFlow() {
         // Enrol, then the personas the mocks name.
         XCTAssertTrue(AppNavigation.enrolButton(app).waitForExistence(timeout: AppNavigation.timeout))

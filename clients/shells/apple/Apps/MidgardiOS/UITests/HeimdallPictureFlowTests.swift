@@ -43,6 +43,22 @@ final class HeimdallPictureFlowTests: XCTestCase {
         XCTAssertTrue(done.label.contains("AUDIT #D-4473"), "gate says: \(done.label)")
     }
 
+    /// The readouts at the top of the picture never overlap: on an iPhone the focus
+    /// track's three lines start under the north, scale and vector lines. [FR-H-4]
+    func testThePictureReadoutsDoNotOverlap() {
+        AppNavigation.openPicture(app)
+        let vector = app.staticTexts["VECTOR · 1 MIN PROJECTION"]
+        XCTAssertTrue(vector.exists, "no vector readout")
+        let focus = app.staticTexts.matching(NSPredicate(
+            format: "label BEGINSWITH 'FOCUS · ' OR label CONTAINS ' KT · ' OR label MATCHES '^[0-9]+ NM · [0-9]+ FEEDS · .*'"))
+            .allElementsBoundByIndex
+        XCTAssertEqual(focus.count, 3, "the focus readout has three lines: \(focus.map(\.label))")
+        for line in focus {
+            XCTAssertFalse(line.frame.intersects(vector.frame),
+                           "\(line.label) \(line.frame) overlaps the vector readout \(vector.frame)")
+        }
+    }
+
     /// Holds the picture, then its inspector, on screen for `xcrun simctl io` screenshots
     /// (run with TEST_RUNNER_MIDGARD_SCREENSHOT_HOLD=<seconds>); skipped otherwise.
     func testHoldForScreenshots() throws {

@@ -183,11 +183,17 @@ struct ConsoleShell: View {
     private var console: Console { ConsoleCatalog.console(number: selection) }
 
     var body: some View {
-        ConsoleTab(model: model, console: console, persona: persona,
-                   path: Binding(get: { paths[console.number] ?? [] }, set: { paths[console.number] = $0 }),
-                   query: Binding(get: { queries[console.number] ?? "" }, set: { queries[console.number] = $0 }))
-            .id(console.number)
-            .safeAreaInset(edge: .bottom, spacing: 0) { ConsoleBar(selection: $selection) }
+        // The bar under the console, not a bottom inset over it: under an inset the
+        // console's scroll view ran on beneath the bar, and a row resting there (Midgard's
+        // last, "SDK", under the 3D and maps editions' extra banner) was read against the
+        // bar by the contrast audit. Here the list ends at the bar and scrolls clear of it.
+        VStack(spacing: 0) {
+            ConsoleTab(model: model, console: console, persona: persona,
+                       path: Binding(get: { paths[console.number] ?? [] }, set: { paths[console.number] = $0 }),
+                       query: Binding(get: { queries[console.number] ?? "" }, set: { queries[console.number] = $0 }))
+                .id(console.number)
+            ConsoleBar(selection: $selection)
+        }
     }
 }
 
@@ -237,8 +243,9 @@ struct ConsoleBar: View {
                 .accessibilityIdentifier("mg.console.tab.\(console.slug)")
             }
         }
+        // No vertical padding: the buttons are 48 pt tall already, and the list above
+        // needs the room (see ConsoleTab).
         .padding(.horizontal, MGSpace.s2)
-        .padding(.vertical, MGSpace.s1)
         .background(Color(uiColor: .systemBackground))
         .overlay(alignment: .top) { Divider() }
     }
@@ -267,9 +274,14 @@ struct ConsoleTab: View {
             // height and token colours are set here, where a List's are the system's.
             ScrollView {
                 LazyVStack(spacing: 0) {
+                    // A field 44 pt tall with a small gap above and below: with the
+                    // 3D and maps editions' extra banner Midgard's eleven screens still
+                    // fit above the console bar on an iPhone 17 at the default text size
+                    // (a row resting half under the bar or cut by the list's edge fails
+                    // the contrast audit).
                     ScreenSearchField(console: console, query: $query)
                         .padding(.horizontal, MGSpace.s4)
-                        .padding(.vertical, MGSpace.s2)
+                        .padding(.vertical, MGSpace.s1)
                     // mg.0 is the session menu above the list; the rows follow in order.
                     ForEach(Array(screens.enumerated()), id: \.element) { index, screen in
                         Button {
