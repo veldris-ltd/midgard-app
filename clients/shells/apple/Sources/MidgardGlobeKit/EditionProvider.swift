@@ -2,7 +2,7 @@ import MidgardKit
 import SwiftUI
 
 /// Everything the 3D and maps editions show that the release edition does not: the
-/// edition banner, About and Heimdall's 3D view. Linked only by the 3D and maps apps
+/// edition banner, About and Heimdall's MAP and 3D views. Linked only by the 3D and maps apps
 /// (MidgardMac3D, MidgardiOS3D, MidgardMacMaps, MidgardiOSMaps); a release app carries
 /// none of this code or wording (tools/check-edition.sh). [FR-C-1] [AC-C-13]
 public final class EditionUIProvider: EditionProvider {
@@ -18,7 +18,7 @@ public final class EditionUIProvider: EditionProvider {
         EditionAbout(edition).map { AnyView(AboutView($0)) }
     }
 
-    public func threeD(for edition: AppEdition) -> HeimdallThreeDProvider? {
+    public func pictureViews(for edition: AppEdition) -> HeimdallPictureViewsProvider? {
         EditionBanner(edition) == nil ? nil : GlobeRegistration.shared
     }
 }
@@ -38,7 +38,7 @@ public enum SignedRelease {
 }
 
 /// The edition banner, under the source banner. The one mapping from an edition to what
-/// it shows: an edition with no banner (release) has no About and no 3D view either.
+/// it shows: an edition with no banner (release) has no About and no MAP or 3D view either.
 public enum EditionBanner: Equatable, Sendable {
     case threeD, maps
 
@@ -93,6 +93,6 @@ public struct EditionAbout: Equatable, Sendable {
         name = banner.name
         editionLine = "Edition: \(banner.name)"
         releaseLine = "\(banner.text). It is \(SignedRelease.tag) (\(SignedRelease.commit)) "
-            + "with a 3D view added to Heimdall."
+            + "with map and 3D views added to Heimdall."
     }
 }

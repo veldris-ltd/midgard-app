@@ -177,15 +177,18 @@ struct ConsoleShell: View {
 /// navigation (the six consoles, then Heimdall's PICTURE and DECIDE sections with their
 /// counts, and on the Operating Picture its LAYERS switches), the picture and the
 /// inspector. Heimdall's other screens keep their placeholder inside the same frame. In
-/// the 3D and maps editions the header also carries the edition library's "3D view"
-/// entry (`AppModel.threeDEntry`), whose view replaces the picture while open; a release
-/// app has no provider. [FR-C-1] [FR-H-4] [FR-H-5] [DD-7]
+/// the Maps edition the header also carries the picture's view switch, 2D / MAP / 3D
+/// (the web's `ViewSwitch`): MAP and 3D come from the edition library
+/// (`AppModel.pictureViews`) and replace the picture while chosen, sharing its layers,
+/// selection and inspector; a release app has no provider. [FR-C-1] [FR-H-1] [FR-H-4]
+/// [FR-H-5] [DD-7]
 struct HeimdallConsole: View {
     @ObservedObject var model: AppModel
     let persona: PersonaInfo
     @Binding var route: ConsoleRoute
     @StateObject private var picture: HeimdallPictureModel
-    @State private var showingThreeD = false
+    /// The picture's view, kept for the window as the web keeps it for the browser.
+    @SceneStorage("mg-heimdall-view") private var pictureView = HeimdallPictureView.reference.id
 
     init(model: AppModel, persona: PersonaInfo, route: Binding<ConsoleRoute>) {
         self.model = model
@@ -195,13 +198,19 @@ struct HeimdallConsole: View {
     }
 
     private var isPicture: Bool { route.clamped.screen == 0 }
-    private var threeD: HeimdallThreeDProvider? { isPicture ? model.threeDEntry : nil }
+    private var views: HeimdallPictureViewsProvider? { isPicture ? model.pictureViews : nil }
+
+    /// The edition's view chosen in the switch, when it is not the reference layout.
+    private var chosenView: (HeimdallPictureViewsProvider, HeimdallPictureView)? {
+        guard pictureView != HeimdallPictureView.reference.id, let views,
+              let v = views.views.first(where: { $0.id == pictureView }) else { return nil }
+        return (views, v)
+    }
     private var heimdall: Console { ConsoleCatalog.console(route) }
 
     var body: some View {
         HeimdallConsoleFrame(nav: { nav }, main: { main }, aside: { aside }, trailing: { trailing })
             .task(id: persona.id) { await picture.load() }
-            .onChange(of: route) { showingThreeD = false }
     }
 
     /// The navigation: the consoles first, as a row of tiles (numbered from 1; the
@@ -235,8 +244,14 @@ struct HeimdallConsole: View {
     }
 
     @ViewBuilder private var main: some View {
-        if showingThreeD, let threeD {
-            threeD.makeView()
+        if let pair = chosenView {
+            let (provider, v) = pair
+            ZStack(alignment: .bottomLeading) {
+                provider.makeView(v, picture: picture, context: HeimdallPictureViewContext(offline: model.isOffline, compact: false))
+                HeimdallStatsFooter(honesty: HeimdallStatsFooter.notRealPositions)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 10)
+            }
         } else if isPicture {
             HeimdallPictureCanvas(model: picture)
         } else {
@@ -254,7 +269,7 @@ struct HeimdallConsole: View {
     }
 
     @ViewBuilder private var trailing: some View {
-        if let threeD { threeD.makeEntry(showing: $showingThreeD) }
+        if let views { HeimdallViewSwitch(views: views.views, selection: $pictureView) }
         PersonaMenu(model: model, persona: persona)
     }
 }

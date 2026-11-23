@@ -49,16 +49,61 @@ public struct HeimdallConsoleFrame<Nav: View, Main: View, Aside: View, Trailing:
 /// from the inspect button). [FR-H-4] [FR-H-5] [DD-7] [RC-49] [AC-C-11]
 public struct HeimdallOperatingPictureCompact: View {
     @StateObject private var model: HeimdallPictureModel
+    @ObservedObject private var app: AppModel
     @State private var inspecting = false
     @Environment(\.dynamicTypeSize) private var typeSize
     let personaId: String
+    /// The view chosen in the navigation bar's switch: the reference layout, or one an
+    /// edition library adds (MAP, 3D), shown in the picture's place.
+    @Binding var view: String
 
-    public init(app: AppModel, personaId: String) {
+    public init(app: AppModel, personaId: String, view: Binding<String> = .constant(HeimdallPictureView.reference.id)) {
         _model = StateObject(wrappedValue: HeimdallPictureModel(app: app))
+        self.app = app
         self.personaId = personaId
+        self._view = view
+    }
+
+    /// The edition's view chosen in the switch, when it is not the reference layout.
+    private var chosen: (HeimdallPictureViewsProvider, HeimdallPictureView)? {
+        guard view != HeimdallPictureView.reference.id, let provider = app.pictureViews,
+              let v = provider.views.first(where: { $0.id == view }) else { return nil }
+        return (provider, v)
     }
 
     public var body: some View {
+        Group {
+            if let pair = chosen {
+                let (provider, v) = pair
+                VStack(spacing: 0) {
+                    // The page colour runs up under the navigation bar, as on the reference
+                    // layout; the banner's own colour would otherwise extend up there.
+                    Rectangle().fill(MGWeb.bgPage).frame(height: 1).accessibilityHidden(true)
+                    WebClassificationBanner(level: HeimdallChrome.banner.level, text: HeimdallChrome.banner.text, compact: true)
+                    provider.makeView(v, picture: model,
+                                      context: HeimdallPictureViewContext(offline: app.isOffline, compact: true) { _ in
+                                          inspecting = true
+                                      })
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .background(MGWeb.bgPage)
+            } else {
+                reference
+            }
+        }
+        .sheet(isPresented: $inspecting) {
+            ScrollView { HeimdallInspector(model: model) }
+                .background(MGWeb.bgSunken)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .accessibilityIdentifier("mg.heimdall.inspector")
+        }
+        .task(id: personaId) { await model.load() }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("mg.content.heimdall.operating-picture")
+    }
+
+    private var reference: some View {
         ScrollView {
             VStack(spacing: 0) {
                 WebClassificationBanner(level: HeimdallChrome.banner.level, text: HeimdallChrome.banner.text, compact: true)
@@ -102,15 +147,5 @@ public struct HeimdallOperatingPictureCompact: View {
             }
         }
         .background(MGWeb.bgPage)
-        .sheet(isPresented: $inspecting) {
-            ScrollView { HeimdallInspector(model: model) }
-                .background(MGWeb.bgSunken)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-                .accessibilityIdentifier("mg.heimdall.inspector")
-        }
-        .task(id: personaId) { await model.load() }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("mg.content.heimdall.operating-picture")
     }
 }

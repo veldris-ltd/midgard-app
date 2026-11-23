@@ -77,7 +77,7 @@ final class EditionTests: XCTestCase {
             XCTAssertNil(model.edition, "no edition is claimed")
             XCTAssertNil(model.editionBanner)
             XCTAssertNil(model.about)
-            XCTAssertNil(model.threeDEntry)
+            XCTAssertNil(model.pictureViews)
         }
     }
 
@@ -108,7 +108,7 @@ final class EditionTests: XCTestCase {
         XCTAssertEqual(release.edition, .release)
         XCTAssertNil(release.editionBanner)
         XCTAssertNil(release.about)
-        XCTAssertNil(release.threeDEntry)
+        XCTAssertNil(release.pictureViews)
         XCTAssertEqual(release.banner, .noSource, "the source banner is unchanged")
 
         for edition in [AppEdition.threeD, .maps] {
@@ -117,7 +117,7 @@ final class EditionTests: XCTestCase {
             XCTAssertEqual(model.edition, edition)
             XCTAssertNotNil(model.editionBanner, "\(edition)")
             XCTAssertNotNil(model.about, "\(edition)")
-            XCTAssertNotNil(model.threeDEntry, "\(edition)")
+            XCTAssertNotNil(model.pictureViews, "\(edition)")
             XCTAssertEqual(model.banner, .noSource)
         }
     }

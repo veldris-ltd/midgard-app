@@ -375,20 +375,22 @@ struct ScreenSearchField: View {
 /// A screen until its phase: what it is and when it arrives; Heimdall's Operating
 /// Picture, matched to the web console (owner decision 22 Nov 2026), is built: the
 /// picture first and the inspector as a sheet (`HeimdallOperatingPictureCompact`). In the
-/// 3D and maps editions the Operating Picture also offers the edition library's "3D
-/// view" entry (`AppModel.threeDEntry`, from the link-time edition provider); a release
-/// app has no provider. [FR-C-1] [FR-H-4] [FR-H-5]
+/// Maps edition the Operating Picture also has the view switch, 2D / MAP / 3D, in the
+/// navigation bar: MAP and 3D come from the edition library (`AppModel.pictureViews`, the
+/// link-time edition provider) and show in the picture's place; a release app has no
+/// provider. [FR-C-1] [FR-H-1] [FR-H-4] [FR-H-5]
 struct ScreenPlaceholder: View {
     @ObservedObject var model: AppModel
     let console: Console
     let screen: String
     let persona: PersonaInfo
-    @State private var showingThreeD = false
+    /// The picture's view, kept for the scene as the web keeps it for the browser.
+    @SceneStorage("mg-heimdall-view") private var pictureView = HeimdallPictureView.reference.id
 
     private var isOperatingPicture: Bool { console.id == "heimdall" && screen == console.screens.first }
 
-    /// The 3D entry, on Heimdall's first screen only, when this app has one.
-    private var threeD: HeimdallThreeDProvider? { isOperatingPicture ? model.threeDEntry : nil }
+    /// The view switch, on Heimdall's first screen only, when this app has further views.
+    private var views: HeimdallPictureViewsProvider? { isOperatingPicture ? model.pictureViews : nil }
 
     var body: some View {
         content
@@ -397,12 +399,12 @@ struct ScreenPlaceholder: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { SessionMenu(model: model, persona: persona) }
             }
-            .modifier(ThreeDEntry(entry: threeD, showing: $showingThreeD))
+            .modifier(PictureViewSwitch(views: views, selection: $pictureView))
     }
 
     @ViewBuilder private var content: some View {
         if isOperatingPicture {
-            HeimdallOperatingPictureCompact(app: model, personaId: persona.id)
+            HeimdallOperatingPictureCompact(app: model, personaId: persona.id, view: $pictureView)
         } else {
             ScrollView {
                 VStack(spacing: MGSpace.s3) {
@@ -423,25 +425,19 @@ struct ScreenPlaceholder: View {
     }
 }
 
-/// With an edition provider's 3D entry: the entry in the navigation bar, which pushes
-/// the 3D view. Not a row above the screen: that took the room the Operating Picture's
-/// lowest track label (E-1108) needs above the console bar on an iPhone 17, and a label
-/// resting cut at the picture's visible edge fails the contrast audit. Without one
-/// (every release app): the screen as it is.
-struct ThreeDEntry: ViewModifier {
-    let entry: HeimdallThreeDProvider?
-    @Binding var showing: Bool
+/// With an edition provider's further views: the picture's view switch, 2D / MAP / 3D,
+/// in the navigation bar's middle (each button 44 pt). Not a row above the screen: that
+/// took the room the Operating Picture's lowest track label (E-1108) needs above the
+/// console bar on an iPhone 17. Without one (every release app): the screen as it is.
+struct PictureViewSwitch: ViewModifier {
+    let views: HeimdallPictureViewsProvider?
+    @Binding var selection: String
 
     func body(content: Content) -> some View {
-        if let entry {
+        if let views {
             content
                 .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) { entry.makeEntry(showing: $showing) }
-                }
-                .navigationDestination(isPresented: $showing) {
-                    entry.makeView()
-                        .navigationTitle(entry.title)
-                        .navigationBarTitleDisplayMode(.inline)
+                    ToolbarItem(placement: .principal) { HeimdallViewSwitch(views: views.views, selection: $selection) }
                 }
         } else {
             content

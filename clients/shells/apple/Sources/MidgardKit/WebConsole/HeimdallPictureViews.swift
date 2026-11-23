@@ -372,49 +372,10 @@ public struct HeimdallPictureCanvas: View {
 
 
     private func hoverCard(_ t: HeimdallTrack, in size: CGSize) -> some View {
-        let rows: [(String, String)] = [
-            ("HDG / SPD", "\(HeimdallPictureModel.heading(t.hdg))° · \(Int(t.spd)) KT"),
-            ("ALT", t.alt),
-            ("RNG", "\(HeimdallPictureModel.range(t)) NM FROM SITE"),
-            ("CAP", HeimdallPictureModel.capability[t.cls] ?? "—"),
-            ("TRACK", "\(t.track.uppercased()) · \(Int(t.feeds)) FEEDS"),
-        ]
         let x = min(max(size.width * t.x / 100, 110), size.width - 110)
         let y = size.height * t.y / 100
         let flip = t.y < 36
-        return VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(t.id).font(MGWebFont.mono(11).weight(.semibold)).foregroundStyle(MGWeb.textHeading)
-                Text(t.cls).font(MGWebFont.mono(9)).mgTracking(0.1, size: MGWebFont.monoSize(9)).foregroundStyle(MGWeb.textFaint)
-                Spacer(minLength: 8)
-                Text("\(Int((t.conf * 100).rounded()))%")
-                    .font(MGWebFont.mono(10))
-                    .foregroundStyle(t.conf < 0.7 ? MGWeb.warnText : MGWeb.secureText)
-            }
-            .padding(.bottom, 6)
-            ForEach(rows, id: \.0) { k, v in
-                HStack(spacing: 10) {
-                    Text(k).mgTracking(0.08, size: MGWebFont.monoSize(9)).foregroundStyle(MGWeb.textFaint).frame(width: 62, alignment: .leading)
-                    Text(v).foregroundStyle(MGWeb.textBody)
-                }
-                .font(MGWebFont.mono(9))
-                .padding(.vertical, 2)
-            }
-            if t.id == model.selected {
-                Text("FOCUSED · OPTIONS IN INSPECTOR →")
-                    .font(MGWebFont.mono(8))
-                    .mgTracking(0.14, size: MGWebFont.monoSize(8))
-                    .foregroundStyle(accent.text)
-                    .padding(.top, 5)
-            }
-        }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 9)
-        .frame(minWidth: 200, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: MGRadius.sm).fill(MGWeb.surfaceCard))
-        .overlay(RoundedRectangle(cornerRadius: MGRadius.sm)
-            .strokeBorder(t.track == "anomalous" ? MGWeb.warn : MGWeb.borderStrong))
-        .shadow(color: .black.opacity(0.45), radius: 10, y: 6)
+        return HeimdallTrackCard(track: t, selected: t.id == model.selected)
         .alignmentGuide(.leading) { d in d.width / 2 - x }
         .alignmentGuide(.top) { d in flip ? -(y + 30) : d.height - y + 26 }
         .allowsHitTesting(false)
@@ -477,8 +438,14 @@ struct TrackGlyph: View {
 public struct HeimdallStatsFooter: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     private let accent = MGWebAccent.heimdall
+    let honesty: String
 
-    public init() {}
+    /// The note under the reference layout; the geographic views say the positions are
+    /// not real ones (`notRealPositions`), as the web does.
+    public static let referenceOnly = "SYNTHETIC PICTURE · REFERENCE LAYOUT ONLY"
+    public static let notRealPositions = "SYNTHETIC PICTURE · REFERENCE LAYOUT · NOT REAL POSITIONS"
+
+    public init(honesty: String = HeimdallStatsFooter.referenceOnly) { self.honesty = honesty }
 
     public var body: some View {
         let layout = typeSize.isAccessibilitySize
@@ -488,7 +455,7 @@ public struct HeimdallStatsFooter: View {
             WebStatBlock(value: "1,204", label: "TRACKED ENTITIES")
             WebStatBlock(value: "0.4s", label: "FUSION LATENCY")
             WebStatBlock(value: "1", label: "ANOMALIES", accent: accent)
-            Text("SYNTHETIC PICTURE · REFERENCE LAYOUT ONLY")
+            Text(honesty)
                 .font(MGWebFont.mono(9))
                 .mgTracking(0.14, size: MGWebFont.monoSize(9))
                 .foregroundStyle(MGWeb.textFaint)

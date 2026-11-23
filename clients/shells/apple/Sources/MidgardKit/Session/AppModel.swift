@@ -44,12 +44,14 @@ public final class AppModel: ObservableObject {
     public private(set) var custodyLabel: String?
     /// Which app this is, once the environment is known (Task B7).
     @Published public private(set) var edition: AppEdition?
-    /// The edition's banner under the source banner, its About screen and Heimdall's 3D
-    /// view: each from the linked edition provider (`EditionHook`), so nil in a release
-    /// app, which links none. [AC-C-13]
+    /// The edition's banner under the source banner, its About screen and Heimdall's
+    /// further picture views (MAP and 3D): each from the linked edition provider
+    /// (`EditionHook`), so nil in a release app, which links none. [AC-C-13]
     public var editionBanner: AnyView? { edition.flatMap { EditionHook.registered?.banner(for: $0) } }
     public var about: AnyView? { edition.flatMap { EditionHook.registered?.about(for: $0) } }
-    public var threeDEntry: HeimdallThreeDProvider? { edition.flatMap { EditionHook.registered?.threeD(for: $0) } }
+    public var pictureViews: HeimdallPictureViewsProvider? {
+        edition.flatMap { EditionHook.registered?.pictureViews(for: $0) }
+    }
 
     public var chipsPresentation: StatusChipsPresentation? { chips.map(StatusChipsPresentation.init) }
 

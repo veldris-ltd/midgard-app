@@ -7,8 +7,8 @@ import XCTest
 /// The 3D editions' library (Task B7): linked in, it registers its edition provider at
 /// link time (its strong `midgard_edition_hook` replaces MidgardHooks' weak default), with
 /// no call at launch and no runtime switch. The provider gives the 3D and maps editions
-/// their banner, About and Heimdall's 3D view, and the release edition nothing. Until
-/// Phase I the 3D view is a placeholder that says "3D view". [FR-C-1] [AC-C-13]
+/// their banner, About and Heimdall's MAP and 3D views (Phase I), and the release edition
+/// nothing. [FR-C-1] [FR-H-1] [AC-C-13]
 @MainActor
 final class GlobeRegistrationTests: XCTestCase {
     func testLinkingTheLibraryRegistersItsProvider() throws {
@@ -20,19 +20,22 @@ final class GlobeRegistrationTests: XCTestCase {
         let provider = EditionUIProvider.shared
         XCTAssertNil(provider.banner(for: .release))
         XCTAssertNil(provider.about(for: .release))
-        XCTAssertNil(provider.threeD(for: .release))
+        XCTAssertNil(provider.pictureViews(for: .release))
         XCTAssertNil(EditionBanner(.release))
         XCTAssertNil(EditionAbout(.release))
     }
 
-    func testThe3DEditionsGetTheirBannerAboutAnd3DView() throws {
+    func testThe3DEditionsGetTheirBannerAboutAndPictureViews() throws {
         let provider = EditionUIProvider.shared
         for edition in [AppEdition.threeD, .maps] {
             XCTAssertNotNil(provider.banner(for: edition))
             XCTAssertNotNil(provider.about(for: edition))
-            XCTAssertTrue(provider.threeD(for: edition) === GlobeRegistration.shared)
+            XCTAssertTrue(provider.pictureViews(for: edition) === GlobeRegistration.shared)
         }
-        XCTAssertEqual(GlobeRegistration.shared.title, "3D view")
+        // The web's switch: 2D (the app's own), then MAP and 3D.
+        XCTAssertEqual(GlobeRegistration.shared.views.map(\.id), ["map", "3d"])
+        XCTAssertEqual(GlobeRegistration.shared.views.map(\.label), ["MAP", "3D"])
+        XCTAssertEqual(HeimdallPictureView.reference, HeimdallPictureView(id: "2d", label: "2D"))
     }
 
     func testBannerTexts() {
@@ -58,7 +61,7 @@ final class GlobeRegistrationTests: XCTestCase {
         XCTAssertEqual(about.name, "Midgard 3D")
         XCTAssertEqual(about.editionLine, "Edition: Midgard 3D")
         XCTAssertEqual(about.releaseLine,
-                       "3D edition, not in the signed release. It is v0.1.0-rc.3 (ea5899ab) with a 3D view added to Heimdall.")
+                       "3D edition, not in the signed release. It is v0.1.0-rc.3 (ea5899ab) with map and 3D views added to Heimdall.")
         let maps = try XCTUnwrap(EditionAbout(.maps))
         XCTAssertEqual(maps.name, "Midgard Maps")
         XCTAssertEqual(maps.editionLine, "Edition: Midgard Maps")
@@ -74,10 +77,8 @@ final class GlobeRegistrationTests: XCTestCase {
                 XCTAssertNotNil(ImageRenderer(content: view).cgImage, "\(banner) at \(size)")
             }
         }
-        XCTAssertNotNil(ImageRenderer(content: GlobeRegistration.shared.makeView().frame(width: 390, height: 600)).cgImage)
-        XCTAssertNotNil(ImageRenderer(content: GlobeRegistration.shared.makeEntry(showing: .constant(false))
-            .frame(width: 390)).cgImage)
-        XCTAssertEqual(GlobePlaceholderView.text, "3D view")
-        XCTAssertEqual(GlobePlaceholderView.identifier, "mg.heimdall.3d.view")
+        XCTAssertNotNil(ImageRenderer(content: HeimdallViewSwitch(views: GlobeRegistration.shared.views,
+                                                                  selection: .constant("3d"))).cgImage)
+        XCTAssertNotNil(GlobeOutlines.shared(), "the bundled Natural Earth outlines load")
     }
 }
