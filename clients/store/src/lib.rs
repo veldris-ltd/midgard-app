@@ -67,6 +67,15 @@ pub struct LocalStore<R: TrustRoot + Keystore> {
 pub const CACHE_MAGIC: &[u8; 8] = b"MGCACHE2";
 /// AAD binding the outer seal to its purpose; the scope is appended.
 const CACHE_FILE_AAD: &[u8] = b"midgard-client/cache-file/v2";
+/// AAD of a device-wide sealed blob; the purpose is appended.
+const DEVICE_BLOB_AAD: &[u8] = b"midgard-client/device-blob/v1/";
+
+fn device_blob_aad(purpose: &str) -> Vec<u8> {
+    let mut aad = DEVICE_BLOB_AAD.to_vec();
+    aad.extend_from_slice(purpose.as_bytes());
+    aad
+}
+
 /// The smallest padded size of a cache file's contents. Contents are padded to the
 /// next power of two at or above this, so a file's length says little about how
 /// much is cached.
@@ -229,6 +238,50 @@ impl<R: TrustRoot + Keystore> LocalStore<R> {
         let file = self.kms.seal(&self.file_aad(), &inner, rng)?.encode();
         self.generation = generation;
         Ok(file)
+    }
+
+    /// Seal `bytes` under the device root for `purpose`, for the whole device rather
+    /// than this store's scope: the user's own imported data, which every persona of
+    /// the device reads through its own clearance. Zero-padded to a power-of-two
+    /// bucket of at least [`CACHE_PAD_MIN`] bytes, as a cache file is, so the length
+    /// says little. `[AC-C-2]`
+    pub fn seal_device_blob(
+        &self,
+        purpose: &str,
+        bytes: &[u8],
+        rng: &mut dyn Rng,
+    ) -> Result<Vec<u8>, StoreError> {
+        let mut inner = (bytes.len() as u64).to_le_bytes().to_vec();
+        inner.extend_from_slice(bytes);
+        let bucket = inner.len().next_power_of_two().max(CACHE_PAD_MIN);
+        inner.resize(bucket, 0);
+        Ok(self
+            .kms
+            .seal(&device_blob_aad(purpose), &inner, rng)?
+            .encode())
+    }
+
+    /// Open what [`seal_device_blob`](Self::seal_device_blob) sealed for `purpose`
+    /// under this device root; anything else (another root or purpose, a changed
+    /// byte, non-zero padding) is refused.
+    pub fn open_device_blob(&self, purpose: &str, file: &[u8]) -> Result<Vec<u8>, StoreError> {
+        let outer = SealedBlob::decode(file)?;
+        let inner = self.kms.unseal(&device_blob_aad(purpose), &outer)?;
+        let bad = |d: &str| StoreError::Malformed(d.to_string());
+        let len = inner
+            .get(..8)
+            .and_then(|b| <[u8; 8]>::try_from(b).ok())
+            .map(u64::from_le_bytes)
+            .ok_or_else(|| bad("truncated"))?;
+        let end = usize::try_from(len)
+            .ok()
+            .and_then(|l| l.checked_add(8))
+            .filter(|e| *e <= inner.len())
+            .ok_or_else(|| bad("length"))?;
+        if inner[end..].iter().any(|b| *b != 0) {
+            return Err(bad("padding is not zero"));
+        }
+        Ok(inner[8..end].to_vec())
     }
 
     /// Load an exported cache, replacing what is cached. All or nothing: a file that

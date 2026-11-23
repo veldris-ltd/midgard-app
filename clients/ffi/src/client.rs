@@ -27,6 +27,7 @@ use midgard_client_core::session::{self, Session};
 use midgard_client_core::source::{
     DataSource, Delivered, Grant, Persona, Seal, SourceError, VerifiedDigest,
 };
+use midgard_client_core::user_data;
 use midgard_client_inference::tier::{
     guard, heuristic, Connectivity, DeviceCapability, Heuristic, PrivacyPreference, TaskComplexity,
     Tier, TierContext,
@@ -296,6 +297,234 @@ pub struct SyncReport {
     pub merged: u32,
     /// Chips after.
     pub chips: StatusChips,
+}
+
+// ---- the user's own data -------------------------------------------------------------
+
+/// A file the user picked: its name (never its path) and its text.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct NamedFile {
+    /// The file's name.
+    pub name: String,
+    /// Its contents (UTF-8).
+    pub text: String,
+}
+
+/// What an imported data file held.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum DataFileKind {
+    /// Object and link records.
+    Records,
+    /// Heimdall observations.
+    Observations,
+}
+
+/// One imported file.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ImportedFileInfo {
+    /// Its name.
+    pub name: String,
+    /// What it held.
+    pub kind: DataFileKind,
+    /// Objects it added.
+    pub objects: u32,
+    /// Links it added.
+    pub links: u32,
+    /// Observations it held.
+    pub observations: u32,
+}
+
+/// One observation placed on the picture.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct UserPoint {
+    /// The entity key.
+    pub id: String,
+    /// Its `name`, or the key.
+    pub label: String,
+    /// Its kind.
+    pub kind: String,
+    /// Latitude, degrees.
+    pub lat: f64,
+    /// Longitude, degrees.
+    pub lon: f64,
+    /// Unix seconds.
+    pub observed_at: i64,
+    /// Its attributes, as text.
+    pub attrs: Vec<KeyValue>,
+}
+
+/// The observations of one feed (a file's, or a feed URL's last answer).
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct UserLayerInfo {
+    /// The file or feed it came from.
+    pub source: String,
+    /// The feed the observations name.
+    pub feed: String,
+    /// How many observations there were.
+    pub total: u32,
+    /// Those with a position, placed on the picture.
+    pub points: Vec<UserPoint>,
+}
+
+/// What is imported on this device.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct UserDataSummary {
+    /// The ontology file's name, when anything is imported.
+    pub ontology_name: Option<String>,
+    /// The data files, in the order imported.
+    pub files: Vec<ImportedFileInfo>,
+    /// The imported object type ids.
+    pub type_ids: Vec<String>,
+    /// Objects imported.
+    pub objects: u32,
+    /// Links imported.
+    pub links: u32,
+    /// Objects nobody may read: their purposes lack `operations`.
+    pub unreadable: u32,
+    /// Observation layers.
+    pub layers: Vec<UserLayerInfo>,
+}
+
+/// What an import came to: the summary, the sealed copy to keep (write it, replacing
+/// the last), and the audit row it was recorded in.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct ImportOutcome {
+    /// Everything imported now.
+    pub summary: UserDataSummary,
+    /// The imported data, sealed under the device root.
+    pub sealed: Vec<u8>,
+    /// The audit row id.
+    pub audit_id: String,
+}
+
+/// A feed the user added, as Heimdall's feeds list it.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct UserFeed {
+    /// A stable id.
+    pub id: String,
+    /// The name the user gave.
+    pub name: String,
+    /// `observations file` or `feed URL`.
+    pub kind: String,
+    /// `file`, `every 60 s`.
+    pub rate: String,
+    /// `UNVERIFIED FEED`, or the last error.
+    pub status_label: String,
+    /// Whether the last fetch failed.
+    pub failing: bool,
+}
+
+const USER_DATA_PURPOSE: &str = "user-data";
+
+fn layer_info(l: &user_data::ObservationLayer) -> UserLayerInfo {
+    UserLayerInfo {
+        source: l.source.clone(),
+        feed: l.feed.clone(),
+        total: count(l.total),
+        points: l
+            .observations
+            .iter()
+            .filter_map(|o| {
+                let (lat, lon) = o.position?;
+                Some(UserPoint {
+                    id: o.entity.clone(),
+                    label: o.label().to_string(),
+                    kind: o.kind.clone(),
+                    lat,
+                    lon,
+                    observed_at: o.observed_at,
+                    attrs: o
+                        .attrs
+                        .iter()
+                        .map(|(k, v)| KeyValue {
+                            key: k.clone(),
+                            value: v.clone(),
+                        })
+                        .collect(),
+                })
+            })
+            .collect(),
+    }
+}
+
+fn summary_of(c: Option<&user_data::Checked>) -> UserDataSummary {
+    let Some(c) = c else {
+        return UserDataSummary {
+            ontology_name: None,
+            files: Vec::new(),
+            type_ids: Vec::new(),
+            objects: 0,
+            links: 0,
+            unreadable: 0,
+            layers: Vec::new(),
+        };
+    };
+    UserDataSummary {
+        ontology_name: Some(c.ontology_file.name.clone()),
+        files: c
+            .files
+            .iter()
+            .map(|f| ImportedFileInfo {
+                name: f.name.clone(),
+                kind: match f.kind {
+                    user_data::FileKind::Records => DataFileKind::Records,
+                    user_data::FileKind::Observations => DataFileKind::Observations,
+                },
+                objects: count(f.objects),
+                links: count(f.links),
+                observations: count(f.observations),
+            })
+            .collect(),
+        type_ids: c
+            .ontology
+            .object_types
+            .iter()
+            .map(|t| t.id.clone())
+            .collect(),
+        objects: count(c.objects.len()),
+        links: count(c.links.len()),
+        unreadable: count(c.unreadable()),
+        layers: c.layers.iter().map(layer_info).collect(),
+    }
+}
+
+fn refused(reason: impl Into<String>) -> ClientError {
+    ClientError::Refused {
+        reason: reason.into(),
+    }
+}
+
+fn named(f: NamedFile) -> user_data::NamedText {
+    user_data::NamedText {
+        name: f.name,
+        text: f.text,
+    }
+}
+
+/// The SDK's address rule for a gateway (`assertSafeBaseUrl`): the address to call
+/// (`…/api/v1` when given the host alone), or the refusal in the SDK's words.
+#[uniffi::export]
+pub fn check_gateway_address(url: String) -> Result<String, ClientError> {
+    user_data::check_gateway_address(&url)
+        .map(|a| a.url())
+        .map_err(refused)
+}
+
+/// The same rule for a feed URL.
+#[uniffi::export]
+pub fn check_feed_address(url: String) -> Result<String, ClientError> {
+    user_data::check_feed_address(&url)
+        .map(|a| a.url())
+        .map_err(refused)
+}
+
+/// Heimdall observations (a file, or a feed URL's answer), one layer per feed;
+/// refused whole, with the record named, on the first malformed one.
+#[uniffi::export]
+pub fn parse_observations(source: String, text: String) -> Result<Vec<UserLayerInfo>, ClientError> {
+    user_data::parse_observations(&source, &text)
+        .map(|ls| ls.iter().map(layer_info).collect())
+        .map_err(refused)
 }
 
 /// What serves the session: the signed demo dataset, the release's sample data, or
@@ -840,6 +1069,127 @@ impl MidgardClient {
         })
     }
 
+    /// Import the user's own files (`docs/guides/IMPORT_YOUR_OWN_DATA.md`): an
+    /// ontology (or none, to keep the one imported) and data files, checked as
+    /// `mg-admin import` checks them, all or nothing, then installed by the audited
+    /// action `midgard.importData`. Online only: the import is recorded as it is made.
+    /// A refusal names the file and line at fault and changes nothing.
+    pub fn import_data(
+        &self,
+        ontology: Option<NamedFile>,
+        files: Vec<NamedFile>,
+    ) -> Result<ImportOutcome, ClientError> {
+        self.with_open(|o| {
+            let Source::Sample(sample) = o.session.source() else {
+                return Err(refused("your own data is imported over the sample data only"));
+            };
+            if !o.session.source().online() {
+                return Err(refused(
+                    "Offline: an import is recorded in the ledger as it is made. Go online and import again.",
+                ));
+            }
+            let checked = user_data::check(
+                sample.user_data(),
+                ontology.map(named).as_ref(),
+                &files.into_iter().map(named).collect::<Vec<_>>(),
+                &sample.reserved_types(),
+            )
+            .map_err(refused)?;
+            let names: Vec<&str> = checked.files.iter().map(|f| f.name.as_str()).collect();
+            let names = names.join(", ");
+            let sealed = o
+                .session
+                .seal_device_blob(USER_DATA_PURPOSE, &checked.persisted())?;
+            let digest = match o.session.source_mut() {
+                Source::Sample(s) => s.stage_user_data(checked),
+                _ => unreachable!("checked above"),
+            };
+            let audit_id = run_now(
+                &mut o.session,
+                "midgard.importData",
+                &[("digest".into(), digest), ("files".into(), names)],
+            )?;
+            let Source::Sample(sample) = o.session.source() else {
+                unreachable!("checked above")
+            };
+            Ok(ImportOutcome {
+                summary: summary_of(sample.user_data()),
+                sealed,
+                audit_id,
+            })
+        })
+    }
+
+    /// Take the imported data out (audited, `midgard.removeImportedData`). Delete the
+    /// sealed copy afterwards.
+    pub fn remove_imported_data(&self) -> Result<String, ClientError> {
+        self.with_open(|o| {
+            if !matches!(o.session.source(), Source::Sample(_)) {
+                return Err(refused("there is no imported data"));
+            }
+            if !o.session.source().online() {
+                return Err(refused(
+                    "Offline: removing imported data is recorded in the ledger as it is made. Go online and remove it again.",
+                ));
+            }
+            run_now(&mut o.session, "midgard.removeImportedData", &[])
+        })
+    }
+
+    /// Install the imported data from its sealed copy on this device (after an
+    /// unlock), checking everything again. No new audit row: it was audited when it
+    /// was imported. A copy that does not open or check is refused: delete it.
+    pub fn restore_user_data(&self, sealed: Vec<u8>) -> Result<UserDataSummary, ClientError> {
+        self.with_open(|o| {
+            let bytes = o.session.open_device_blob(USER_DATA_PURPOSE, &sealed)?;
+            let Source::Sample(sample) = o.session.source_mut() else {
+                return Err(refused(
+                    "your own data is imported over the sample data only",
+                ));
+            };
+            if sample.user_data().is_some_and(|c| c.persisted() == bytes) {
+                return Ok(summary_of(sample.user_data()));
+            }
+            let checked = user_data::restore(&bytes, &sample.reserved_types())
+                .map_err(|detail| ClientError::Malformed { detail })?;
+            sample.restore_user_data(checked);
+            Ok(summary_of(sample.user_data()))
+        })
+    }
+
+    /// What is imported now (nothing, locked or with another source).
+    pub fn user_data_summary(&self) -> UserDataSummary {
+        match self.state().as_deref() {
+            Ok(State::Open(o)) => match o.session.source() {
+                Source::Sample(s) => summary_of(s.user_data()),
+                _ => summary_of(None),
+            },
+            _ => summary_of(None),
+        }
+    }
+
+    /// The user's own feeds (imported observation files and feed URLs), as Heimdall's
+    /// feeds list them: replaces the ones set before.
+    pub fn set_user_feeds(&self, feeds: Vec<UserFeed>) -> Result<(), ClientError> {
+        self.with_open(|o| {
+            if let Source::Sample(s) = o.session.source_mut() {
+                let rows: Vec<user_data::UserFeedRow> = feeds
+                    .into_iter()
+                    .map(|f| user_data::UserFeedRow {
+                        id: f.id,
+                        name: f.name,
+                        kind: f.kind,
+                        rate: f.rate,
+                        status_label: f.status_label,
+                        failing: f.failing,
+                    })
+                    .collect();
+                s.set_user_feeds(&rows);
+            }
+            Ok(())
+        })
+    }
+
     /// "Reset demo": lock and reload the dataset, so the demo's own state (actions
     /// applied, audit rows appended) starts again; with no data source, lock with a
     /// fresh `LocalSource` (no file is read); with the sample data, a fresh
@@ -856,6 +1206,22 @@ impl MidgardClient {
         });
         *st = State::Locked(Box::new(source));
         Ok(())
+    }
+}
+
+/// Make one action on `midgard.objectTypes/*` and sync at once: its audit id, or the
+/// refusal. The persona must have read the collection (its marking is the cached
+/// delivery's), so it is read first.
+fn run_now(s: &mut Live, verb: &str, params: &[(String, String)]) -> Result<String, ClientError> {
+    s.rows::<midgard_client_core::consoles::midgard::MidgardObjectType>(user_data::TYPES)?;
+    let id = s.request_action(verb, &format!("{}/*", user_data::TYPES), params)?;
+    s.sync()?;
+    match s.action_state(&id) {
+        session::ActionState::Applied { audit, .. } => Ok(audit),
+        session::ActionState::Refused { reason } | session::ActionState::Conflict { reason } => {
+            Err(refused(reason))
+        }
+        _ => Err(refused("the action is queued: go online and try again")),
     }
 }
 

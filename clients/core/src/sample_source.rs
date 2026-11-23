@@ -53,10 +53,13 @@
 use attest::json::{parse, Json};
 
 use crate::demo::actions::{admin, midgard};
+use crate::demo::canon;
 use crate::demo::enclosure::{
-    ActionRequest, Collection, DemoEnclosure, DemoState, MockAuditClock, Outcome,
+    ActionRequest, Collection, DemoEnclosure, DemoState, MockAuditClock, Outcome, StoredRow,
 };
+use crate::marking::{MarkingLevel, RowMarking};
 use crate::source::{DataSource, Delivered, Grant, Persona, Seal, SourceError, VerifiedDigest};
+use crate::user_data::{self, Checked, UserFeedRow};
 use crate::CORE_VERSION;
 
 /// The release whose mocks the sample data is.
@@ -126,6 +129,8 @@ impl SampleSource {
         inner.register("admin.rollbackConfig", admin::rollback_config);
         inner.register("admin.searchLedger", admin::search_ledger);
         inner.register("admin.requestBreakGlass", admin::request_break_glass);
+        inner.register("midgard.importData", import_data);
+        inner.register("midgard.removeImportedData", remove_imported_data);
         Ok(Self { inner })
     }
 
@@ -136,6 +141,167 @@ impl SampleSource {
         s.inner.state_mut().set_now(now);
         Ok(s)
     }
+}
+
+// ---- the user's own data (`crate::user_data`) -------------------------------------------
+
+impl SampleSource {
+    /// The object type ids the sample data declares: an import may not declare them.
+    pub fn reserved_types(&self) -> Vec<String> {
+        let state = self.inner.state();
+        state
+            .collections
+            .get(user_data::TYPES)
+            .map(|c| {
+                c.rows
+                    .iter()
+                    .filter(|r| !state.user.type_ids.contains(&r.id))
+                    .map(|r| r.id.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// The imported data installed, if any.
+    pub fn user_data(&self) -> Option<&Checked> {
+        self.inner.state().user.installed.as_ref()
+    }
+
+    /// Hold `checked` until the audited action `midgard.importData` with its digest
+    /// installs it. Returns the digest.
+    pub fn stage_user_data(&mut self, checked: Checked) -> String {
+        let digest = checked.digest();
+        self.inner.state_mut().user.staged = Some(checked);
+        digest
+    }
+
+    /// Install imported data read back from this device's sealed copy, without a new
+    /// audit row (it was audited when it was imported). Replaces what is installed.
+    pub fn restore_user_data(&mut self, checked: Checked) {
+        install(self.inner.state_mut(), Some(checked));
+    }
+
+    /// Replace the rows of the user's own feeds in Heimdall's feeds.
+    pub fn set_user_feeds(&mut self, feeds: &[UserFeedRow]) {
+        let state = self.inner.state_mut();
+        let Some(coll) = state.collections.get_mut(user_data::FEEDS) else {
+            return;
+        };
+        coll.rows
+            .retain(|r| !r.id.starts_with(user_data::FEED_ROW_PREFIX));
+        for f in feeds {
+            coll.rows.push(StoredRow {
+                id: format!("{}{}", user_data::FEED_ROW_PREFIX, f.id),
+                marking: RowMarking::new(MarkingLevel::Open, Vec::<String>::new()),
+                item: user_data::feed_item(f),
+                signature: None,
+            });
+        }
+    }
+}
+
+/// Put `checked` in the collections (or, with none, take the imported data out):
+/// each object type as a row anyone may see (its counts are made per reader, in
+/// `fetch`), and each object at its own marking. An object no login purpose may read
+/// is not a row at all, as if it did not exist.
+fn install(state: &mut DemoState, checked: Option<Checked>) {
+    let old = std::mem::take(&mut state.user.type_ids);
+    if let Some(c) = state.collections.get_mut(user_data::TYPES) {
+        c.rows.retain(|r| !old.contains(&r.id));
+    }
+    if let Some(c) = state.collections.get_mut(user_data::OBJECTS) {
+        c.rows
+            .retain(|r| !str_field(&r.item, "typeId").is_some_and(|t| old.contains(t)));
+    }
+    state.user.installed = None;
+    let Some(checked) = checked else { return };
+    let open = RowMarking::new(MarkingLevel::Open, Vec::<String>::new());
+    let types: Vec<StoredRow> = checked
+        .ontology
+        .object_types
+        .iter()
+        .filter_map(|t| {
+            Some(StoredRow {
+                id: t.id.clone(),
+                marking: open.clone(),
+                item: user_data::type_item(&checked, &t.id, None)?,
+                signature: None,
+            })
+        })
+        .collect();
+    let objects: Vec<StoredRow> = checked
+        .objects
+        .iter()
+        .filter(|o| {
+            o.allowed_purposes
+                .iter()
+                .any(|p| p.0 == user_data::LOGIN_PURPOSE)
+        })
+        .map(|o| {
+            let level =
+                MarkingLevel::ALL[usize::from(o.marking.level.0).min(MarkingLevel::ALL.len() - 1)];
+            StoredRow {
+                id: o.id.clone(),
+                marking: RowMarking::new(level, o.marking.compartments.iter().map(|c| c.0.clone())),
+                item: user_data::object_item(o),
+                signature: None,
+            }
+        })
+        .collect();
+    state.user.type_ids = checked
+        .ontology
+        .object_types
+        .iter()
+        .map(|t| t.id.clone())
+        .collect();
+    if let Some(c) = state.collections.get_mut(user_data::TYPES) {
+        c.rows.extend(types);
+    }
+    if let Some(c) = state.collections.get_mut(user_data::OBJECTS) {
+        c.rows.extend(objects);
+    }
+    state.user.installed = Some(checked);
+}
+
+/// `midgard.importData` on `midgard.objectTypes/*` (param `digest`): installs the
+/// import this device checked and staged, so the import is decided once and audited in
+/// `midgard.audit` like every action.
+fn import_data(state: &mut DemoState, _grant: &Grant, req: &ActionRequest) -> Outcome {
+    if req.target != format!("{}/*", user_data::TYPES) {
+        return Outcome::Refused("an import is made on midgard.objectTypes/*".into());
+    }
+    let digest = req
+        .params
+        .iter()
+        .find(|(k, _)| k == "digest")
+        .map(|(_, v)| v.as_str());
+    let Some(staged) = state.user.staged.take() else {
+        return Outcome::Refused("no import is waiting".into());
+    };
+    if Some(staged.digest().as_str()) != digest {
+        return Outcome::Refused("the import waiting is not the one named".into());
+    }
+    let objects = staged.objects.len();
+    let links = staged.links.len();
+    let files = staged.files.len();
+    install(state, Some(staged));
+    Outcome::Applied(Json::Obj(vec![
+        ("objects".into(), Json::Num(objects.to_string())),
+        ("links".into(), Json::Num(links.to_string())),
+        ("files".into(), Json::Num(files.to_string())),
+    ]))
+}
+
+/// `midgard.removeImportedData` on `midgard.objectTypes/*`: takes the imported data out.
+fn remove_imported_data(state: &mut DemoState, _grant: &Grant, req: &ActionRequest) -> Outcome {
+    if req.target != format!("{}/*", user_data::TYPES) {
+        return Outcome::Refused("imported data is removed on midgard.objectTypes/*".into());
+    }
+    if state.user.installed.is_none() {
+        return Outcome::Refused("there is no imported data".into());
+    }
+    install(state, None);
+    Outcome::Applied(Json::Obj(vec![("removed".into(), Json::Bool(true))]))
 }
 
 fn str_field<'a>(item: &'a Json, key: &str) -> Option<&'a str> {
@@ -179,8 +345,40 @@ impl DataSource for SampleSource {
         self.inner.grant(persona_id)
     }
 
+    /// As the demo enclosure delivers, except that an imported object type's row is
+    /// counted for the reader: how many of its objects they may read, and the highest
+    /// marking and the compartments among those, as the gateway lists types.
     fn fetch(&self, grant: &Grant, collection: &str) -> Result<Vec<Delivered>, SourceError> {
-        self.inner.fetch(grant, collection)
+        let rows = self.inner.fetch(grant, collection)?;
+        let state = self.inner.state();
+        let Some(checked) = state.user.installed.as_ref() else {
+            return Ok(rows);
+        };
+        if collection != user_data::TYPES {
+            return Ok(rows);
+        }
+        let grant = self.inner.grant(&grant.persona().id)?;
+        Ok(rows
+            .into_iter()
+            .map(|d| match d {
+                Delivered::Row {
+                    id,
+                    marking,
+                    body,
+                    signature,
+                } if state.user.type_ids.contains(&id) => {
+                    let body = user_data::type_item(checked, &id, Some(&grant))
+                        .map_or(body, |item| canon::encode(&item).into_bytes());
+                    Delivered::Row {
+                        id,
+                        marking,
+                        body,
+                        signature,
+                    }
+                }
+                other => other,
+            })
+            .collect())
     }
 
     fn exchange(&mut self, grant: &Grant, ops: &[Vec<u8>]) -> Result<Vec<Vec<u8>>, SourceError> {

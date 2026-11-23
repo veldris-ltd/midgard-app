@@ -140,7 +140,53 @@ macro_rules! row_items {
             };
             Ok(rows.into_iter().enumerate().map(|(i, v)| row(i, v)).collect())
         }
+
+        /// A gateway's list answer, decoded strictly as the read model `type_name`.
+        pub(crate) fn decoded_rows(
+            type_name: &str,
+            delivered: Vec<midgard_client_core::source::Delivered>,
+        ) -> Result<Vec<ConsoleRow>, ClientError> {
+            let malformed = |e: midgard_client_core::consoles::decode::DecodeError| ClientError::Malformed {
+                detail: format!("the gateway's answer does not decode as {type_name}: {e}"),
+            };
+            let rows: Vec<Visible<RowItem>> = match type_name {
+                $(
+                    stringify!($ty) => midgard_client_core::source::decode_rows::<core::$module::$ty>(delivered)
+                        .map_err(malformed)?
+                        .into_iter()
+                        .map(|v| v.map(|x| RowItem::$ty { item: x.into() }))
+                        .collect(),
+                )*
+                other => {
+                    return Err(ClientError::Malformed {
+                        detail: format!("no binding for row type {other:?}"),
+                    })
+                }
+            };
+            Ok(rows
+                .into_iter()
+                .enumerate()
+                .map(|(i, v)| {
+                    let mut r = row(i, v);
+                    // This device checked no signature of the gateway's: no check mark.
+                    if r.signature.is_some() {
+                        r.signature = Some(SignatureStatus::Unsigned);
+                    }
+                    r
+                })
+                .collect())
+        }
     };
+}
+
+/// A gateway's list answer (`GET /object-types`, `/policies`, `/audit`, …) as the rows a
+/// screen reads, decoded strictly as `row_type`. Nothing is withheld: the gateway has
+/// scoped the answer already. Audit rows never show a check mark. `[AC-C-13]`
+#[uniffi::export]
+pub fn gateway_rows(row_type: String, json: String) -> Result<Vec<ConsoleRow>, ClientError> {
+    let delivered = midgard_client_core::user_data::gateway_delivery(&json)
+        .map_err(|detail| ClientError::Malformed { detail })?;
+    decoded_rows(&row_type, delivered)
 }
 
 // The same list as the core's registry (`consoles/mod.rs`); the test below keeps

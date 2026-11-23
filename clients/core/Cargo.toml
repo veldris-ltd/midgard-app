@@ -14,6 +14,8 @@ backend-fips = [
     "midgard-client-enclosure/backend-fips",
     "pqc-agility/backend-fips",
     "attest/backend-fips",
+    "ontology-import/backend-fips",
+    "fabric/backend-fips",
 ]
 
 # Opens a demo dataset under caller-chosen anchors, or loads an unsigned body
@@ -40,6 +42,11 @@ attest = { path = "../../crypto/attest", default-features = false, features = ["
 # envelope the store uses), so the key is never at rest in the clear. [NFR-PQ-2]
 # [NFR-PQ-3]
 kms = { path = "../../services/kms" }
+# "Import JSON files" (user_data): the ontology file and the import format, parsed and
+# checked by the very code `mg-admin import` and the HTTP gateway use, into the
+# fabric's types. Pure: no I/O, no network, no server dependency. [DD-1] [RC-10]
+ontology-import = { path = "../../services/ontology-import", default-features = false }
+fabric = { path = "../../services/fabric", default-features = false }
 
 [dev-dependencies]
 # The integration tests use the unpinned entry points. [AC-C-13]

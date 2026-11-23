@@ -240,6 +240,16 @@ pub fn apply_action(state: &mut DemoState, grant: &Grant, req: &ActionRequest) -
     if state.row(OBJECTS, object).is_none() {
         return one_target(&api_name);
     }
+    // An imported action acts only on its own type's objects (the gateway's rule).
+    let imported = state
+        .user
+        .action(action)
+        .map(|a| (a.object_type.clone(), a.effect.clone()));
+    if let Some((type_id, _)) = &imported {
+        if !object.starts_with(&format!("{type_id}/")) {
+            return one_target(type_id);
+        }
+    }
     if gated {
         let Some(token) = param(req, "humanGateToken").filter(|t| !t.is_empty()) else {
             return Outcome::Refused(format!("Human gate required for action \"{action}\""));
@@ -259,6 +269,13 @@ pub fn apply_action(state: &mut DemoState, grant: &Grant, req: &ActionRequest) -
         }
         if let Some(a) = state.row_mut(APPROVALS, token) {
             set(&mut a.item, "status", Json::Str("used".into()));
+        }
+    }
+    // An imported action changes its object as the ontology's effect says (in memory:
+    // the import itself is what is saved).
+    if let Some((_, effect)) = imported {
+        if let Some(row) = state.row_mut(OBJECTS, object) {
+            crate::user_data::apply_effect(&mut row.item, &effect);
         }
     }
     Outcome::Applied(obj(vec![("applied", Json::Bool(true))]))
@@ -466,6 +483,18 @@ pub fn search_around(state: &mut DemoState, grant: &Grant, req: &ActionRequest) 
         .and_then(|h| h.parse::<u64>().ok())
         .unwrap_or(1)
         .clamp(1, MAX_HOPS);
+    // Imported types are walked over their real links, as the gateway walks them.
+    if state.user.type_ids.contains(api_name) {
+        if let Some(c) = &state.user.installed {
+            let limit = param(req, "limit")
+                .and_then(|l| l.parse::<usize>().ok())
+                .unwrap_or(60)
+                .clamp(1, MAX_RESULTS);
+            return Outcome::Applied(crate::user_data::search_around(
+                c, grant, &seed, hops, limit,
+            ));
+        }
+    }
     let status = obj(vec![("status", Json::Str("active".into()))]);
     let node = |id: &str, label: &str, type_name: &str, marking: &str, hop: u64| {
         obj(vec![

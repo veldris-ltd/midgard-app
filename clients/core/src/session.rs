@@ -610,6 +610,21 @@ impl<K: Keystore + TrustRoot, S: DataSource> Session<K, S> {
         &self.source
     }
 
+    /// The data source, to change what it serves (the user's own data).
+    pub fn source_mut(&mut self) -> &mut S {
+        &mut self.source
+    }
+
+    /// Seal `bytes` for the whole device under its root, for `purpose`.
+    pub fn seal_device_blob(&self, purpose: &str, bytes: &[u8]) -> Result<Vec<u8>, SessionError> {
+        Ok(self.core.seal_device_blob(purpose, bytes, &mut OsRng)?)
+    }
+
+    /// Open a blob sealed by [`seal_device_blob`](Self::seal_device_blob).
+    pub fn open_device_blob(&self, purpose: &str, file: &[u8]) -> Result<Vec<u8>, SessionError> {
+        Ok(self.core.open_device_blob(purpose, file)?)
+    }
+
     /// The device-audit key id (a digest of its verifying key).
     pub fn device_key_id(&self) -> &str {
         self.device.key_id()

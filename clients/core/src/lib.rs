@@ -45,6 +45,7 @@ pub mod marking;
 pub mod sample_source;
 pub mod session;
 pub mod source;
+pub mod user_data;
 
 /// The version of the shared core every shell links. All client sub-crates share
 /// the workspace version, so this single string identifies the core on every
@@ -214,6 +215,21 @@ impl<K: Keystore + TrustRoot> ClientCore<K> {
     /// Merge remote ops received from the enclosure relay (conflict-free).
     pub fn merge_remote(&mut self, ops: &[SyncOp]) {
         self.replica.merge_all(ops.iter());
+    }
+
+    /// Seal `bytes` for the whole device under its root (the user's own data).
+    pub fn seal_device_blob(
+        &self,
+        purpose: &str,
+        bytes: &[u8],
+        rng: &mut dyn Rng,
+    ) -> Result<Vec<u8>, CoreError> {
+        Ok(self.store.seal_device_blob(purpose, bytes, rng)?)
+    }
+
+    /// Open a blob [`seal_device_blob`](Self::seal_device_blob) sealed.
+    pub fn open_device_blob(&self, purpose: &str, file: &[u8]) -> Result<Vec<u8>, CoreError> {
+        Ok(self.store.open_device_blob(purpose, file)?)
     }
 
     /// The object ids the session clearance may render.

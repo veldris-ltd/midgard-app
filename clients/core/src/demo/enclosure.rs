@@ -107,6 +107,8 @@ pub struct DemoState {
     now: Option<fn() -> u64>,
     /// Counters a console's mock keeps (Admin's config version), by name.
     counters: BTreeMap<String, u64>,
+    /// The user's own imported data (sample source only, `crate::user_data`).
+    pub user: crate::user_data::UserTables,
 }
 
 impl DemoState {
@@ -647,6 +649,11 @@ impl DemoEnclosure {
     /// The state handlers work on (the sample source seeds its mock clocks here).
     pub(crate) fn state_mut(&mut self) -> &mut DemoState {
         &mut self.state
+    }
+
+    /// The state, to read.
+    pub(crate) fn state(&self) -> &DemoState {
+        &self.state
     }
 
     /// Decide one complete action for `grant`.
