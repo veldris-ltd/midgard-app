@@ -79,6 +79,8 @@ struct HeimdallGlobeView: View {
                         ? "Drag to pan, pinch to zoom, twist to turn, two fingers up or down to tilt. The track list reaches each track."
                         : "Arrow keys pan, Shift and arrows tilt and turn, plus and minus zoom. The track list reaches each track."))
                     .accessibilityIdentifier("mg.heimdall.3d.surface")
+                UserLayerPoints(layers: picture.visibleUserLayers, tick: c.markers.count) { c.surfacePoint($0, $1) }
+                    .frame(width: geo.size.width, height: geo.size.height)
                 GlobeMarkers(controller: c, picture: picture) { id in
                     select(id, fly: false)
                 }

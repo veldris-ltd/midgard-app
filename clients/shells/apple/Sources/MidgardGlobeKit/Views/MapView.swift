@@ -176,6 +176,7 @@ struct HeimdallMapView: View {
         let cam = c.camera
         _ = cam
         return ZStack(alignment: .topLeading) {
+            UserLayerPoints(layers: picture.visibleUserLayers, tick: 0) { c.project($0, $1) }
             // The labels, drawn (not text elements over the map), under the markers.
             Canvas { ctx, size in
                 for t in placed {

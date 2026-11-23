@@ -405,6 +405,14 @@ final class GlobeController: ObservableObject {
                                         SIMD4(0, 0, near, 0)))
     }
 
+    /// A point on the ground to screen points, or nil behind the globe or the camera
+    /// (the user's layers).
+    func surfacePoint(_ lat: Double, _ lon: Double) -> CGPoint? {
+        let pos = Geo.toXyz(lat, lon, 0)
+        guard !Geo.isOccluded(cam: eye, pos) else { return nil }
+        return project(pos)
+    }
+
     /// A point on the globe to screen points, or nil behind the camera.
     func project(_ p: Vec3) -> CGPoint? {
         let c = viewProj * SIMD4(p.x, p.y, p.z, 1)
