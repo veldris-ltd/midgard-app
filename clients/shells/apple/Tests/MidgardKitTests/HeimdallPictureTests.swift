@@ -177,12 +177,15 @@ final class HeimdallPictureTests: XCTestCase {
                         let label = HeimdallPictureGeometry.labelFrame(
                             at: at, label: monoLabel(text, points: points, tracking: 0.08 * 11, padding: 2), in: size)
                         let symbol = HeimdallPictureGeometry.symbolFrame(at: at)
+                        // The track's button reaches over its symbol and its label.
+                        let button = HeimdallPictureGeometry.trackFrame(at: at, label: label.size, in: size)
+                        XCTAssertTrue(button.contains(symbol) && button.contains(label), "\(t.id): \(button)")
                         let picture = CGRect(origin: .zero, size: size)
                         let context = "\(t.id) at \(width)×\(size.height), \(points) pt"
                         XCTAssertTrue(picture.contains(symbol), "symbol outside the picture: \(context) \(symbol)")
                         XCTAssertTrue(picture.insetBy(dx: 1, dy: 1).contains(label),
                                       "label clipped by the picture: \(context) \(label)")
-                        for (name, frame) in [("symbol", symbol), ("label", label)] {
+                        for (name, frame) in [("symbol", symbol), ("label", label), ("button", button)] {
                             let inStack = frame.offsetBy(dx: 0, dy: strip)
                             XCTAssertFalse(inStack.intersects(readouts),
                                            "\(name) under the readouts: \(context) \(inStack) \(readouts)")

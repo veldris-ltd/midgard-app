@@ -87,6 +87,8 @@ public struct HeimdallPictureCanvas: View {
     let readoutsInPicture: Bool
     let onSelect: (String) -> Void
     @Environment(\.dynamicTypeSize) private var typeSize
+    /// Each track label's drawn size, as laid out: the track's button reaches over it.
+    @State private var labelSizes: [String: CGSize] = [:]
     private let accent = MGWebAccent.heimdall
 
     /// At accessibility text sizes the picture draws no text of its own (it would cover
@@ -121,8 +123,10 @@ public struct HeimdallPictureCanvas: View {
                 if model.isOn("feeds") { coverage(size) }
                 ForEach(model.visibleTracks, id: \.id) { track in
                     let at = HeimdallPictureGeometry.point(x: track.x, y: track.y, in: size)
-                    trackButton(track)
-                        .position(at)
+                    let label = large ? nil : labelSizes[track.id]
+                    let frame = HeimdallPictureGeometry.trackFrame(at: at, label: label, in: size)
+                    trackButton(track, symbolAt: CGPoint(x: at.x - frame.minX, y: at.y - frame.minY), size: frame.size)
+                        .position(x: frame.midX, y: frame.midY)
                     if !large { trackLabel(track, at: at, in: size) }
                 }
                 // In an overlay, so the card never changes the picture's layout: a card
@@ -311,10 +315,11 @@ public struct HeimdallPictureCanvas: View {
         .frame(width: size.width, height: size.height, alignment: .topLeading)
     }
 
-    /// A track: its symbol is the button (44 pt where it can be hit), centred on the
-    /// track's point; its label is drawn apart (`trackLabel`), so neither the contrast
-    /// audit nor VoiceOver reads the label against the symbol's colours.
-    private func trackButton(_ t: HeimdallTrack) -> some View {
+    /// A track: one button, 44 pt round its symbol (centred on the track's point) and
+    /// reaching over its label (`trackLabel`, drawn apart and not read by VoiceOver), so
+    /// the label's text lies inside the element that speaks for it and VoiceOver says
+    /// the track once. `symbolAt` is the symbol's centre in the button's `size`.
+    private func trackButton(_ t: HeimdallTrack, symbolAt: CGPoint, size: CGSize) -> some View {
         let anomalous = t.track == "anomalous"
         let selected = t.id == model.selected
         return Button {
@@ -322,7 +327,9 @@ public struct HeimdallPictureCanvas: View {
             onSelect(t.id)
         } label: {
             TrackGlyph(track: t, selected: selected, accent: accent)
-                .frame(width: 44, height: 44)
+                .frame(width: HeimdallPictureGeometry.hitSize, height: HeimdallPictureGeometry.hitSize)
+                .position(symbolAt)
+                .frame(width: size.width, height: size.height)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -337,8 +344,9 @@ public struct HeimdallPictureCanvas: View {
     /// A track's label, where the web puts it: 5 pt under the 14 pt dot, centred on it,
     /// and kept inside the picture (on an iPhone SE's width the rightmost labels would
     /// otherwise run past the edge at large text). VoiceOver does not read it: the
-    /// track's button says the same. It stays in the accessibility tree as an empty
-    /// container named `mg.heimdall.tracklabel.<id>`, so the UI tests can find its frame.
+    /// track's button, which reaches over it, says the same. It stays in the
+    /// accessibility tree as an empty container named `mg.heimdall.tracklabel.<id>`, so
+    /// the UI tests can find its frame.
     private func trackLabel(_ t: HeimdallTrack, at point: CGPoint, in size: CGSize) -> some View {
         let anomalous = t.track == "anomalous"
         let selected = t.id == model.selected
@@ -352,6 +360,7 @@ public struct HeimdallPictureCanvas: View {
                     .fixedSize()
                     .padding(.horizontal, 2)
                     .background(MGWeb.bgPage)
+                    .onGeometryChange(for: CGSize.self) { $0.size } action: { labelSizes[t.id] = $0 }
                     .accessibilityHidden(true)
             }
             .accessibilityElement(children: .contain)
@@ -803,6 +812,13 @@ enum HeimdallPictureGeometry {
 
     static func labelFrame(at point: CGPoint, label: CGSize, in size: CGSize) -> CGRect {
         pinned(CGPoint(x: point.x, y: point.y + labelGap), size: label, centredVertically: false, in: size)
+    }
+
+    /// The track's button: its symbol's hit frame and, once drawn, its label's frame.
+    static func trackFrame(at point: CGPoint, label: CGSize?, in size: CGSize) -> CGRect {
+        let symbol = symbolFrame(at: point)
+        guard let label else { return symbol }
+        return symbol.union(labelFrame(at: point, label: label, in: size))
     }
 
     /// A label of `size` centred across `point` (and on it vertically, or with its top
