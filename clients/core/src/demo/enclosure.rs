@@ -102,6 +102,9 @@ pub struct DemoState {
     audit_seq: u64,
     /// Per console: the mock's own audit numbering (sample source only).
     mock_clocks: BTreeMap<String, MockAuditClock>,
+    /// The wall clock handlers read (seconds since the epoch); the system clock unless
+    /// a test set another ([`DemoState::set_now`]).
+    now: Option<fn() -> u64>,
 }
 
 impl DemoState {
@@ -190,6 +193,44 @@ impl DemoState {
             .rows
             .iter()
             .find(|r| r.id == id)
+    }
+
+    /// A row of `collection` by id, to change it.
+    pub fn row_mut(&mut self, collection: &str, id: &str) -> Option<&mut StoredRow> {
+        self.collections
+            .get_mut(collection)?
+            .rows
+            .iter_mut()
+            .find(|r| r.id == id)
+    }
+
+    /// Seconds since the Unix epoch, as handlers read the time.
+    pub fn now_secs(&self) -> u64 {
+        match self.now {
+            Some(f) => f(),
+            None => std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs()),
+        }
+    }
+
+    /// Read the time from `now` instead of the system clock (tests of expiry).
+    pub fn set_now(&mut self, now: fn() -> u64) {
+        self.now = Some(now);
+    }
+
+    /// Whether `target` names a whole collection (`<collection>/*`) of which `grant`
+    /// may read at least one row: the target of a computed read over that
+    /// collection, such as a policy dry run. [FR-C-4]
+    pub fn readable_collection(&self, grant: &Grant, target: &str) -> bool {
+        match target.split_once('/') {
+            Some((coll, "*")) => self.collections.get(coll).is_some_and(|c| {
+                c.rows
+                    .iter()
+                    .any(|r| may_see(grant.clearance(), &r.marking))
+            }),
+            _ => false,
+        }
     }
 }
 
@@ -603,10 +644,12 @@ impl DemoEnclosure {
         if req.by != grant.persona().id {
             return Outcome::Refused("an action is made only by the persona signed in".into());
         }
-        // The target must be a row the grant may see. A hidden row is refused exactly
-        // as a missing one is, so the answer does not tell a reader it exists.
+        // The target must be a row the grant may see, or a collection of which it may
+        // read a row (`<collection>/*`, a computed read). A hidden row is refused
+        // exactly as a missing one is, so the answer does not tell a reader it exists.
         match self.state.marking_of(&req.target) {
             Some(m) if may_see(grant.clearance(), m) => {}
+            _ if self.state.readable_collection(grant, &req.target) => {}
             _ => return Outcome::Refused("no such target".into()),
         }
         match self.handlers.get(req.verb.as_str()) {

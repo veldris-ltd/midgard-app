@@ -73,6 +73,7 @@ registry! {
     heimdall::HeimdallSyncSite,
     heimdall::HeimdallTrack,
     heimdall::HeimdallWorkflow,
+    midgard::MidgardApproval,
     midgard::MidgardComputeJob,
     midgard::MidgardIdentity,
     midgard::MidgardKeyRecord,

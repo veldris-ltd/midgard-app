@@ -30,12 +30,24 @@
 //!   too and takes the next number in the same sequence (so a refused attempt moves
 //!   the next applied row to `D-4474`), as every action the enclosure decides is.
 //!
-//! The other consoles' actions come with their phases (Phases C to H, Task 2); until
+//! - Midgard's, ported from `MockGateway` (`crate::demo::actions::midgard`, which lists
+//!   them and where they knowingly differ): the dual-control object action
+//!   (`midgard.requestApproval`, `midgard.decideApproval` by a second persona,
+//!   `midgard.applyAction` with that approval as the human-gate token), and the
+//!   computed reads `midgard.query`, `midgard.searchAround` and
+//!   `midgard.simulatePolicy`, each audited as the mock audits them. Their rows are
+//!   numbered `AUD-1043`, `AUD-1044`, … from `14:32:10`, as `MockGateway` numbers
+//!   them, and approvals live in the runtime collection `midgard.approvals`.
+//!
+//! The other consoles' actions come with their phases (Phases D to H, Task 2); until
 //! then an action on them is refused as unknown ("no such action").
 
 use attest::json::{parse, Json};
 
-use crate::demo::enclosure::{ActionRequest, DemoEnclosure, DemoState, MockAuditClock, Outcome};
+use crate::demo::actions::midgard;
+use crate::demo::enclosure::{
+    ActionRequest, Collection, DemoEnclosure, DemoState, MockAuditClock, Outcome,
+};
 use crate::source::{DataSource, Delivered, Grant, Persona, Seal, SourceError, VerifiedDigest};
 use crate::CORE_VERSION;
 
@@ -74,8 +86,33 @@ impl SampleSource {
             parse(SAMPLE_JSON).map_err(|e| SourceError::Malformed(format!("sample: {e}")))?;
         let mut inner = DemoEnclosure::load_sample(SAMPLE_RELEASE, &body)?;
         inner.state_mut().set_mock_clock("heimdall", HEIMDALL_CLOCK);
+        inner
+            .state_mut()
+            .set_mock_clock("midgard", midgard::MIDGARD_CLOCK);
+        // Approval requests are made at run time; the collection starts empty.
+        inner.state_mut().collections.insert(
+            midgard::APPROVALS.to_string(),
+            Collection {
+                type_name: midgard::APPROVAL_TYPE.into(),
+                rows: Vec::new(),
+            },
+        );
         inner.register("heimdall.authoriseWorkflow", authorise_workflow);
+        inner.register("midgard.requestApproval", midgard::request_approval);
+        inner.register("midgard.decideApproval", midgard::decide_approval);
+        inner.register("midgard.applyAction", midgard::apply_action);
+        inner.register("midgard.query", midgard::query);
+        inner.register("midgard.searchAround", midgard::search_around);
+        inner.register("midgard.simulatePolicy", midgard::simulate_policy);
         Ok(Self { inner })
+    }
+
+    /// [`SampleSource::new`] reading the time from `now` (seconds since the epoch)
+    /// rather than the system clock: for tests of an approval's expiry.
+    pub fn with_clock(now: fn() -> u64) -> Result<Self, SourceError> {
+        let mut s = Self::new()?;
+        s.inner.state_mut().set_now(now);
+        Ok(s)
     }
 }
 

@@ -800,7 +800,8 @@ impl<K: Keystore + TrustRoot, S: DataSource> Session<K, S> {
             .unwrap_or_default();
     }
 
-    /// Queue an action on `target` (`<collection>/<row id>`). The target's marking
+    /// Queue an action on `target` (`<collection>/<row id>`, or `<collection>/*` for the
+    /// collection itself). The target's marking
     /// is the one in this persona's cached delivery of the collection, never the
     /// caller's: [`SessionError::NothingCached`] if the collection was never read,
     /// [`SessionError::AboveClearance`] if the row is withheld or not there (the
@@ -822,13 +823,24 @@ impl<K: Keystore + TrustRoot, S: DataSource> Session<K, S> {
             }
             Err(e) => return Err(e.into()),
         };
-        let marking = cached
-            .into_iter()
-            .find_map(|d| match d {
+        // `<collection>/*` names the collection itself (a computed read over it, such
+        // as a policy dry run): it takes the lowest marking among the rows this persona
+        // was delivered in full, and needs at least one.
+        let marking = if row == "*" {
+            cached
+                .into_iter()
+                .filter_map(|d| match d {
+                    Delivered::Row { marking, .. } => Some(marking),
+                    Delivered::Withheld { .. } => None,
+                })
+                .min_by_key(|m| (m.level(), m.compartments().len()))
+        } else {
+            cached.into_iter().find_map(|d| match d {
                 Delivered::Row { id, marking, .. } if id == row => Some(marking),
                 _ => None,
             })
-            .ok_or(SessionError::AboveClearance)?;
+        }
+        .ok_or(SessionError::AboveClearance)?;
         if !may_see(self.grant.clearance(), &marking) {
             return Err(SessionError::AboveClearance);
         }
