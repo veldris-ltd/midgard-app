@@ -15,12 +15,22 @@
 # themselves, so a pre-release waived in clients/shells/audit-waivers.txt can proceed.
 # A final release cannot be waived.
 #
+# The gate's decision is this workflow's output `verdict`, "pass" only once the gate has
+# passed, and release.yml releases on that alone. A caller cannot go by the workflow's
+# own result: `continue-on-error` covers an audit job that fails, not one GitHub
+# cancels before it starts (a runner label it no longer serves), and either way the
+# result is no longer "success" although the gate has decided.
+#
 # Runs on its own from the Actions tab, and as part of a release (release.yml).
 name: shell-audit
 
 on:
   workflow_dispatch:
   workflow_call:
+    outputs:
+      verdict:
+        description: '"pass" once every shell has a fresh, passing audit record, or a waiver for this pre-release'
+        value: ${{ jobs.gate.outputs.verdict }}
 
 permissions:
   contents: read
@@ -35,7 +45,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { shell: apple, runner: macos-14 }
+          # GitHub retired the macos-14 image on 2026-11-02; a job asking for it is
+          # cancelled before it starts.
+          - { shell: apple, runner: macos-15 }
           - { shell: android, runner: ubuntu-24.04 }
           - { shell: linux-gtk, runner: ubuntu-24.04 }
           - { shell: desktop-tauri, runner: ubuntu-24.04 }
@@ -61,6 +73,8 @@ jobs:
     if: always()
     needs: audit
     runs-on: ubuntu-24.04
+    outputs:
+      verdict: ${{ steps.verdict.outputs.verdict }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
@@ -71,3 +85,6 @@ jobs:
           path: .
           merge-multiple: true
       - run: bash tools/ci/run.sh shell-audit-gate
+      # Reached only when the gate passed; the release reads nothing else.
+      - id: verdict
+        run: echo "verdict=pass" >> "$GITHUB_OUTPUT"

@@ -59,6 +59,25 @@ else
     fail "a tag signed by a listed key verifies: $out"
 fi
 
+# The checkout made for a tag's own run holds a lightweight stand-in for an annotated tag
+# (verify-tag.sh, header). In a pipeline the tag is fetched afresh from origin and the tag
+# origin holds is judged; on a developer's shell the checkout's own tag is.
+g push -q origin v1.0.0
+g tag -f v1.0.0 "$(g rev-parse 'v1.0.0^{commit}')" >/dev/null
+pipeline="GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted"
+verify v1.0.0 >/dev/null 2>&1 && fail "a lightweight stand-in is refused on a developer's shell" ||
+    pass "a lightweight stand-in is refused on a developer's shell"
+# shellcheck disable=SC2086 # two settings, split on purpose
+if out="$(verify $pipeline v1.0.0 2>&1)"; then
+    grep -q 'Good "git" signature for release@example.invalid' <<<"$out" &&
+        pass "in a pipeline the tag origin holds replaces a lightweight stand-in, and verifies" ||
+        fail "in a pipeline the tag origin holds is the one judged: $out"
+else
+    fail "in a pipeline the tag origin holds replaces a lightweight stand-in, and verifies: $out"
+fi
+[ "$(g cat-file -t refs/tags/v1.0.0)" = tag ] && pass "the stand-in is replaced by the annotated tag origin holds" ||
+    fail "the stand-in is replaced by the annotated tag origin holds"
+
 signed_tag v1.0.1 stranger
 verify v1.0.1 >/dev/null 2>&1 && fail "a tag signed by an unlisted key is refused" || pass "a tag signed by an unlisted key is refused"
 
@@ -68,6 +87,12 @@ verify v1.0.2 >/dev/null 2>&1 && fail "an unsigned annotated tag is refused" || 
 g tag v1.0.3
 if out="$(verify v1.0.3 2>&1)"; then fail "a lightweight tag is refused"; else
     grep -q 'lightweight' <<<"$out" && pass "a lightweight tag is refused, and why" || fail "the reason is given: $out"
+fi
+g push -q origin v1.0.3
+# shellcheck disable=SC2086 # two settings, split on purpose
+if out="$(verify $pipeline v1.0.3 2>&1)"; then fail "a lightweight tag that origin holds too is refused in a pipeline"; else
+    grep -q 'lightweight' <<<"$out" && pass "a lightweight tag that origin holds too is refused in a pipeline" ||
+        fail "the reason is given in a pipeline: $out"
 fi
 
 verify v9.9.9 >/dev/null 2>&1 && fail "a tag that does not exist is refused" || pass "a tag that does not exist is refused"

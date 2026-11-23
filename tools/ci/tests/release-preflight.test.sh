@@ -163,6 +163,43 @@ out="$(preflight GITHUB_WORKSPACE="$work/ws" MIDGARD_EXTERNAL_IMAGES="$work/runn
 grep 'the external images in .* are not all there as pinned' <<<"$out" | grep -q 'seed-base-debian12-debug.oci.tar is missing' &&
     pass "a directory without the external images is refused, naming what is missing" ||
     fail "a directory without the external images is refused, naming what is missing: $out"
+# --- key material reaches the signing jobs [VLD-ANB-MIDGARD-0007] ---------------------
+# Each item names the runner secret that supplies it, as docs/ops/PKI.md does; and
+# release.yml maps exactly that secret into every job on the signing runner, so a
+# variable the preflight asks for cannot be one the workflow never passes.
+out="$(preflight GITHUB_WORKSPACE="$work/ws")"
+for pair in MIDGARD_SIGNING_KEYSTORE=MIDGARD_SIGNING_KEYSTORE_PATH \
+    MIDGARD_BIFROST_KEYSTORE=MIDGARD_BIFROST_KEYSTORE_PATH \
+    MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE=MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE \
+    MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE=MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE; do
+    var="${pair%%=*}" secret="${pair#*=}"
+    grep -qF "$var is not configured (runner secret $secret)" <<<"$out" &&
+        pass "an unset $var names the runner secret $secret" ||
+        fail "an unset $var names the runner secret $secret: $out"
+done
+
+workflow="$here/../../../.github/workflows/release.yml"
+# The env of each job that runs on [self-hosted, kms], as "job VAR=SECRET" lines.
+kms_env="$(tr -d '\r' <"$workflow" | awk '
+    /^  [a-z][a-z0-9-]*:$/ { job = $1; sub(/:$/, "", job); kms[job] = 0 }
+    /^    runs-on: \[self-hosted, kms\]/ { kms[job] = 1 }
+    /^      MIDGARD_[A-Z_]+: \$\{\{ secrets\.[A-Z_]+ \}\}/ {
+        v = $1; sub(/:$/, "", v); s = $0; sub(/.*secrets\./, "", s); sub(/ .*/, "", s)
+        env[job] = env[job] " " v "=" s }
+    END { for (j in kms) if (kms[j]) print j env[j] }')"
+[ "$(wc -l <<<"$kms_env")" -ge 2 ] && pass "release.yml has its signing-runner jobs" ||
+    fail "release.yml has its signing-runner jobs: $kms_env"
+while read -r job mapped; do
+    for pair in MIDGARD_SIGNING_KEYSTORE=MIDGARD_SIGNING_KEYSTORE_PATH \
+        MIDGARD_BIFROST_KEYSTORE=MIDGARD_BIFROST_KEYSTORE_PATH \
+        MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE=MIDGARD_SIGNING_KEYSTORE_PASSPHRASE_FILE \
+        MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE=MIDGARD_BIFROST_KEYSTORE_PASSPHRASE_FILE \
+        MIDGARD_BIFROST_REGISTRY=MIDGARD_BIFROST_REGISTRY_PATH; do
+        grep -qw -- "$pair" <<<"$mapped" &&
+            pass "release.yml passes ${pair%%=*} to the $job job, from secret ${pair#*=}" ||
+            fail "release.yml passes ${pair%%=*} to the $job job, from secret ${pair#*=}: $mapped"
+    done
+done <<<"$kms_env"
 
 if [ "$failures" -gt 0 ]; then
     echo "$failures failure(s)"

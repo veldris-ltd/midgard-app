@@ -19,7 +19,8 @@
 # through implicitly: the container sees only what is named here.
 #
 # Mounts the checkout directly, so it suits a Linux host (CI's runners). TOOLCHAIN_IMAGE
-# names another tag.
+# names another tag. There, target/ is handed back to the calling user when the command
+# ends, as the container writes it as root (MIDGARD_TOOLCHAIN_OWNER, below).
 #
 # MIDGARD_IN_TOOLCHAIN=1 says this shell is already inside the toolchain image: GitLab's
 # merge-request jobs run in the published image itself, unprivileged and with no Docker
@@ -71,6 +72,30 @@ extra=()
 for m in ${mounts[@]+"${mounts[@]}"}; do extra+=(-v "$m"); done
 for e in ${envs[@]+"${envs[@]}"}; do extra+=(-e "$e"); done
 [ -z "$revision" ] || extra+=(-e "MIDGARD_SOURCE_REVISION=$revision")
+
+# The container runs as root, so on a Linux host whose user is not root — a CI runner —
+# whatever it writes under target/ is root's. The runner's user can then neither add to
+# it (release-images writes into target/release-out, which the release left) nor remove
+# it (the self-hosted runner's job-completed hook empties the workspace, and the next
+# checkout cleans it). So target/ is handed back to the calling user when the command
+# ends, whatever its exit status; a hand-back that fails fails the run.
+# MIDGARD_TOOLCHAIN_OWNER=UID:GID names someone else, and empty hands back to no one.
+if [ -z "${MIDGARD_TOOLCHAIN_OWNER+set}" ]; then
+    MIDGARD_TOOLCHAIN_OWNER=""
+    if [ "$(uname -s)" = Linux ] && [ "$(id -u)" != 0 ]; then
+        MIDGARD_TOOLCHAIN_OWNER="$(id -u):$(id -g)"
+    fi
+fi
+if [ -n "$MIDGARD_TOOLCHAIN_OWNER" ]; then
+    # shellcheck disable=SC2016 # expanded by the container's shell, not this one
+    set -- sh -c 'rc=0; "$@" || rc=$?
+if [ -d target ] && ! chown -R "$MIDGARD_TOOLCHAIN_OWNER" target; then
+    echo "in-toolchain: could not hand target/ back to $MIDGARD_TOOLCHAIN_OWNER" >&2
+    [ "$rc" -ne 0 ] || rc=1
+fi
+exit "$rc"' in-toolchain "$@"
+    extra+=(-e "MIDGARD_TOOLCHAIN_OWNER=$MIDGARD_TOOLCHAIN_OWNER")
+fi
 
 exec docker run --rm --network none -v "$PWD:/work" -w /work \
     -e CARGO_TERM_COLOR=always ${extra[@]+"${extra[@]}"} "$IMAGE" "$@"
