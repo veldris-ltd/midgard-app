@@ -137,6 +137,8 @@ public final class HeimdallPictureModel: ObservableObject {
         busy = true
         defer { busy = false }
         token += 1
+        // In sample mode the human gate is the Authorise press itself: only this call,
+        // from that press, sends a token; no handler may send one automatically.
         let gateToken = "HG-\(String(Int(Date().timeIntervalSince1970 * 1000), radix: 36))-\(token)"
         guard let id = await app.requestAction(ActionInput(verb: "heimdall.authoriseWorkflow",
                                                            target: "heimdall.workflows/\(workflow)",

@@ -86,10 +86,18 @@ public enum MGWebFont {
     /// On iOS no smaller than 11 pt at the default text size: the web's 8–9 px mono labels
     /// are below what the iPhone's contrast audit reads.
     public static func mono(_ size: CGFloat, _ style: Font.TextStyle = .caption2) -> Font {
+        .custom(MGFonts.monoFamily, size: monoSize(size), relativeTo: style)
+    }
+
+    /// The size `mono(_:)` draws the web's `size` at (before Dynamic Type): the web's
+    /// own on the Mac, the 11 pt floor on iOS. Letter-spacing in ems is taken of this,
+    /// not of the web's size.
+    public static func monoSize(_ size: CGFloat) -> CGFloat {
         #if os(iOS)
-        let size = max(size, 11)
+        return max(size, 11)
+        #else
+        return size
         #endif
-        return .custom(MGFonts.monoFamily, size: size, relativeTo: style)
     }
 }
 

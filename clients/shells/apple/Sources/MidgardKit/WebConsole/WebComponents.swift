@@ -29,8 +29,10 @@ public struct WebClassificationBanner: View {
         let large = typeSize.isAccessibilitySize
         #if os(iOS)
         let font = MGWebFont.mono(12, .caption).weight(.bold)
+        let drawn: CGFloat = 12
         #else
         let font = MGWebFont.mono(size).weight(.semibold)
+        let drawn = MGWebFont.monoSize(size)
         #endif
         // At accessibility text sizes the level alone (the whole line is the spoken
         // label): the full line was taller than the iPhone's visible screen. The line
@@ -39,7 +41,7 @@ public struct WebClassificationBanner: View {
         // the level as clipped.
         Text(large ? (text.components(separatedBy: " · ").first ?? text).uppercased() : text.uppercased())
             .font(font)
-            .mgTracking(large ? 0 : 0.18, size: size)
+            .mgTracking(large ? 0 : 0.18, size: drawn)
             .multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: true)
             .foregroundStyle(Color(mgHex: MGContrast.ink(on: fill)))
@@ -106,7 +108,7 @@ public struct WebStatusPill: View {
             Circle().fill(dot).frame(width: 8, height: 8).accessibilityHidden(true)
             Text(label)
                 .font(MGWebFont.mono(12, .caption).weight(.medium))
-                .mgTracking(0.04, size: 12)
+                .mgTracking(0.04, size: MGWebFont.monoSize(12))
                 .foregroundStyle(MGWeb.textBody)
         }
         .padding(.leading, 8)
@@ -134,7 +136,7 @@ public struct WebBadge: View {
     public var body: some View {
         Text(text)
             .font(MGWebFont.mono(11).weight(.medium))
-            .mgTracking(0.06, size: 11)
+            .mgTracking(0.06, size: MGWebFont.monoSize(11))
             .foregroundStyle(tone == .warn ? MGWeb.warnText : MGWeb.textBody)
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
@@ -179,7 +181,7 @@ public struct WebMarkingChip: View {
             }
         }
         .font(MGWebFont.mono(11))
-        .mgTracking(0.08, size: 11)
+        .mgTracking(0.08, size: MGWebFont.monoSize(11))
         .padding(.leading, 4)
         .padding(.trailing, 8)
         .padding(.vertical, 2)
@@ -216,7 +218,7 @@ public struct WebStatBlock: View {
                 .accessibilityLabel(Text("\(label.capitalized): \(value)"))
             Text(label)
                 .font(MGWebFont.mono(11))
-                .mgTracking(0.14, size: 11)
+                .mgTracking(0.14, size: MGWebFont.monoSize(11))
                 .foregroundStyle(MGWeb.textFaint)
                 .accessibilityHidden(true)
         }
@@ -239,7 +241,7 @@ public struct WebSectionLabel: View {
         (Text(String(format: "%02d //  ", number)).foregroundStyle(accent.baseText)
             + Text(text.uppercased()).foregroundStyle(MGWeb.textMuted))
             .font(MGWebFont.mono(11))
-            .mgTracking(0.14, size: 11)
+            .mgTracking(0.14, size: MGWebFont.monoSize(11))
             .accessibilityAddTraits(.isHeader)
     }
 }
@@ -257,7 +259,7 @@ public struct WebProvenanceTag: View {
     public var body: some View {
         Text("[\(id)]")
             .font(MGWebFont.mono(11))
-            .mgTracking(0.05, size: 11)
+            .mgTracking(0.05, size: MGWebFont.monoSize(11))
             .foregroundStyle(id.hasPrefix("NFR") ? MGWeb.infoText : MGWeb.textBody)
             .padding(.horizontal, 6)
             .padding(.vertical, 1)
@@ -317,7 +319,7 @@ public struct WebHumanGate: View {
                     Image(systemName: "checkmark.shield").foregroundStyle(MGWeb.secureText).accessibilityHidden(true)
                     Text("AUTHORISED · SIGNED" + (auditId.map { " · AUDIT #\($0)" } ?? ""))
                         .font(MGWebFont.mono(10))
-                        .mgTracking(0.08, size: 10)
+                        .mgTracking(0.08, size: MGWebFont.monoSize(10))
                         .foregroundStyle(MGWeb.secureText)
                         .accessibilityIdentifier("mg.heimdall.gate.authorised")
                 }
@@ -325,7 +327,7 @@ public struct WebHumanGate: View {
             case .rejected:
                 Text("REJECTED · RECORDED")
                     .font(MGWebFont.mono(10))
-                    .mgTracking(0.08, size: 10)
+                    .mgTracking(0.08, size: MGWebFont.monoSize(10))
                     .foregroundStyle(MGWeb.textFaint)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("mg.heimdall.gate.rejected")
@@ -352,7 +354,7 @@ public struct WebHumanGate: View {
                         .foregroundStyle(MGWeb.textHeading)
                     Text(state == .queued ? "QUEUED · SENT WHEN THE ENCLOSURE IS REACHABLE" : detail)
                         .font(MGWebFont.mono(9))
-                        .mgTracking(0.1, size: 9)
+                        .mgTracking(0.1, size: MGWebFont.monoSize(9))
                         .foregroundStyle(MGWeb.warnText)
                 }
             }
@@ -481,7 +483,7 @@ public struct WebSideNav<Footer: View>: View {
     private func sectionTitle(_ title: String) -> some View {
         Text(title)
             .font(MGWebFont.mono(11))
-            .mgTracking(0.14, size: 11)
+            .mgTracking(0.14, size: MGWebFont.monoSize(11))
             .foregroundStyle(MGWeb.textFaint)
             .padding(.horizontal, 10)
             .padding(.bottom, 6)
