@@ -33,7 +33,7 @@ the platform, enforced and testable in code.
 - **No tile egress in the console.** The Heimdall console's map tile source is fixed at
   build time and fails closed: `none` (the default, and the build the release signs,
   pinned in `tools/ci/js-artefacts.sh`) holds no tile code or host; `mirror` holds only
-  the enclosure's own mirror; `public` is a demo build only. CI's `js-build` job runs
+  the enclosure's own mirror; `public` is a demo build only, refused unless the console runs on its mock. CI's `js-build` job runs
   `pnpm --filter @midgard/console-heimdall test:bundle`, which checks each build's
   `dist/` and that any other setting stops the build. [NFR-PRV-1]
 - **Sandboxed ingress.** Connectors that would reach out enforce `SandboxPolicy`

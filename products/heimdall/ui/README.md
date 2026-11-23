@@ -96,7 +96,7 @@ The tile source is fixed at build time by `VITE_HEIMDALL_TILE_SOURCE`
 |---|---|---|
 | unset, or `none` | nowhere: no tile code and no tile host in `dist/` | the default; the signed release artefact |
 | `mirror` | `VITE_HEIMDALL_TILE_MIRROR` only, an `https://` origin with an optional base path | an enclosure with its own tile mirror |
-| `public` | the three public hosts below | a demo outside the enclosure only |
+| `public` | the three public hosts below | a demo outside the enclosure only, and only while the console is in mock mode (`src/dataMode.ts`) |
 
 Any other value, an empty one included, stops the build with an error, and so does a
 mirror that is missing, not `https://`, carries credentials, a query or a fragment, is
@@ -200,6 +200,18 @@ https://tiles.enclosure.internal`. A `public` build needs the three public hosts
 for example `connect-src 'self' https://s3.amazonaws.com https://tiles.maps.eox.at
 https://tiles.versatiles.org`. The installer's CSP is unchanged: the installer serves
 only the Midgard console.
+
+**How a mirror build reaches an enclosure today.** It doesn't yet, through any packaged
+path. The signed release artefact is always `none`, and neither the installer nor the
+air-gap bundle builds or serves the Heimdall console, so its CSP has no tile origin.
+Until it does, an operator who wants map tiles builds the console from source with
+`mirror`, serves `dist/` themselves, and adds the mirror's origin to their own
+`connect-src` as above. Packaging the Heimdall console, and admitting the mirror
+origin in its CSP the way `console.Dockerfile` admits the gateway's, is future work.
+
+**Public needs mock mode.** Pausing the globe only delays tile requests, so a `public`
+build is refused unless the console's data mode (`src/dataMode.ts`) is `mock`: once an
+HTTP gateway exists, a public demo build can never carry real tracks.
 
 **The build constants.** `vite.config.ts` turns the setting into `__HEIMDALL_TILES__`,
 `__HEIMDALL_TILE_PUBLIC__` and `__HEIMDALL_TILE_MIRROR__` (`src/tilesSwitch.d.ts`).
