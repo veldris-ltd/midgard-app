@@ -7027,3 +7027,21 @@ on the signed release Mac app: the Secure Enclave key works.
    It has both Mac and iPhone layouts.
 3. **Side-by-side screenshots.** Web, Mac and iPhone, for the owner's sign-off. Phases
    C–H follow the standard the owner approves.
+
+#### R1 deliberate deviations (23 Nov 2026)
+
+Where the apps knowingly differ from the web console's 2D reference layout, for the
+owner's sign-off:
+
+- **Added for the iPhone and accessibility:** the "N TRACKS WITHHELD · ABOVE YOUR
+  CLEARANCE" readout for a persona below some tracks' clearance; the track list under
+  the picture at accessibility text sizes (where the picture draws no text); the
+  iPhone's "Inspect" button, which opens the inspector sheet; and, at compact width,
+  the picture's readouts (north, scale, vector, the withheld count and the focus track)
+  as a strip directly above the picture instead of over it, because over it they came
+  over the tracks and their labels. The Mac keeps the web layout.
+- **Reject is screen-only**, as in rc.3's web console: it is the operator's own
+  decision, shown on screen and not audited. To be raised for Phase D.
+- **The 3D entry is in the navigation bar** in the 3D and Maps iPhone apps, not a row
+  above the picture, so the picture's lowest track label stays above the console bar.
+- **The Authorise button has dark text** on the accent fill, for contrast.
