@@ -11,6 +11,7 @@
 		37549767AF849D7B48163655 /* MidgardKit in Frameworks */ = {isa = PBXBuildFile; productRef = E92ECC69BDBB66C2316FE0C8 /* MidgardKit */; };
 		3856C18D3015F16729C0F287 /* MidgardFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D039A818E322D133521F3E9A /* MidgardFlowTests.swift */; };
 		40BC10DD225D6FC6CDF25E6F /* HeimdallPictureFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0921C9C2A4C059101F8C3936 /* HeimdallPictureFlowTests.swift */; };
+		4BA089763D6823ECAA779EC6 /* AdminFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 223C959AEB6A7F8220782A99 /* AdminFlowTests.swift */; };
 		4E05142893FE5E23FA9C0EDC /* HeimdallMapsFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AE7A3A5938BADB873A1EBDC /* HeimdallMapsFlowTests.swift */; };
 		590023073AC207A06265843C /* MidgardiOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEAD789E2E1859BD0DD1CC83 /* MidgardiOSApp.swift */; };
 		8435284787E9A50C343037E9 /* MidgardAuditKit in Frameworks */ = {isa = PBXBuildFile; productRef = B74B1683299E9FDA4F81656A /* MidgardAuditKit */; };
@@ -34,6 +35,7 @@
 
 /* Begin PBXFileReference section */
 		0921C9C2A4C059101F8C3936 /* HeimdallPictureFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeimdallPictureFlowTests.swift; sourceTree = "<group>"; };
+		223C959AEB6A7F8220782A99 /* AdminFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdminFlowTests.swift; sourceTree = "<group>"; };
 		34824E36E0A06B2673FF4D6A /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 		49D6B35EFADEBFE6B5B92AA7 /* MidgardiOSMapsUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = MidgardiOSMapsUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		57336E7E400D5D3788353F2B /* EditionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditionTests.swift; sourceTree = "<group>"; };
@@ -102,6 +104,7 @@
 			isa = PBXGroup;
 			children = (
 				BC2A3D5A6F5594F93A07AFF4 /* AccessibilityAudit.swift */,
+				223C959AEB6A7F8220782A99 /* AdminFlowTests.swift */,
 				C7C7C5AB080B324A94894BFF /* AppNavigation.swift */,
 				57336E7E400D5D3788353F2B /* EditionTests.swift */,
 				9AE7A3A5938BADB873A1EBDC /* HeimdallMapsFlowTests.swift */,
@@ -273,6 +276,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				BB6C4945FE5D272330C7F475 /* AccessibilityAudit.swift in Sources */,
+				4BA089763D6823ECAA779EC6 /* AdminFlowTests.swift in Sources */,
 				E72FA0FF5999CD0731FC2065 /* AppNavigation.swift in Sources */,
 				93BDD0D21C96DEA5F8424484 /* Edition.swift in Sources */,
 				F634EC179EDC270D1F74C498 /* EditionTests.swift in Sources */,

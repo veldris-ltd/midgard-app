@@ -96,6 +96,16 @@ enum AppNavigation {
             .waitForExistence(timeout: timeout), "Midgard's \(slug) screen did not open")
     }
 
+    /// One of Admin's screens (`slug`, e.g. `overview`), opened from its list.
+    static func openAdmin(_ app: XCUIApplication, _ slug: String) {
+        signIn(app)
+        selectConsole(app, 2)
+        let row = app.buttons.matching(NSPredicate(format: "identifier MATCHES %@", "mg\\.[0-9]+\\.admin\\.\(slug)")).firstMatch
+        tapClearOfConsoleBar(app, row)
+        XCTAssertTrue(app.descendants(matching: .any)["mg.content.admin.\(slug)"]
+            .waitForExistence(timeout: timeout), "Admin's \(slug) screen did not open")
+    }
+
     /// Heimdall's Operating Picture with view `id` chosen in the navigation bar's view
     /// switch (2D, MAP or 3D; MAP and 3D in the Maps edition only).
     static func openView(_ app: XCUIApplication, _ id: String) {

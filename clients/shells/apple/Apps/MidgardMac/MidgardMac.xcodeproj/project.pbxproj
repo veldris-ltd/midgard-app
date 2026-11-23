@@ -13,6 +13,7 @@
 		3985C0DDA840F3460437AF08 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFCD086C5408628651DCE82B /* RootView.swift */; };
 		3C1E16D313541DF0A090C3E6 /* MidgardKit in Frameworks */ = {isa = PBXBuildFile; productRef = F9C82844BDCFA8503EC612AD /* MidgardKit */; };
 		52D5343E8126DF5F60ACB1EE /* MidgardAuditKit in Frameworks */ = {isa = PBXBuildFile; productRef = 0E17EEB29F8D425A5B52BCA1 /* MidgardAuditKit */; };
+		5A35A17FC79E204FB95719F9 /* AdminFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9FE317A6AB198192C18DF23 /* AdminFlowTests.swift */; };
 		6F592540DDEA0EFB1B67CE64 /* HeimdallPictureFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E26511B12D395787805057D2 /* HeimdallPictureFlowTests.swift */; };
 		77F4E9F69A57F44114EEC216 /* MidgardGlobeKit in Frameworks */ = {isa = PBXBuildFile; productRef = EE23DBF9141C5F560345AF5E /* MidgardGlobeKit */; };
 		B287ABE05ADEA0D4817EA019 /* Edition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DD19DFA1EAC44DB4FDAD0DD /* Edition.swift */; };
@@ -45,6 +46,7 @@
 		6CEA33545D3C1CF51BA1CDBF /* MidgardFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidgardFlowTests.swift; sourceTree = "<group>"; };
 		9DF1958D6BF627B9AF388C03 /* Navigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Navigation.swift; sourceTree = "<group>"; };
 		D9109BDEA8E137AD4677F664 /* MidgardMacMapsUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MidgardMacMapsUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		D9FE317A6AB198192C18DF23 /* AdminFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdminFlowTests.swift; sourceTree = "<group>"; };
 		E26511B12D395787805057D2 /* HeimdallPictureFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeimdallPictureFlowTests.swift; sourceTree = "<group>"; };
 		EFCD086C5408628651DCE82B /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		F1B06DF518249B528227EF50 /* apple */ = {isa = PBXFileReference; lastKnownFileType = folder; name = apple; path = ../..; sourceTree = SOURCE_ROOT; };
@@ -101,6 +103,7 @@
 			isa = PBXGroup;
 			children = (
 				196BF5AFC469E0FE14ED72F3 /* AccessibilityAudit.swift */,
+				D9FE317A6AB198192C18DF23 /* AdminFlowTests.swift */,
 				409BD2BC78EA7C8AC526937B /* EditionTests.swift */,
 				4A6B209DB7388FF87BD77F44 /* HeimdallMapsFlowTests.swift */,
 				E26511B12D395787805057D2 /* HeimdallPictureFlowTests.swift */,
@@ -286,6 +289,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				05EDCC05BED1D4E656A00CE4 /* AccessibilityAudit.swift in Sources */,
+				5A35A17FC79E204FB95719F9 /* AdminFlowTests.swift in Sources */,
 				B287ABE05ADEA0D4817EA019 /* Edition.swift in Sources */,
 				B49FACBEE692C1E16D13B28B /* EditionTests.swift in Sources */,
 				1FE5A9F191889D5B5548CF97 /* HeimdallMapsFlowTests.swift in Sources */,
