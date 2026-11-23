@@ -1,0 +1,211 @@
+# XcodeGen spec of the iPhone apps (Task B3; three editions, Task B7). The generated
+# MidgardiOS.xcodeproj is committed beside it, and tools/ci/tests/apple-projects.test.sh
+# holds the two together: after editing this file, run `xcodegen generate` here and
+# commit both. [DD-6] [FR-C-1]
+# Three editions (owner decision 22 Nov 2026), sharing Sources and UITests:
+#   MidgardiOS      Midgard, the signed release v0.1.0-rc.3: Info.plist (MidgardEdition
+#                   release), no MidgardGlobeKit.
+#   MidgardiOS3D    Midgard 3D: Info-3D.plist (MidgardEdition 3d), its own entitlements
+#                   and bundle identifier, and MidgardGlobeKit.
+#   MidgardiOSMaps  Midgard Maps: Info-Maps.plist (MidgardEdition maps), likewise; the
+#                   edition Phase I's tile loader will come to.
+# iOS has no network entitlement (an iPhone app may use the network), so on the iPhone the
+# maps app differs from the 3D app only in its edition, banner, identifier and
+# entitlement files; on the Mac only the maps app has the client network entitlement.
+# tools/check-edition.sh checks what each build carries.
+name: MidgardiOS
+options:
+  bundleIdPrefix: io.veldris.midgard
+  deploymentTarget:
+    iOS: "17.0"
+  developmentLanguage: en
+  createIntermediateGroups: true
+# Signing (automatic, team from the gitignored Signing.local.xcconfig): see the file.
+configFiles:
+  Debug: Config/Signing.xcconfig
+  Release: Config/Signing.xcconfig
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    # The pre-build step reads the repository (git, Rust sources) outside the target.
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+packages:
+  # The shared package: clients/shells/apple.
+  MidgardKit:
+    path: ../..
+targets:
+  MidgardiOS:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.veldris.midgard.ios
+        PRODUCT_NAME: MidgardiOS
+        INFOPLIST_FILE: Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        # The keychain access group only with a team (Config/Signing.xcconfig).
+        CODE_SIGN_ENTITLEMENTS: $(MIDGARD_APP_ENTITLEMENTS)
+    dependencies:
+      - package: MidgardKit
+        product: MidgardKit
+    preBuildScripts: &preBuildScripts
+      - name: Refuse a non-Debug build without a team
+        # Any configuration but Debug (Release, or one added later) without
+        # MIDGARD_TEAM_ID has no keychain access group: it cannot keep keys outside UI
+        # testing. Allowed only on purpose, with MIDGARD_ALLOW_ADHOC_RELEASE=YES
+        # (Config/Signing.xcconfig).
+        basedOnDependencyAnalysis: false
+        script: |
+          if [ "${CONFIGURATION}" != "Debug" ] && [ -z "${MIDGARD_TEAM_ID}" ] \
+              && [ "${MIDGARD_ALLOW_ADHOC_RELEASE}" != "YES" ]; then
+              echo "error: ${CONFIGURATION} build without a team: only Debug builds without one. Set MIDGARD_TEAM_ID in Config/Signing.local.xcconfig, or pass MIDGARD_ALLOW_ADHOC_RELEASE=YES for an ad-hoc ${CONFIGURATION} build that cannot keep keys."
+              exit 1
+          fi
+      - name: Ensure MidgardCoreFFI.xcframework
+        basedOnDependencyAnalysis: false
+        script: |
+          # Builds the Rust core's XCFramework only when its sources changed; links it
+          # and the bindings into the package (clients/shells/apple/tools).
+          /bin/bash "${SRCROOT}/../../tools/ensure-xcframework.sh"
+  MidgardiOS3D:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.veldris.midgard3d.ios
+        PRODUCT_NAME: MidgardiOS3D
+        INFOPLIST_FILE: Info-3D.plist
+        GENERATE_INFOPLIST_FILE: NO
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        # Its own entitlements, chosen as Config/Signing.xcconfig chooses the release
+        # app's: the no-team set without a team, the keychain access group with one.
+        MIDGARD_APP_ENTITLEMENTS_NOTEAM: Config/MidgardiOS3D-NoTeam.entitlements
+        MIDGARD_APP_ENTITLEMENTS: "$(MIDGARD_APP_ENTITLEMENTS_$(MIDGARD_TEAM_ID:default=NOTEAM):default=Config/MidgardiOS3D.entitlements)"
+        CODE_SIGN_ENTITLEMENTS: $(MIDGARD_APP_ENTITLEMENTS)
+    dependencies:
+      - package: MidgardKit
+        product: MidgardKit
+      - package: MidgardKit
+        product: MidgardGlobeKit
+    preBuildScripts: *preBuildScripts
+  MidgardiOSMaps:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.veldris.midgardmaps.ios
+        PRODUCT_NAME: MidgardiOSMaps
+        INFOPLIST_FILE: Info-Maps.plist
+        GENERATE_INFOPLIST_FILE: NO
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        # Its own entitlements, chosen as Config/Signing.xcconfig chooses the release
+        # app's: the no-team set without a team, the keychain access group with one.
+        MIDGARD_APP_ENTITLEMENTS_NOTEAM: Config/MidgardiOSMaps-NoTeam.entitlements
+        MIDGARD_APP_ENTITLEMENTS: "$(MIDGARD_APP_ENTITLEMENTS_$(MIDGARD_TEAM_ID:default=NOTEAM):default=Config/MidgardiOSMaps.entitlements)"
+        CODE_SIGN_ENTITLEMENTS: $(MIDGARD_APP_ENTITLEMENTS)
+    dependencies:
+      - package: MidgardKit
+        product: MidgardKit
+      - package: MidgardKit
+        product: MidgardGlobeKit
+    preBuildScripts: *preBuildScripts
+  MidgardiOSUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - UITests
+      - UITests-Release
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.veldris.midgard.ios.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: MidgardiOS
+    dependencies:
+      - target: MidgardiOS
+      - package: MidgardKit
+        product: MidgardAuditKit
+  # The same UI tests, against the 3D app, with its own edition checks.
+  MidgardiOS3DUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - UITests
+      - UITests-3D
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.veldris.midgard3d.ios.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: MidgardiOS3D
+    dependencies:
+      - target: MidgardiOS3D
+      - package: MidgardKit
+        product: MidgardAuditKit
+  # The same UI tests, against the maps app, with its own edition checks.
+  MidgardiOSMapsUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - UITests
+      - UITests-Maps
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.veldris.midgardmaps.ios.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: MidgardiOSMaps
+    dependencies:
+      - target: MidgardiOSMaps
+      - package: MidgardKit
+        product: MidgardAuditKit
+schemes:
+  MidgardiOS:
+    build:
+      targets:
+        MidgardiOS: all
+        MidgardiOSUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      # AccessibilityAudit stays in the scheme: clients/shells/apple/audit.sh selects it
+      # with -only-testing, which cannot reach a test the scheme skips.
+      targets:
+        - MidgardiOSUITests
+    archive:
+      config: Release
+  MidgardiOS3D:
+    build:
+      targets:
+        MidgardiOS3D: all
+        MidgardiOS3DUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - MidgardiOS3DUITests
+    archive:
+      config: Release
+  MidgardiOSMaps:
+    build:
+      targets:
+        MidgardiOSMaps: all
+        MidgardiOSMapsUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - MidgardiOSMapsUITests
+    archive:
+      config: Release
