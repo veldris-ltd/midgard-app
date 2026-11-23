@@ -80,7 +80,7 @@ public struct YourDataView: View {
     private var sample: some View {
         VStack(alignment: .leading, spacing: 8) {
             section("SAMPLE")
-            WebPanel(identifier: "mg.yourdata.sample") {
+            WebPanel() {
                 VStack(alignment: .leading, spacing: 8) {
                     FlowRow(spacing: 8) {
                         WebStatusPill(.secure, "RELEASE \(coreVersion().uppercased()) · SIGNED")
@@ -99,7 +99,7 @@ public struct YourDataView: View {
     private var imported: some View {
         VStack(alignment: .leading, spacing: 8) {
             section("IMPORTED FILES")
-            WebPanel(identifier: "mg.yourdata.imported") {
+            WebPanel() {
                 VStack(alignment: .leading, spacing: 10) {
                     if let s = data.summary, let ontology = s.ontologyName {
                         FlowRow(spacing: 8) {
@@ -172,7 +172,7 @@ public struct YourDataView: View {
     private var gateway: some View {
         VStack(alignment: .leading, spacing: 8) {
             section("ENCLOSURE GATEWAY")
-            WebPanel(identifier: "mg.yourdata.gateway") {
+            WebPanel() {
                 VStack(alignment: .leading, spacing: 10) {
                     gatewayPill.accessibilityIdentifier("mg.yourdata.gateway.state")
                     if let live = data.live {
@@ -228,7 +228,7 @@ public struct YourDataView: View {
     private var feeds: some View {
         VStack(alignment: .leading, spacing: 8) {
             section("FEEDS")
-            WebPanel(identifier: "mg.yourdata.feeds") {
+            WebPanel() {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("An https:// address serving Heimdall observations (JSON, or JSON Lines), read while Heimdall's picture is open. Not signed by a certified mesh identity, so shown as UNVERIFIED FEED and never fused into signed tracks.")
                         .font(MGWebFont.sans(13, .callout)).foregroundStyle(MGWeb.textBody)
@@ -313,7 +313,7 @@ public struct YourDataView: View {
     private var addresses: some View {
         VStack(alignment: .leading, spacing: 8) {
             section("ADDRESSES THIS APP MAY REACH FOR YOUR DATA")
-            WebPanel(identifier: "mg.yourdata.addresses") {
+            WebPanel() {
                 VStack(alignment: .leading, spacing: 6) {
                     let origins = data.allowedOrigins
                     if origins.isEmpty {

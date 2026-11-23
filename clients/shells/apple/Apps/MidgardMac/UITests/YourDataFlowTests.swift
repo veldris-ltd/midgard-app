@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 
 /// Your Data on the Mac (Phase J), each step kept as a window screenshot: files imported
@@ -89,12 +90,16 @@ final class YourDataFlowTests: XCTestCase {
               let password = env["MIDGARD_GW_PASSWORD"] else { throw XCTSkip("no gateway given") }
         launch([:])
         let window = openYourData()
+        // Pasted: typing drops the shifted ":" on some keyboard layouts.
         for (id, text) in [("mg.yourdata.address", address), ("mg.yourdata.username", user)] {
             let field = Nav.element(app, id)
             XCTAssertTrue(field.waitForExistence(timeout: 5))
             field.click()
-            field.typeText(text)
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+            field.typeKey("v", modifierFlags: .command)
         }
+        NSPasteboard.general.clearContents()
         let secret = Nav.element(app, "mg.yourdata.password")
         secret.click()
         secret.typeText(password)
