@@ -4,27 +4,30 @@ import SwiftUI
 /// The web console's frame (`ConsoleShell`): the classification banner, the header, then
 /// the navigation, the main area and the inspector side by side, with 1 pt rules
 /// between them. The Mac app fills it; the navigation it passes holds the app's own
-/// routes. [DD-7]
+/// routes. With no `asideWidth` there is no inspector column: the main area is a
+/// screen page that carries its own (`WebConsolePage`). [DD-7]
 public struct HeimdallConsoleFrame<Nav: View, Main: View, Aside: View, Trailing: View>: View {
     let nav: Nav
     let main: Main
     let aside: Aside
     let trailing: Trailing
-    let asideWidth: CGFloat
+    let asideWidth: CGFloat?
+    let context: String
 
-    public init(asideWidth: CGFloat = 360, @ViewBuilder nav: () -> Nav, @ViewBuilder main: () -> Main,
-                @ViewBuilder aside: () -> Aside, @ViewBuilder trailing: () -> Trailing) {
+    public init(asideWidth: CGFloat? = 360, context: String = HeimdallChrome.context, @ViewBuilder nav: () -> Nav,
+                @ViewBuilder main: () -> Main, @ViewBuilder aside: () -> Aside, @ViewBuilder trailing: () -> Trailing) {
         self.nav = nav()
         self.main = main()
         self.aside = aside()
         self.trailing = trailing()
         self.asideWidth = asideWidth
+        self.context = context
     }
 
     public var body: some View {
         VStack(spacing: 0) {
             WebClassificationBanner(level: HeimdallChrome.banner.level, text: HeimdallChrome.banner.text)
-            HeimdallHeader { trailing }
+            HeimdallHeader(context: context) { trailing }
             HStack(spacing: 0) {
                 nav
                     .frame(width: 232)
@@ -32,10 +35,12 @@ public struct HeimdallConsoleFrame<Nav: View, Main: View, Aside: View, Trailing:
                     .accessibilityLabel(Text("Navigation"))
                 Rectangle().fill(MGWeb.border).frame(width: 1).accessibilityHidden(true)
                 main.frame(maxWidth: .infinity, maxHeight: .infinity)
-                Rectangle().fill(MGWeb.border).frame(width: 1).accessibilityHidden(true)
-                ScrollView { aside }
-                    .frame(width: asideWidth)
-                    .background(MGWeb.bgSunken)
+                if let asideWidth {
+                    Rectangle().fill(MGWeb.border).frame(width: 1).accessibilityHidden(true)
+                    ScrollView { aside }
+                        .frame(width: asideWidth)
+                        .background(MGWeb.bgSunken)
+                }
             }
             .frame(maxHeight: .infinity)
         }
@@ -109,7 +114,12 @@ public struct HeimdallOperatingPictureCompact: View {
         ScrollView {
             VStack(spacing: 0) {
                 WebClassificationBanner(level: HeimdallChrome.banner.level, text: HeimdallChrome.banner.text, compact: true)
-                HeimdallHeader(compact: true) { EmptyView() }
+                HeimdallHeader(compact: true) {
+                    HeimdallAlertsButton(model: model) { _ in
+                        // After the alerts' popover has gone: one presentation at a time.
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { inspecting = true }
+                    }
+                }
                 // The readouts as a strip directly above the picture, not over it, at
                 // an iPhone's width (except at accessibility sizes, where the picture's
                 // label says them).

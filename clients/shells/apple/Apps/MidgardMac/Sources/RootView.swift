@@ -216,7 +216,9 @@ struct ConsoleShell: View {
 /// the classification banner, the header (mark, context, seals, the persona menu), the
 /// navigation (the six consoles, then Heimdall's PICTURE and DECIDE sections with their
 /// counts, and on the Operating Picture its LAYERS switches), the picture and the
-/// inspector. Heimdall's other screens keep their placeholder inside the same frame. In
+/// inspector, with the Alerts list in the header. Heimdall's other five screens
+/// (`HeimdallScreen`: Entities, Feeds, Picture Sync, Workflows, Decision Lineage) fill
+/// the main area with their own inspector, and their toolbar item sits in the header. In
 /// the Maps edition the header also carries the picture's view switch, 2D / MAP / 3D
 /// (the web's `ViewSwitch`): MAP and 3D come from the edition library
 /// (`AppModel.pictureViews`) and replace the picture while chosen, sharing its layers,
@@ -227,6 +229,7 @@ struct HeimdallConsole: View {
     let persona: PersonaInfo
     @Binding var route: ConsoleRoute
     @StateObject private var picture: HeimdallPictureModel
+    @StateObject private var toolbar = HeimdallToolbar()
     /// The picture's view, kept for the window as the web keeps it for the browser.
     @SceneStorage("mg-heimdall-view") private var pictureView = HeimdallPictureView.reference.id
 
@@ -247,9 +250,16 @@ struct HeimdallConsole: View {
         return (views, v)
     }
     private var heimdall: Console { ConsoleCatalog.console(route) }
+    private var screen: String { ConsoleCatalog.screenName(route) }
+
+    private func open(_ screen: String) {
+        let index = heimdall.screens.firstIndex(of: screen) ?? 0
+        route = ConsoleRoute(console: route.clamped.console, screen: index).clamped
+    }
 
     var body: some View {
-        HeimdallConsoleFrame(nav: { nav }, main: { main }, aside: { aside }, trailing: { trailing })
+        HeimdallConsoleFrame(asideWidth: isPicture ? 360 : nil, context: HeimdallChrome.item(for: screen)?.context ?? "",
+                             nav: { nav }, main: { main }, aside: { aside }, trailing: { trailing })
             .task(id: persona.id) { await picture.load() }
             // The user's feeds are read only while the picture is open.
             .task(id: isPicture) { if isPicture { await picture.followUserData() } }
@@ -297,7 +307,7 @@ struct HeimdallConsole: View {
         } else if isPicture {
             HeimdallPictureCanvas(model: picture)
         } else {
-            ScreenContent(route: route.clamped)
+            HeimdallScreen(app: model, persona: persona.id, screen: screen, compact: false, toolbar: toolbar) { open($0) }
         }
     }
 
@@ -305,12 +315,15 @@ struct HeimdallConsole: View {
         if isPicture {
             HeimdallInspector(model: picture)
                 .accessibilityIdentifier("mg.detail.operating-picture")
-        } else {
-            ScreenDetail(route: route.clamped)
         }
     }
 
     @ViewBuilder private var trailing: some View {
+        if isPicture {
+            HeimdallAlertsButton(model: picture)
+        } else {
+            HeimdallToolbarItem(screen: screen, toolbar: toolbar)
+        }
         if let views { HeimdallViewSwitch(views: views.views, selection: $pictureView) }
         PersonaMenu(model: model, persona: persona)
     }
@@ -335,7 +348,7 @@ struct MidgardConsole: View {
 
     var body: some View {
         let item = MidgardChrome.item(for: screen)
-        MidgardConsoleFrame(context: item?.context ?? "") {
+        MidgardConsoleFrame(context: item?.context ?? "", seals: MidgardChrome.seals(live: model.userData.live)) {
             nav(footer: item?.statusFooter ?? false)
         } content: {
             MidgardScreen(app: model, persona: persona.id, screen: screen, compact: false, link: link) { screen, link in
@@ -491,7 +504,10 @@ struct PersonaMenu: View {
     var body: some View {
         let offline = model.isOffline
         Menu {
-            Section("Switch persona") {
+            if let live = model.userData.live {
+                Section("Signed in to \(live.host) as \(live.subject)") {}
+            }
+            Section(model.userData.live == nil ? "Switch persona" : "Sample persona (the screens not served live)") {
                 ForEach(model.personas, id: \.id) { other in
                     Button(other.display) { Task { await model.switchPersona(other) } }
                         .disabled(other.id == persona.id)
@@ -503,13 +519,13 @@ struct PersonaMenu: View {
             Divider()
             Button("Lock") { Task { await model.lock() } }
         } label: {
-            Label(persona.display, systemImage: "person.crop.circle")
+            Label(model.signedInName(persona), systemImage: "person.crop.circle")
                 .font(MGFonts.sans(.body))
                 .frame(minHeight: 44)
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
-        .accessibilityLabel(Text("Signed in as \(persona.display)"))
+        .accessibilityLabel(Text("Signed in as \(model.signedInName(persona))"))
         .accessibilityIdentifier("mg.0.persona-menu")
     }
 }

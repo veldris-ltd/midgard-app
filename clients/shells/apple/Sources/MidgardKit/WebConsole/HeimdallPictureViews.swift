@@ -13,11 +13,13 @@ import SwiftUI
 public struct HeimdallHeader<Trailing: View>: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     let compact: Bool
+    let context: String
     let trailing: Trailing
     private let accent = MGWebAccent.heimdall
 
-    public init(compact: Bool = false, @ViewBuilder trailing: () -> Trailing) {
+    public init(compact: Bool = false, context: String = HeimdallChrome.context, @ViewBuilder trailing: () -> Trailing) {
         self.compact = compact
+        self.context = context
         self.trailing = trailing()
     }
 
@@ -27,7 +29,7 @@ public struct HeimdallHeader<Trailing: View>: View {
             : AnyLayout(HStackLayout(spacing: compact ? 8 : 14))) {
             WebProductMark(name: "Heimdall", accent: accent)
             if !compact {
-                Text(HeimdallChrome.context)
+                Text(context)
                     .font(MGWebFont.mono(11))
                     .mgTracking(0.14, size: MGWebFont.monoSize(11))
                     .foregroundStyle(MGWeb.textFaint)

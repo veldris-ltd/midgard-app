@@ -266,12 +266,13 @@ struct ConsoleTab: View {
     @Binding var query: String
 
     /// Midgard's screens in its web console's order (FABRIC, GOVERNANCE, PLATFORM),
-    /// Admin's in its (OVERSEE, ADMINISTER, EMERGENCY, ASSIST); every other console's
-    /// in the catalogue's.
+    /// Admin's in its (OVERSEE, ADMINISTER, EMERGENCY, ASSIST), Heimdall's in its
+    /// (PICTURE, DECIDE); every other console's in the catalogue's.
     private var ordered: [String] {
         switch console.id {
         case "midgard": return MidgardChrome.sections.flatMap(\.items).map(\.screen)
         case "admin": return AdminChrome.screens
+        case "heimdall": return HeimdallChrome.screens
         default: return console.screens
         }
     }
@@ -441,6 +442,8 @@ struct ScreenPlaceholder: View {
             MidgardScreen(app: model, persona: persona.id, screen: screen, compact: true, link: link, open: open)
         } else if console.id == "admin" {
             AdminScreen(app: model, persona: persona.id, screen: screen, compact: true, link: link, open: open)
+        } else if console.id == "heimdall" {
+            HeimdallScreen(app: model, persona: persona.id, screen: screen, compact: true) { open($0, nil) }
         } else {
             ScrollView {
                 VStack(spacing: MGSpace.s3) {
@@ -461,13 +464,14 @@ struct ScreenPlaceholder: View {
     }
 }
 
-/// A screen's name in the list and its navigation bar: Midgard's and Admin's web
-/// navigation label ("Object types", "Identity & roles"); every other console's
-/// catalogue name.
+/// A screen's name in the list and its navigation bar: Midgard's, Admin's and
+/// Heimdall's web navigation label ("Object types", "Identity & roles", "Action
+/// workflows"); every other console's catalogue name.
 func screenLabel(_ console: Console, _ screen: String) -> String {
     switch console.id {
     case "midgard": return MidgardChrome.item(for: screen)?.label ?? screen
     case "admin": return AdminChrome.item(for: screen)?.label ?? screen
+    case "heimdall": return HeimdallChrome.item(for: screen)?.label ?? screen
     default: return screen
     }
 }
@@ -516,7 +520,11 @@ struct SessionMenu: View {
     var body: some View {
         let offline = model.isOffline
         Menu {
-            Section("Signed in as \(persona.display)") {
+            if let live = model.userData.live {
+                Section("Signed in to \(live.host) as \(live.subject)") {}
+            }
+            Section(model.userData.live == nil ? "Signed in as \(persona.display)"
+                                               : "Sample persona (the screens not served live)") {
                 ForEach(model.personas, id: \.id) { other in
                     Button {
                         Task { await model.switchPersona(other) }
@@ -566,7 +574,7 @@ struct SessionMenu: View {
             Label("Session", systemImage: "person.crop.circle")
                 .frame(minWidth: 44, minHeight: 44)
         }
-        .accessibilityLabel(Text("Session: \(persona.display)"))
+        .accessibilityLabel(Text("Session: \(model.signedInName(persona))"))
         .accessibilityIdentifier("mg.0.session-menu")
         .modifier(AboutSheet(about: model.about, showing: $showingAbout))
         .sheet(isPresented: $showingData) {

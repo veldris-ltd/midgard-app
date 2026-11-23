@@ -21,21 +21,38 @@ public enum HeimdallChrome {
         public let symbol: String
         public let badge: String?
         public let screen: String
+        /// The header's context line on this screen (the web screen's `context`).
+        public let context: String
+        /// The inspector's width on the Mac (the web screen's `asideWidth`, 330 by default).
+        public let asideWidth: CGFloat
     }
 
     public static let sections: [(title: String, items: [Item])] = [
         ("PICTURE", [
-            Item(id: "cop", label: "Operating picture", symbol: "map", badge: nil, screen: "Operating Picture"),
-            Item(id: "feeds", label: "Feeds", symbol: "antenna.radiowaves.left.and.right", badge: "12", screen: "Feeds"),
-            Item(id: "entities", label: "Entities", symbol: "scope", badge: "1,204", screen: "Entities"),
+            Item(id: "cop", label: "Operating picture", symbol: "map", badge: nil, screen: "Operating Picture",
+                 context: "COMMON OPERATING PICTURE / SECTOR NORTH", asideWidth: 360),
+            Item(id: "feeds", label: "Feeds", symbol: "antenna.radiowaves.left.and.right", badge: "12", screen: "Feeds",
+                 context: "PICTURE / FEED MANAGER", asideWidth: 330),
+            Item(id: "entities", label: "Entities", symbol: "scope", badge: "1,204", screen: "Entities",
+                 context: "PICTURE / ENTITY BROWSER", asideWidth: 330),
             Item(id: "sync", label: "Picture sync", symbol: "point.3.connected.trianglepath.dotted", badge: nil,
-                 screen: "Picture Sync"),
+                 screen: "Picture Sync", context: "PICTURE / SYNC · 4 SITES", asideWidth: 330),
         ]),
         ("DECIDE", [
-            Item(id: "workflows", label: "Action workflows", symbol: "arrow.triangle.branch", badge: "2", screen: "Workflows"),
-            Item(id: "lineage", label: "Decision lineage", symbol: "scroll", badge: nil, screen: "Decision Lineage"),
+            Item(id: "workflows", label: "Action workflows", symbol: "arrow.triangle.branch", badge: "2", screen: "Workflows",
+                 context: "DECIDE / ACTION WORKFLOWS", asideWidth: 360),
+            Item(id: "lineage", label: "Decision lineage", symbol: "scroll", badge: nil, screen: "Decision Lineage",
+                 context: "DECIDE / DECISION LINEAGE", asideWidth: 360),
         ]),
     ]
+
+    /// The navigation item that opens `screen` (a `ConsoleCatalog` name).
+    public static func item(for screen: String) -> Item? {
+        sections.flatMap(\.items).first { $0.screen == screen }
+    }
+
+    /// The screens in the web navigation's order (the iPhone's list).
+    public static var screens: [String] { sections.flatMap(\.items).map(\.screen) }
 }
 
 /// The Operating Picture's state, as `OperatingPictureScreen.tsx` keeps it: the
@@ -68,6 +85,9 @@ public final class HeimdallPictureModel: ObservableObject {
     /// imported objects with a position. Drawn apart from the tracks, never fused.
     @Published public internal(set) var userLayers: [UserMapLayer] = []
     @Published public var userLayerOn: [String: Bool] = [:]
+    /// What needs attention, from the picture's tracks and the feeds the persona may
+    /// see (the header's Alerts list).
+    @Published public private(set) var alerts: [HeimdallAlert] = []
 
     /// Option rank → the human-gated workflow it opens; rank 3 (hold) opens none.
     public static let workflowForRank: [Int: String] = [1: "W-0912", 2: "W-0913"]
@@ -97,6 +117,10 @@ public final class HeimdallPictureModel: ObservableObject {
         let rows = await app.rows("heimdall.tracks")
         // Cached so an authorise can name its workflow (the core acts only on rows read).
         _ = await app.rows("heimdall.workflows")
+        let feeds = await app.rows("heimdall.feeds").compactMap { row -> HeimdallFeed? in
+            if case let .heimdallFeed(item)? = row.item { return item }
+            return nil
+        }
         layers = picture.compactMap {
             if case let .heimdallPicture(item)? = $0.item { return item.layers }
             return nil
@@ -114,6 +138,7 @@ public final class HeimdallPictureModel: ObservableObject {
         tracks = shown
         markings = marks
         withheld = rows.filter(\.withheld).count
+        alerts = HeimdallAlert.of(tracks: shown, feeds: feeds)
         if selected == nil || !shown.contains(where: { $0.id == selected }) {
             selected = shown.first { $0.id == "E-0871" }?.id ?? shown.first?.id
         }

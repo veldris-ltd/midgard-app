@@ -39,9 +39,7 @@ final class EditionTests: XCTestCase {
         if Edition.isThreeD {
             AppNavigation.openThreeD(app)
             // Back on Heimdall's other screens there is no switch.
-            AppNavigation.selectConsole(app, 3)
-            app.buttons["mg.2.heimdall.entities"].tap()
-            XCTAssertTrue(element("mg.placeholder.heimdall.entities").waitForExistence(timeout: AppNavigation.timeout))
+            AppNavigation.open(app, console: 3, "entities")
             XCTAssertFalse(app.buttons["mg.heimdall.view.3d"].exists, "the switch is on the Operating Picture only")
         } else {
             app.buttons["mg.1.heimdall.operating-picture"].tap()
