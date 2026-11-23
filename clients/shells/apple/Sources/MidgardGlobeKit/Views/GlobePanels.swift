@@ -213,8 +213,9 @@ struct CameraReadout: View {
         }
         .font(MGWebFont.mono(9))
         .tracked(0.08, 9)
-        .foregroundStyle(MGWeb.textMuted)
+        .foregroundStyle(MGWeb.textBody)
         .lineSpacing(2)
+        .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(summary.isEmpty ? "Camera" : summary))
@@ -334,14 +335,16 @@ struct GlobeCompactControls: View {
         // At accessibility text sizes the controls stack, wrap and scroll, so no label is cut.
         let row = large ? AnyLayout(VStackLayout(spacing: 6)) : AnyLayout(HStackLayout(spacing: 6))
         VStack(spacing: 0) {
-            HStack(alignment: .top) {
-                Panel { CameraReadout(camera: c.settled, current: current, summary: summary) }
-                    .frame(maxWidth: large ? .infinity : 200)
-                Spacer(minLength: 0)
+            if !large {
+                HStack(alignment: .top) {
+                    Panel { CameraReadout(camera: c.settled, current: current, summary: summary) }.frame(maxWidth: 200)
+                    Spacer(minLength: 0)
+                }
+                .padding(8)
             }
-            .padding(8)
             Spacer(minLength: 0)
             CompactControlArea(large: large) {
+                if large { CameraReadout(camera: c.settled, current: current, summary: summary) }
                 row {
                     RegionMenu(regions: regions, current: current, choose: flyToRegion)
                     TrackMenu(picture: picture, idPrefix: "mg.heimdall.3d.track", choose: chooseTrack)
@@ -410,7 +413,7 @@ struct CompactControlArea<Content: View>: View {
             }
         }
         .padding(8)
-        .background(MGWeb.bgSunken.opacity(0.92))
+        .background(MGWeb.bgSunken)
     }
 }
 

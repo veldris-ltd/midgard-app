@@ -38,8 +38,8 @@ struct Panel<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) { content }
             .padding(10)
-            .background(RoundedRectangle(cornerRadius: MGRadius.sm).fill(MGWeb.bgSunken.opacity(0.92)))
-            .background(RoundedRectangle(cornerRadius: MGRadius.sm).fill(.ultraThinMaterial))
+            // Opaque (the web's is 84 %): text on it keeps AA contrast over any imagery.
+            .background(RoundedRectangle(cornerRadius: MGRadius.sm).fill(MGWeb.bgSunken))
             .overlay(RoundedRectangle(cornerRadius: MGRadius.sm).strokeBorder(MGWeb.divider))
     }
 }
@@ -126,7 +126,7 @@ struct Notice: View {
             .multilineTextAlignment(.center)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: MGRadius.sm).fill(MGWeb.bgSunken.opacity(0.9)))
+            .background(RoundedRectangle(cornerRadius: MGRadius.sm).fill(MGWeb.surfaceCard))
             .overlay(RoundedRectangle(cornerRadius: MGRadius.sm).strokeBorder(MGWeb.divider))
             .accessibilityAddTraits(.isStaticText)
             .accessibilityIdentifier("mg.heimdall.tiles.notice")
@@ -191,13 +191,13 @@ struct CreditsStrip: View {
 
     var body: some View {
         Text(credits.map(\.short).joined(separator: " · "))
-            .font(MGWebFont.mono(8))
-            .foregroundStyle(MGWeb.textMuted)
+            .font(MGWebFont.mono(9))
+            .foregroundStyle(MGWeb.textBody)
             .fixedSize(horizontal: false, vertical: true)
             .multilineTextAlignment(.leading)
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
-            .background(RoundedRectangle(cornerRadius: 3).fill(MGWeb.bgSunken.opacity(0.92)))
+            .background(RoundedRectangle(cornerRadius: 3).fill(MGWeb.bgSunken))
             .accessibilityLabel(Text("Map data: " + credits.map(\.short).joined(separator: ", ")))
             .accessibilityIdentifier("mg.heimdall.credits.strip")
     }

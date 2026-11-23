@@ -38,6 +38,7 @@ struct HeimdallMapView: View {
             ZStack(alignment: .topLeading) {
                 MapSurface(controller: c)
                     .accessibilityElement()
+                    .accessibilityAddTraits(.isImage)
                     .accessibilityLabel(Text("Map"))
                     .accessibilityValue(Text(summary))
                     .accessibilityHint(Text(isCompactPlatform ? "Drag to pan, pinch to zoom. The track list reaches each track."
@@ -104,7 +105,8 @@ struct HeimdallMapView: View {
         }
         .font(MGWebFont.mono(9))
         .tracked(0.08, 9)
-        .foregroundStyle(MGWeb.textMuted)
+        .foregroundStyle(MGWeb.textBody)
+        .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(summary.isEmpty ? "Map" : summary))
@@ -130,13 +132,16 @@ struct HeimdallMapView: View {
         let large = typeSize.isAccessibilitySize
         let row = large ? AnyLayout(VStackLayout(spacing: 6)) : AnyLayout(HStackLayout(spacing: 6))
         return VStack(spacing: 0) {
-            HStack {
-                Panel { readout }.frame(maxWidth: large ? .infinity : 200)
-                Spacer(minLength: 0)
+            if !large {
+                HStack {
+                    Panel { readout }.frame(maxWidth: 200)
+                    Spacer(minLength: 0)
+                }
+                .padding(8)
             }
-            .padding(8)
             Spacer(minLength: 0)
             CompactControlArea(large: large) {
+                if large { readout }
                 row {
                     RegionMenu(regions: regions, current: current, choose: flyToRegion)
                     TrackMenu(picture: picture, idPrefix: "mg.heimdall.map.track", choose: { select($0, fly: true) })

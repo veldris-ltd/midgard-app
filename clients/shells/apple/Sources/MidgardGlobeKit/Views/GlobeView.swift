@@ -72,6 +72,7 @@ struct HeimdallGlobeView: View {
             ZStack(alignment: .topLeading) {
                 GlobeSurface(controller: c, outlines: outlines) { failed = true }
                     .accessibilityElement()
+                    .accessibilityAddTraits(.isImage)
                     .accessibilityLabel(Text("Globe"))
                     .accessibilityValue(Text(summary))
                     .accessibilityHint(Text(isCompactPlatform

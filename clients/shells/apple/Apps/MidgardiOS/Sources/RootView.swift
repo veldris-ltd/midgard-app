@@ -432,13 +432,25 @@ struct ScreenPlaceholder: View {
 struct PictureViewSwitch: ViewModifier {
     let views: HeimdallPictureViewsProvider?
     @Binding var selection: String
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     func body(content: Content) -> some View {
         if let views {
-            content
-                .toolbar {
-                    ToolbarItem(placement: .principal) { HeimdallViewSwitch(views: views.views, selection: $selection) }
+            if typeSize.isAccessibilitySize {
+                // At accessibility text sizes the switch is a row of its own above the
+                // screen: in the navigation bar its labels would be cut.
+                content.safeAreaInset(edge: .top, spacing: 0) {
+                    HeimdallViewSwitch(views: views.views, selection: $selection)
+                        .padding(.vertical, 4)
+                        .frame(maxWidth: .infinity)
+                        .background(MGWeb.bgPage)
                 }
+            } else {
+                content
+                    .toolbar {
+                        ToolbarItem(placement: .principal) { HeimdallViewSwitch(views: views.views, selection: $selection) }
+                    }
+            }
         } else {
             content
         }
