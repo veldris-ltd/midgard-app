@@ -1,0 +1,85 @@
+/* Projection between geographic positions and the globe's xyz frame. [FR-H-1]
+ *
+ * The globe is a sphere of radius 1 (or `radius`) centred on the origin, in three.js's
+ * right-handed, y-up frame: the north pole on +y, the equator on the xz plane, the
+ * prime meridian on +x, and east towards -z, so east is on the right when the globe is
+ * seen from +x. Altitude raises the radius in proportion to the Earth's mean radius.
+ * Pure and dependency-free, so node:test runs it as it is. */
+
+/** The Earth's mean radius (IUGG), in kilometres. */
+export const EARTH_RADIUS_KM = 6371.0088;
+
+export interface Vec3 {
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface GeoPosition {
+  lat: number;
+  lon: number;
+  altKm: number;
+}
+
+const RAD = Math.PI / 180;
+
+/** Latitude and longitude in degrees, altitude in km above the sphere, to xyz. */
+export function toXyz(lat: number, lon: number, altKm = 0, radius = 1): Vec3 {
+  const r = radius * (1 + altKm / EARTH_RADIUS_KM);
+  const phi = lat * RAD;
+  const lambda = lon * RAD;
+  const c = Math.cos(phi);
+  return { x: r * c * Math.cos(lambda), y: r * Math.sin(phi), z: -r * c * Math.sin(lambda) };
+}
+
+/** xyz back to latitude, longitude in (-180, 180] and altitude in km. */
+export function fromXyz(p: Vec3, radius = 1): GeoPosition {
+  const horizontal = Math.hypot(p.x, p.z);
+  const r = Math.hypot(horizontal, p.y);
+  const lat = Math.atan2(p.y, horizontal) / RAD;
+  let lon = Math.atan2(-p.z, p.x) / RAD;
+  if (lon <= -180) lon += 360;
+  return { lat, lon, altKm: (r / radius - 1) * EARTH_RADIUS_KM };
+}
+
+/** Wraps a longitude into (-180, 180]. */
+export function wrapLongitude(lon: number): number {
+  const w = ((((lon + 180) % 360) + 360) % 360) - 180;
+  return w === -180 ? 180 : w;
+}
+
+/**
+ * Whether the globe (radius `radius`) hides point `p` from a camera at `cam`: the
+ * straight line between them enters the sphere before it reaches `p`.
+ */
+export function isOccluded(cam: Vec3, p: Vec3, radius = 1): boolean {
+  const dx = p.x - cam.x, dy = p.y - cam.y, dz = p.z - cam.z;
+  const a = dx * dx + dy * dy + dz * dz;
+  if (a === 0) return false;
+  const b = 2 * (cam.x * dx + cam.y * dy + cam.z * dz);
+  const c = cam.x * cam.x + cam.y * cam.y + cam.z * cam.z - radius * radius;
+  const disc = b * b - 4 * a * c;
+  if (disc <= 0) return false;
+  const t = (-b - Math.sqrt(disc)) / (2 * a);
+  return t > 0 && t < 1 - 1e-7;
+}
+
+/** The unit tangent at (lat, lon) pointing along `bearingDeg` (clockwise from north). */
+export function headingTangent(lat: number, lon: number, bearingDeg: number): Vec3 {
+  const p = lat * RAD, l = lon * RAD, b = bearingDeg * RAD;
+  const cb = Math.cos(b), sb = Math.sin(b);
+  // North is d/dlat of toXyz; east is d/dlon over cos(lat).
+  const n = { x: -Math.sin(p) * Math.cos(l), y: Math.cos(p), z: Math.sin(p) * Math.sin(l) };
+  const e = { x: -Math.sin(l), y: 0, z: -Math.cos(l) };
+  return { x: cb * n.x + sb * e.x, y: cb * n.y + sb * e.y, z: cb * n.z + sb * e.z };
+}
+
+/** Great-circle angle between two positions, in degrees. */
+export function angularDistanceDeg(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
+  const p1 = a.lat * RAD;
+  const p2 = b.lat * RAD;
+  const dp = p2 - p1;
+  const dl = (b.lon - a.lon) * RAD;
+  const h = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+  return (2 * Math.asin(Math.min(1, Math.sqrt(h)))) / RAD;
+}

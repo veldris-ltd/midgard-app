@@ -10,9 +10,15 @@ flowchart TB
     subgraph tb3["Trust Boundary: Midgard Enclosure"]
         fabric["Object fabric"]
         seal["Seal (PQ keys)"]
+        mirror["Tile mirror (mirror build only)"]
+    end
+    subgraph tb4["Outside the enclosure: demo only"]
+        publictiles["Public tile hosts (public demo build only)"]
     end
     user -- "hybrid TLS 1.3 (S,T,I)" --> client
     client -- "PQ mTLS + purpose token (S,E)" --> api
     api -- "authz check (E,R)" --> svc
     svc -- "sealed I/O (T,I)" --> fabric
     fabric -- "key unwrap (I)" --> seal
+    client -. "map tiles: none by default (NFR-PRV-1); mirror build: HTTPS GET, no credentials, capped, decoded in a worker (I,D)" .-> mirror
+    client -. "public demo build only, never in an enclosure: HTTPS GET reveals viewed area, origin, IP, time, DNS; paused after track moves (I,D)" .-> publictiles

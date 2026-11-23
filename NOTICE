@@ -31,6 +31,68 @@ Third-party components:
   (Copyright 2020 The JetBrains Mono Project Authors). The font files and their
   licence texts are in ui/design-system/src/fonts and docs/design/fonts.
 
+  The Heimdall console's 3D globe bundles three.js (Copyright 2010-2026 three.js
+  authors), licensed under the MIT License, and outlines from Natural Earth
+  (naturalearthdata.com, version 5.1.2), which is in the public domain: coastlines,
+  land polygons and land borders at 1:110m and 1:50m, in
+  products/heimdall/ui/src/globe/data, built by tools/heimdall-outlines/build.mjs.
+  Made with Natural Earth.
+
+  The Heimdall console's 2D geographic map decodes vector tiles with
+  @mapbox/vector-tile and pbf (Copyright Mapbox, BSD-3-Clause), which bring
+  @mapbox/point-geometry (Copyright Mapbox, ISC), resolve-protobuf-schema and
+  protocol-buffers-schema (Copyright Mathias Buus, MIT). The built console ships
+  the licence texts of what it bundles in THIRD-PARTY-LICENSES.md.
+  resolve-protobuf-schema and protocol-buffers-schema serve only pbf's schema
+  compiler (its CLI): they are in the dependency closure and the SBOM, but no
+  console bundle includes them.
+
+  Built with map tiles (VITE_HEIMDALL_TILE_SOURCE=mirror or public; the default,
+  none, has none), the Heimdall console shows map tiles at run time from three
+  sources: in a mirror build from the enclosure's own copy of them, in a public
+  (demo) build from the providers' hosts. None of their data is bundled; the tests
+  use three recorded tiles, credited in
+  products/heimdall/ui/fixtures/tiles/CREDITS.md. The console's CREDITS control
+  shows each source while it is in use.
+
+  - Terrain: Mapzen Terrain Tiles on AWS Open Data (terrarium encoding), from the
+    Linux Foundation's Mapzen project. Open data from public-domain, Open
+    Government Licence and CC BY sources; attribution required:
+      Mapzen.
+      ArcticDEM terrain data DEM(s) were created from DigitalGlobe, Inc., imagery
+      and funded under National Science Foundation awards 1043681, 1559691, and
+      1542736;
+      Australia terrain data © Commonwealth of Australia (Geoscience Australia)
+      2017;
+      Austria terrain data © offene Daten Österreichs – Digitales Geländemodell
+      (DGM) Österreich;
+      Canada terrain data contains information licensed under the Open Government
+      Licence – Canada;
+      Europe terrain data produced using Copernicus data and information funded by
+      the European Union - EU-DEM layers;
+      Global ETOPO1 terrain data U.S. National Oceanic and Atmospheric
+      Administration;
+      Mexico terrain data source: INEGI, Continental relief, 2016;
+      New Zealand terrain data Copyright 2011 Crown copyright (c) Land Information
+      New Zealand and the New Zealand Government (All rights reserved);
+      Norway terrain data © Kartverket;
+      United Kingdom terrain data © Environment Agency copyright and/or database
+      right 2015. All rights reserved;
+      United States 3DEP (formerly NED) and global GMTED2010 and SRTM terrain data
+      courtesy of the U.S. Geological Survey.
+
+  - Satellite imagery: Sentinel-2 cloudless 2016 by EOX, the `s2cloudless_3857`
+    layer only, licensed under the Creative Commons Attribution 4.0 International
+    License (CC BY 4.0), as EOX's WMTS capabilities state for that layer (read on
+    22 November 2026, https://tiles.maps.eox.at/wmts/1.0.0/WMTSCapabilities.xml):
+      EOxCloudless https://cloudless.eox.at by EOX IT Services GmbH (Contains
+      modified Copernicus Sentinel data 2016).
+    EOX's later yearly layers carry a non-commercial licence and are not used.
+
+  - Geographic map: OpenStreetMap data, © OpenStreetMap contributors, available
+    under the Open Database License 1.0 (openstreetmap.org/copyright), as vector
+    tiles in the Shortbread schema served by VersaTiles (versatiles.org).
+
 Post-quantum cryptography implements the NIST FIPS 203 (ML-KEM), FIPS 204
 (ML-DSA), and FIPS 205 (SLH-DSA) standards; AES-256-GCM per FIPS 197. See
 docs/compliance/COMPLIANCE_MATRIX.md for the full standards mapping.

@@ -15,16 +15,35 @@ import { useAsync, useGateway } from '@midgard/ui-shared';
 import { HumanGateRequiredError } from '@midgard/sdk';
 import type { HeimdallGateway, HeimdallLayerId, HeimdallPicture, HeimdallTrack } from '@midgard/sdk';
 import { ConsolePage } from '../app/ConsolePage';
+import { TrackTooltip, rangeNm } from '../app/TrackTooltip';
+import { ViewSwitch, usePictureView } from '../app/ViewSwitch';
+import '../app/picture.css';
+
+/* The 3D globe, with three.js and the bundled outlines, is its own chunk, fetched
+ * from the console's own files only when 3D is opened. [FR-H-1] */
+const GlobeView = React.lazy(() => import('../globe/GlobeView'));
+/* The 2D geographic map, likewise its own chunk, and only in a build with map tiles
+ * (`VITE_HEIMDALL_TILE_SOURCE` mirror or public). [FR-H-1] [NFR-PRV-1] */
+const MapView = __HEIMDALL_TILES__ ? React.lazy(() => import('../map/MapView')) : null;
+
+/** If the globe's chunk cannot load, say so; the 2D view is unaffected. */
+class GlobeBoundary extends React.Component<{ children: React.ReactNode; what?: string }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div role="status" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-mono)', fontSize: 12, letterSpacing: '0.14em', color: 'var(--warn)' }}>
+        {this.props.what ?? '3D VIEW'} UNAVAILABLE · RELOAD TO RETRY · THE 2D VIEW STILL WORKS
+      </div>
+    );
+  }
+}
 
 type LayerState = Record<HeimdallLayerId, boolean>;
 type GateState = { rank: number; state: 'pending' | 'authorised' | 'rejected'; auditId?: string } | null;
-
-const CAPABILITY: Record<string, string> = {
-  AIRCRAFT: 'IFF · ADS-B · RADAR',
-  VESSEL: 'AIS · RADAR',
-  'GROUND UNIT': 'OBSERVER NET',
-  UNKNOWN: 'RADAR ONLY · UNCORROBORATED',
-};
 
 /** Advisory option rank → the human-gated workflow it would open. Rank 3 (hold)
  *  opens no workflow — the operator simply defers. */
@@ -43,6 +62,7 @@ export function OperatingPictureScreen() {
   const [hover, setHover] = React.useState<string | null>(null);
   const [gate, setGate] = React.useState<GateState>(null);
   const [busy, setBusy] = React.useState(false);
+  const [view, setView] = usePictureView();
 
   // Seed the toggle state once the picture's layers resolve.
   React.useEffect(() => {
@@ -51,7 +71,9 @@ export function OperatingPictureScreen() {
     }
   }, [layerDefs, layers]);
 
-  const layerOn = (id: HeimdallLayerId) => layers?.[id] !== false;
+  // Stable while the switches are unchanged, so the globe re-places tracks only when one moves.
+  const layerOn = React.useCallback((id: HeimdallLayerId) => layers?.[id] !== false, [layers]);
+  const select = React.useCallback((id: string) => { setSel(id); setGate(null); }, []);
   const setLayer = (id: HeimdallLayerId, v: boolean) => setLayers((l) => ({ ...(l ?? ({} as LayerState)), [id]: v }));
 
   const e = tracks.find((t) => t.id === sel);
@@ -145,7 +167,7 @@ export function OperatingPictureScreen() {
   ) : null;
 
   const focus = e;
-  const focusRng = focus ? Math.round(Math.hypot(focus.x - 50, focus.y - 50) * 1.3) : 0;
+  const focusRng = focus ? rangeNm(focus) : 0;
 
   return (
     <ConsolePage
@@ -155,6 +177,7 @@ export function OperatingPictureScreen() {
       mainStyle={{ padding: 0, gap: 0, position: 'relative' }}
       toolbar={
         <>
+          <ViewSwitch view={view} onChange={setView} />
           <IconButton label="Alerts" active>
             <Icon name="bell" size={17} />
           </IconButton>
@@ -173,6 +196,24 @@ export function OperatingPictureScreen() {
       }
       aside={aside}
     >
+      {view === 'map' && MapView ? (
+        <GlobeBoundary what="MAP VIEW">
+          <React.Suspense
+            fallback={<div role="status" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.14em', color: 'var(--text-faint)' }}>LOADING MAP VIEW…</div>}
+          >
+            <MapView tracks={tracks} layerOn={layerOn} selectedId={sel} onSelect={select} />
+          </React.Suspense>
+        </GlobeBoundary>
+      ) : view === '3d' ? (
+        <GlobeBoundary>
+          <React.Suspense
+            fallback={<div role="status" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.14em', color: 'var(--text-faint)' }}>LOADING 3D VIEW…</div>}
+          >
+            <GlobeView tracks={tracks} layerOn={layerOn} selectedId={sel} onSelect={select} />
+          </React.Suspense>
+        </GlobeBoundary>
+      ) : (
+      <>
       <div className="mg-grid-bg" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
       <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at 55% 45%, var(--accent-tint), transparent 60%)' }} />
 
@@ -213,7 +254,7 @@ export function OperatingPictureScreen() {
         return (
           <button
             key={en.id}
-            onClick={() => { setSel(en.id); setGate(null); }}
+            onClick={() => select(en.id)}
             onMouseEnter={() => setHover(en.id)}
             onMouseLeave={() => setHover(null)}
             onFocus={() => setHover(en.id)}
@@ -259,39 +300,13 @@ export function OperatingPictureScreen() {
       {(() => {
         const t = tracks.find((x) => x.id === hover);
         if (!t || !layerOn(t.layer)) return null;
-        const rng = Math.round(Math.hypot(t.x - 50, t.y - 50) * 1.3);
         const flipY = t.y < 36;
-        const rows: [string, string][] = [
-          ['HDG / SPD', String(t.hdg).padStart(3, '0') + '° · ' + t.spd + ' KT'],
-          ['ALT', t.alt],
-          ['RNG', rng + ' NM FROM SITE'],
-          ['CAP', CAPABILITY[t.cls] ?? '—'],
-          ['TRACK', t.track.toUpperCase() + ' · ' + t.feeds + ' FEEDS'],
-        ];
         return (
-          <div
-            role="tooltip"
-            style={{
-              position: 'absolute', left: `clamp(110px, ${t.x}%, calc(100% - 110px))`, top: t.y + '%',
-              transform: `translate(-50%, ${flipY ? '30px' : 'calc(-100% - 26px)'})`,
-              zIndex: 5, pointerEvents: 'none', minWidth: 200,
-              background: 'var(--surface-card)', border: '1px solid ' + (t.track === 'anomalous' ? 'var(--warn)' : 'var(--border-strong)'),
-              borderRadius: 'var(--radius-sm)', padding: '9px 11px', boxShadow: 'var(--shadow-md)',
-            }}
-          >
-            <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', marginBottom: 6 }}>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600, color: 'var(--text-heading)' }}>{t.id}</span>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.1em', color: 'var(--text-faint)' }}>{t.cls}</span>
-              <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 10, color: t.conf < 0.7 ? 'var(--warn)' : 'var(--secure)' }}>{Math.round(t.conf * 100)}%</span>
-            </div>
-            {rows.map(([k, v]) => (
-              <div key={k} style={{ display: 'flex', gap: 10, padding: '2px 0', fontFamily: 'var(--font-mono)', fontSize: 9 }}>
-                <span style={{ color: 'var(--text-faint)', width: 62, flex: 'none', letterSpacing: '0.08em' }}>{k}</span>
-                <span style={{ color: 'var(--text-body)' }}>{v}</span>
-              </div>
-            ))}
-            {t.id === sel && <div style={{ marginTop: 5, fontFamily: 'var(--font-mono)', fontSize: 8, letterSpacing: '0.14em', color: 'var(--accent-hover)' }}>FOCUSED · OPTIONS IN INSPECTOR →</div>}
-          </div>
+          <TrackTooltip
+            track={t}
+            selected={t.id === sel}
+            style={{ left: `clamp(110px, ${t.x}%, calc(100% - 110px))`, top: t.y + '%', transform: `translate(-50%, ${flipY ? '30px' : 'calc(-100% - 26px)'})` }}
+          />
         );
       })()}
 
@@ -302,12 +317,14 @@ export function OperatingPictureScreen() {
           <span style={{ fontSize: 9, color: 'var(--text-faint)' }}>{focusRng} NM · {focus.feeds} FEEDS · {focus.track.toUpperCase()}</span>
         </div>
       )}
+      </>
+      )}
 
       <div style={{ position: 'absolute', left: 12, right: 12, bottom: 10, display: 'flex', alignItems: 'flex-end', gap: '8px 18px', flexWrap: 'wrap', zIndex: 4, background: 'color-mix(in srgb, var(--bg-sunken) 80%, transparent)', backdropFilter: 'var(--blur-panel)', WebkitBackdropFilter: 'var(--blur-panel)', border: '1px solid var(--divider)', borderRadius: 'var(--radius-sm)', padding: '8px 12px', width: 'fit-content', maxWidth: 'calc(100% - 24px)' }}>
         <StatBlock value="1,204" label="TRACKED ENTITIES" size="sm" />
         <StatBlock value="0.4s" label="FUSION LATENCY" size="sm" />
         <StatBlock value="1" label="ANOMALIES" size="sm" accent />
-        <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em', color: 'var(--text-faint)', whiteSpace: 'nowrap' }}>SYNTHETIC PICTURE · REFERENCE LAYOUT ONLY</span>
+        <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.14em', color: 'var(--text-faint)', whiteSpace: 'nowrap' }}>{view !== '2d' ? 'SYNTHETIC PICTURE · REFERENCE LAYOUT · NOT REAL POSITIONS' : 'SYNTHETIC PICTURE · REFERENCE LAYOUT ONLY'}</span>
       </div>
     </ConsolePage>
   );

@@ -29,6 +29,11 @@ the trust boundaries, with each threat mapped to the implemented, tested control
 - Service ⇄ service over **PQ-mTLS** (mutual auth, hybrid KEM).
 - Process ⇄ **KMS trust root** (ideally an HSM/TPM device boundary).
 - Enclosure ⇄ **outside world** — *closed by default* (NFR-PRV-1: no egress).
+- Heimdall console ⇄ **map tile source** — *none by default* (NFR-PRV-1). The signed
+  console is the `none` build: no tile code, no tile host, no outbound connection. A
+  `mirror` build fetches tiles from one HTTPS origin inside the enclosure, so the
+  boundary is not crossed. A `public` build fetches them from three public hosts: a
+  demo build only, outside the enclosure, never deployed in one.
 - Build/release runner ⇄ artefacts (supply chain).
 
 ## STRIDE
@@ -102,6 +107,20 @@ the trust boundaries, with each threat mapped to the implemented, tested control
   copies the compiler leaves in registers or on the stack, and the internal state of
   the RustCrypto hash and HMAC types, are not wiped; the software KMS root exposes the
   root in memory unless a hardware root is used (`services/kms/RESIDUAL_RISK.md`).
+- *Threat (map tiles):* the Heimdall console's map tiles egressing from the enclosure.
+  *Controls:* the tile source is fixed at build time and fails closed: `none` by
+  default (the signed build), `mirror` (one HTTPS origin inside the enclosure), or an
+  explicitly named `public` demo build; any other setting, or a mirror that names a
+  public tile host, stops the build; `test:bundle` checks each build's `dist/` holds
+  only its own hosts. [NFR-PRV-1]
+- *Threat (map tiles, `public` demo build only):* tile requests name the area in view,
+  so a view framed on the tracks would reveal where they are; each request also reveals
+  the console's origin, the client's IP address, the time and a DNS lookup, and leaves
+  the tiles in the browser's HTTP cache. *Controls:* camera moves the tracks decide
+  pause tile loading until the user's next move (a pause defers the request; a move
+  near a track then loads that area); allow-listed URLs only, no cookies, credentials,
+  referrer or redirects; a mirror keeps all of it inside the enclosure. Residual risk
+  register: "Map tile requests reveal the area being viewed". [NFR-PRV-1]
 
 ### Denial of service
 - *Threat:* exhausting the gateway or a service.
@@ -109,6 +128,16 @@ the trust boundaries, with each threat mapped to the implemented, tested control
   (RT-25); readiness gating and SLO breach observability (RT-33); DR restore within
   RTO/RPO (RT-34). *Residual:* full multi-node clustering DoS resilience is a
   deployment-tier concern (RT-40).
+- *Threat:* a hostile or broken tile source exhausting the Heimdall console by
+  decoding (an oversize body, an image of huge dimensions, a vector-tile decompression
+  bomb, a body that never ends, or many tiles adding up). *Controls:* streamed bodies
+  capped at 2 MB (1 MB terrain), oversize `Content-Length` refused before reading;
+  raster tiles exactly 256 × 256 (512 × 512 terrain) by header before decoding and
+  again after; vector geometry validated and its points counted, exactly as it will be
+  built, before any is built, with features and points capped; at most 500 labels a
+  tile, each cut to 200 characters; the map's decoded tiles held to 64 MB off screen
+  and 128 MB on screen; decoding in a same-origin module worker
+  with about 2 s per tile; 15 s per request. Fuzz-style tests cover each. [FR-H-1]
 
 ### Elevation of privilege
 - *Threat:* gaining capabilities beyond one's role.

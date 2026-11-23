@@ -1,0 +1,1012 @@
+/* The globe renderer: three.js, drawn on demand. [FR-H-1] [AC-H-1]
+ *
+ * One sphere carries the clean style (flat land and sea from the design tokens,
+ * painted once into an equirectangular texture from the 1:50m land) and the day and
+ * night shading from the subsolar point. Over it sit the graticule, the coastlines and
+ * the land borders as lines (1:110m far out, 1:50m close in), a soft atmosphere edge,
+ * and the track markers. The camera, the markers' placement and the picking are the
+ * pure modules beside this file; this one only draws and listens. Nothing here makes
+ * a network request: the bundled outlines are handed in by the view, which fetches
+ * them from the console's own files.
+ *
+ * With the map tiles on, a tile layer (`setTileLayer`) draws terrain patches over the
+ * sphere, which then sits just below sea level; the camera may come down to the
+ * 1.5 km close-up, kept 150 m above the terrain under it, and tracks on the surface
+ * stand on the terrain. While the layer is inactive (tiles off, or offline) all of
+ * this is as before. */
+import * as THREE from 'three';
+
+import { CAMERA_FOV_DEG, CLOSE_UP_ALTITUDE_KM, MIN_ALTITUDE_KM, clipPlanes, terrainFloorKm } from './camera.ts';
+import { type GlobeColours, type Rgba, cssRgba } from './colours.ts';
+import { graticule, lineSegments } from './geometry.ts';
+import type { GlobeItem } from './items.ts';
+import { type OutlineFile, coastFromLand, decodeLine } from './outlines.ts';
+import { EARTH_RADIUS_KM, headingTangent, isOccluded, toXyz } from './projection.ts';
+import { subsolarPoint } from './sun.ts';
+import type { GlobeTileLayer, TileLayerHost } from './tileLayer.ts';
+import {
+  type ViewState,
+  interpolateView,
+  lookTarget,
+  normaliseView,
+  panView,
+  rotateView,
+  sightPitchLimitDeg,
+  tiltView,
+  viewFlyDurationMs,
+  viewFrame,
+  zoomView,
+} from './view.ts';
+
+/** Below this altitude the 1:50m outlines replace the 1:110m ones. */
+const DETAIL_BELOW_KM = 3000;
+/** Height of the atmosphere shell (1.035 Earth radii): below it the camera sees a sky. */
+const ATMOSPHERE_KM = 0.035 * EARTH_RADIUS_KM;
+/** Above this altitude only the selected and hovered tracks keep their labels. */
+const LABELS_BELOW_KM = 6000;
+const MARKER_PX = 13;
+const PICK_PX = 14;
+const TEXTURE_WIDTH = 4096;
+/** With tiles drawn, the sphere sits this far under sea level (radii; about 640 m). */
+const SPHERE_UNDER_TILES = 0.9999;
+/** With tiles drawn, the outline lines are hidden below this altitude: they sit a few
+ *  km up for the far view and would float over the terrain close in. */
+const LINES_HIDDEN_BELOW_KM = 150;
+
+export interface GlobeCallbacks {
+  /** The track under the pointer, or null. */
+  onHover(id: string | null): void;
+  /** A click on a track. */
+  onSelect(id: string): void;
+  /** The camera moved; `settled` once a drag, zoom or flight has ended. */
+  onCamera(camera: ViewState, settled: boolean): void;
+  /** WebGL went away after start-up. */
+  onContextLost(): void;
+  /** The user moved the camera: a drag, a zoom, a tilt or turn, or a key. [NFR-PRV-1] */
+  onUserMove?(): void;
+}
+
+/** Whether this browser can give the globe a WebGL 2 context, which three.js needs.
+ *  The probe's context is released at once. */
+export function webglAvailable(): boolean {
+  try {
+    const gl = document.createElement('canvas').getContext('webgl2');
+    if (!gl) return false;
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export interface GlobeOutlines {
+  /** 1:110m coastlines and borders. */
+  world: OutlineFile;
+  /** 1:50m land and borders. */
+  close: OutlineFile;
+}
+
+const toColor = (c: Rgba) => new THREE.Color().setRGB(c.r, c.g, c.b, THREE.SRGBColorSpace);
+
+const GLOBE_VERTEX = /* glsl */ `
+  varying vec2 vUv;
+  varying vec3 vNormalW;
+  void main() {
+    vUv = uv;
+    vNormalW = normalize(mat3(modelMatrix) * normal);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const GLOBE_FRAGMENT = /* glsl */ `
+  uniform sampler2D map;
+  uniform vec3 sunDir;
+  uniform float night;
+  varying vec2 vUv;
+  varying vec3 vNormalW;
+  void main() {
+    vec3 base = texture2D(map, vUv).rgb;
+    float d = dot(normalize(vNormalW), sunDir);
+    float light = mix(night, 1.0, smoothstep(-0.12, 0.12, d));
+    gl_FragColor = vec4(base * light, 1.0);
+    #include <colorspace_fragment>
+  }
+`;
+
+const ATMOSPHERE_VERTEX = /* glsl */ `
+  varying vec3 vNormalV;
+  varying vec3 vPosV;
+  varying vec3 vWorldPos;
+  void main() {
+    vNormalV = normalize(normalMatrix * normal);
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    vPosV = mv.xyz;
+    vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
+    gl_Position = projectionMatrix * mv;
+  }
+`;
+
+const ATMOSPHERE_FRAGMENT = /* glsl */ `
+  uniform vec3 glow;
+  uniform float strength;
+  uniform float inside;
+  uniform vec3 camUp;
+  varying vec3 vNormalV;
+  varying vec3 vPosV;
+  varying vec3 vWorldPos;
+  void main() {
+    // From outside, the far wall faces away: brightest at the limb of the globe,
+    // fading to nothing at the atmosphere's outer edge.
+    float facing = -dot(normalize(vNormalV), normalize(-vPosV));
+    float rim = pow(clamp(facing / 0.3, 0.0, 1.0), 1.6);
+    // From inside, a sky: brightest along the horizon, thinning overhead. The globe
+    // hides it below the horizon.
+    float elevation = dot(normalize(vWorldPos - cameraPosition), camUp);
+    float sky = 1.0 - smoothstep(-0.02, 0.45, elevation);
+    gl_FragColor = vec4(glow, mix(rim, sky, inside) * strength);
+    #include <colorspace_fragment>
+  }
+`;
+
+type Shape = 'circle' | 'square' | 'diamond' | 'ring' | 'arrow' | 'boat' | 'dot';
+
+function shapeTexture(shape: Shape): THREE.CanvasTexture {
+  const n = 64;
+  const c = document.createElement('canvas');
+  c.width = n;
+  c.height = n;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#fff';
+  g.strokeStyle = '#fff';
+  const m = n / 2;
+  g.beginPath();
+  if (shape === 'circle') g.arc(m, m, m * 0.62, 0, Math.PI * 2);
+  else if (shape === 'square') g.rect(m * 0.42, m * 0.42, m * 1.16, m * 1.16);
+  else if (shape === 'dot') g.arc(m, m, m * 0.4, 0, Math.PI * 2);
+  else if (shape === 'arrow') {
+    // An aircraft: a chevron pointing up the texture, turned to its heading on screen.
+    g.moveTo(m, m * 0.18);
+    g.lineTo(m * 1.62, m * 1.7);
+    g.lineTo(m, m * 1.3);
+    g.lineTo(m * 0.38, m * 1.7);
+    g.closePath();
+  } else if (shape === 'boat') {
+    // A vessel: a square hull with a pointed bow.
+    g.moveTo(m, m * 0.22);
+    g.lineTo(m * 1.5, m * 0.75);
+    g.lineTo(m * 1.5, m * 1.6);
+    g.lineTo(m * 0.5, m * 1.6);
+    g.lineTo(m * 0.5, m * 0.75);
+    g.closePath();
+  } else if (shape === 'diamond') {
+    g.moveTo(m, m * 0.24);
+    g.lineTo(m * 1.76, m);
+    g.lineTo(m, m * 1.76);
+    g.lineTo(m * 0.24, m);
+    g.closePath();
+  }
+  if (shape === 'ring') {
+    g.lineWidth = 5;
+    g.arc(m, m, m * 0.84, 0, Math.PI * 2);
+    g.stroke();
+  } else {
+    g.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+const SHAPE_FOR_LAYER: Record<string, Shape> = { air: 'circle', maritime: 'square', ground: 'diamond' };
+const POINTED_FOR_LAYER: Record<string, Shape> = { air: 'arrow', maritime: 'boat' };
+
+function shapeFor(item: GlobeItem): Shape {
+  return (item.heading !== null ? POINTED_FOR_LAYER[item.layer] : undefined) ?? SHAPE_FOR_LAYER[item.layer] ?? 'circle';
+}
+
+interface Marker {
+  item: GlobeItem;
+  sprite: THREE.Sprite;
+  /** The vertical stem to the ground, for airborne tracks. */
+  drop: THREE.Line | null;
+  /** The ground shadow under an airborne track. */
+  shadow: THREE.Sprite | null;
+  /** A point a little along the heading, to turn the marker on screen. */
+  ahead: THREE.Vector3 | null;
+  label: HTMLDivElement;
+  /** Where the marker is drawn: `item.position`, or on the terrain when that is higher. */
+  pos: THREE.Vector3;
+  /** The ground it stands on, km times HEIGHTS (0 = sea level). */
+  groundKm: number;
+}
+
+/** Degrees per pixel of an orbit drag: tilt (vertical) and turn (horizontal). */
+const TILT_PER_PX = 0.25;
+const TURN_PER_PX = 0.3;
+
+export class GlobeRenderer {
+  private readonly renderer: THREE.WebGLRenderer;
+  private readonly scene = new THREE.Scene();
+  private readonly camera3 = new THREE.PerspectiveCamera(CAMERA_FOV_DEG, 1, 0.01, 10);
+  private readonly globeMat: THREE.ShaderMaterial;
+  private readonly atmosphereMat: THREE.ShaderMaterial;
+  private readonly landTexture: THREE.CanvasTexture;
+  private readonly landCanvas: HTMLCanvasElement;
+  private readonly globeMesh: THREE.Mesh;
+  private readonly sunDir = new THREE.Vector3(1, 0, 0);
+  private readonly night = { value: 0.5 };
+  private tiles: GlobeTileLayer | null = null;
+  private tilesShown = false;
+  /** This layer has drawn tiles at least once, so it is known to be online. */
+  private tilesSeen = false;
+  private heights = 4;
+  private readonly lines: { mat: THREE.LineBasicMaterial; obj: THREE.LineSegments; kind: 'graticule' | 'coast' | 'border'; detail: 'far' | 'near' | 'all' }[] = [];
+  private readonly textures: Record<Shape, THREE.CanvasTexture>;
+  private readonly markerGroup = new THREE.Group();
+  private readonly selectRing: THREE.Sprite;
+  private markers: Marker[] = [];
+  private colours: GlobeColours;
+  private cam: ViewState = { lat: 54.6, lon: -4, altKm: 2200, pitch: 0, heading: 0 };
+  private width = 1;
+  private height = 1;
+  private frame = 0;
+  private flight: { from: ViewState; to: ViewState; start: number; ms: number } | null = null;
+  /**
+   * A flight's target that the floor held higher because no tiles were drawn yet (a
+   * close-up asked for before any tile arrived, as after the public build's pause):
+   * flown to again once tiles show, unless the user moves first.
+   */
+  private wanted: { target: ViewState; reducedMotion: boolean } | null = null;
+  /** One pointer down: `pan` drags the ground, `orbit` (right button, Ctrl or ⌥) tilts and turns. */
+  private drag: { id: number; x: number; y: number; moved: boolean; mode: 'pan' | 'orbit' } | null = null;
+  private readonly pointers = new Map<number, { x: number; y: number }>();
+  /** Two fingers down: their spread zooms, their turn turns, and moving both up or down tilts. */
+  private pinch: { d: number; a: number; y: number } | null = null;
+  private hovered: string | null = null;
+  private selected: string | null = null;
+  private tooltip: HTMLElement | null = null;
+  private settleTimer = 0;
+  private floorKm = MIN_ALTITUDE_KM;
+  private sunTimer = 0;
+  private readonly resize: ResizeObserver;
+  private readonly unlisten: (() => void)[] = [];
+  private disposed = false;
+
+  constructor(
+    private readonly host: HTMLElement,
+    private readonly labelLayer: HTMLElement,
+    colours: GlobeColours,
+    private readonly outlines: GlobeOutlines,
+    private readonly cb: GlobeCallbacks,
+  ) {
+    this.colours = colours;
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'low-power' });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.setClearColor(0x000000, 0);
+    const canvas = this.renderer.domElement;
+    canvas.style.display = 'block';
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+    canvas.style.touchAction = 'none';
+    canvas.setAttribute('aria-hidden', 'true');
+    host.appendChild(canvas);
+
+    // The clean style's land and sea, painted from the 1:50m land polygons.
+    this.landCanvas = document.createElement('canvas');
+    this.landCanvas.width = TEXTURE_WIDTH;
+    this.landCanvas.height = TEXTURE_WIDTH / 2;
+    this.landTexture = new THREE.CanvasTexture(this.landCanvas);
+    this.landTexture.colorSpace = THREE.SRGBColorSpace;
+    this.landTexture.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
+    this.paintLand();
+
+    this.globeMat = new THREE.ShaderMaterial({
+      uniforms: { map: { value: this.landTexture }, sunDir: { value: this.sunDir }, night: this.night },
+      vertexShader: GLOBE_VERTEX,
+      fragmentShader: GLOBE_FRAGMENT,
+    });
+    this.globeMesh = new THREE.Mesh(new THREE.SphereGeometry(1, 160, 80), this.globeMat);
+    this.scene.add(this.globeMesh);
+
+    this.atmosphereMat = new THREE.ShaderMaterial({
+      uniforms: {
+        glow: { value: toColor(colours.atmosphere) },
+        strength: { value: 0.5 },
+        inside: { value: 0 },
+        camUp: { value: new THREE.Vector3(0, 1, 0) },
+      },
+      vertexShader: ATMOSPHERE_VERTEX,
+      fragmentShader: ATMOSPHERE_FRAGMENT,
+      side: THREE.BackSide,
+      transparent: true,
+      depthWrite: false,
+    });
+    this.scene.add(new THREE.Mesh(new THREE.SphereGeometry(1.035, 96, 48), this.atmosphereMat));
+
+    const w = outlines.world;
+    const c = outlines.close;
+    this.addLines('graticule', 'all', graticule(15, 2), 1.0004);
+    this.addLines('coast', 'far', (w.coast ?? []).map((l) => decodeLine(l, w.quantum)), 1.0008);
+    this.addLines('border', 'far', (w.borders ?? []).map((l) => decodeLine(l, w.quantum)), 1.0007);
+    this.addLines('coast', 'near', coastFromLand(c.land ?? [], c.quantum), 1.0002);
+    this.addLines('border', 'near', (c.borders ?? []).map((l) => decodeLine(l, c.quantum)), 1.0002);
+    this.applyLineColours();
+
+    this.textures = {
+      circle: shapeTexture('circle'), square: shapeTexture('square'), diamond: shapeTexture('diamond'), ring: shapeTexture('ring'),
+      arrow: shapeTexture('arrow'), boat: shapeTexture('boat'), dot: shapeTexture('dot'),
+    };
+    this.selectRing = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.textures.ring, sizeAttenuation: false, depthTest: false, transparent: true }));
+    this.selectRing.visible = false;
+    this.selectRing.renderOrder = 3;
+    this.markerGroup.add(this.selectRing);
+    this.scene.add(this.markerGroup);
+
+    this.updateSun();
+    this.sunTimer = window.setInterval(() => { this.updateSun(); this.requestRender(); }, 60_000);
+
+    this.resize = new ResizeObserver(() => this.onResize());
+    this.resize.observe(host);
+    this.onResize();
+    this.listen(canvas);
+    this.applyCamera();
+  }
+
+  // --- public surface -------------------------------------------------------------
+
+  get cameraState(): ViewState {
+    return this.cam;
+  }
+
+  /** What a tile layer shares with the globe: the sun, the night and the clean style. */
+  get tileHost(): TileLayerHost {
+    return { sunDir: this.sunDir, night: this.night, landTexture: this.landTexture, requestRender: () => this.requestRender() };
+  }
+
+  /** Draws map tiles with this layer, or none. The renderer disposes of it. */
+  setTileLayer(layer: GlobeTileLayer | null): void {
+    if (this.tiles) {
+      this.scene.remove(this.tiles.object);
+      this.tiles.dispose();
+    }
+    this.tiles = layer;
+    this.tilesSeen = false;
+    if (layer) {
+      layer.setExaggeration(this.heights);
+      layer.setDark(this.isDark());
+      this.scene.add(layer.object);
+    }
+    this.applyCamera();
+  }
+
+  /** The HEIGHTS setting, for the terrain. Markers carry their own exaggerated heights. */
+  setHeights(k: number): void {
+    this.heights = k;
+    this.tiles?.setExaggeration(k);
+    this.requestRender();
+  }
+
+  /** Whether the mode is dark, judged by the sea token's lightness. */
+  private isDark(): boolean {
+    const s = this.colours.sea;
+    return 0.2126 * s.r + 0.7152 * s.g + 0.0722 * s.b < 0.5;
+  }
+
+  setColours(colours: GlobeColours): void {
+    this.colours = colours;
+    this.tiles?.setDark(this.isDark());
+    this.paintLand();
+    this.atmosphereMat.uniforms.glow.value = toColor(colours.atmosphere);
+    this.applyLineColours();
+    for (const m of this.markers) this.styleMarker(m);
+    this.styleSelection();
+    this.requestRender();
+  }
+
+  setItems(items: readonly GlobeItem[]): void {
+    for (const m of this.markers) {
+      this.markerGroup.remove(m.sprite);
+      (m.sprite.material as THREE.SpriteMaterial).dispose();
+      if (m.drop) {
+        this.markerGroup.remove(m.drop);
+        m.drop.geometry.dispose();
+        (m.drop.material as THREE.LineBasicMaterial).dispose();
+      }
+      if (m.shadow) {
+        this.markerGroup.remove(m.shadow);
+        (m.shadow.material as THREE.SpriteMaterial).dispose();
+      }
+      m.label.remove();
+    }
+    this.markers = items.map((item) => {
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.textures[shapeFor(item)], sizeAttenuation: false, depthTest: false, transparent: true }));
+      sprite.position.set(item.position.x, item.position.y, item.position.z);
+      sprite.renderOrder = 2;
+      this.markerGroup.add(sprite);
+      let drop: THREE.Line | null = null;
+      let shadow: THREE.Sprite | null = null;
+      if (item.stem) {
+        const [top, bottom] = item.stem;
+        const g = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(bottom.x, bottom.y, bottom.z),
+          new THREE.Vector3(top.x, top.y, top.z),
+        ]);
+        drop = new THREE.Line(g, new THREE.LineBasicMaterial({ transparent: true, opacity: 0.7 }));
+        this.markerGroup.add(drop);
+        shadow = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.textures.dot, sizeAttenuation: false, depthTest: false, transparent: true, opacity: 0.5 }));
+        shadow.position.set(bottom.x, bottom.y, bottom.z);
+        shadow.renderOrder = 1;
+        this.markerGroup.add(shadow);
+      }
+      let ahead: THREE.Vector3 | null = null;
+      if (item.heading !== null) {
+        const t = headingTangent(item.lat, item.lon, item.heading);
+        const step = 1e-3;
+        ahead = new THREE.Vector3(item.position.x + t.x * step, item.position.y + t.y * step, item.position.z + t.z * step);
+      }
+      const label = document.createElement('div');
+      label.className = 'hg-globe-label';
+      label.textContent = item.id;
+      this.labelLayer.appendChild(label);
+      const pos = new THREE.Vector3(item.position.x, item.position.y, item.position.z);
+      const m: Marker = { item, sprite, drop, shadow, ahead, label, pos, groundKm: 0 };
+      this.styleMarker(m);
+      return m;
+    });
+    if (this.hovered && !this.markers.some((m) => m.item.id === this.hovered)) this.setHovered(null);
+    this.standOnTerrain();
+    this.styleSelection();
+    this.requestRender();
+  }
+
+  /** Extra label text per track, such as " · 78°". */
+  setLabelText(text: (id: string) => string): void {
+    for (const m of this.markers) m.label.textContent = text(m.item.id);
+  }
+
+  setSelected(id: string | null): void {
+    this.selected = id;
+    this.styleSelection();
+    this.requestRender();
+  }
+
+  /** The element the hover tooltip lives in; positioned beside the hovered track. */
+  setTooltipAnchor(el: HTMLElement | null): void {
+    this.tooltip = el;
+    this.requestRender();
+  }
+
+  /** The lowest the camera may go now, from the highest marker (`cameraFloorKm`). */
+  setCameraFloor(km: number): void {
+    this.floorKm = Math.max(MIN_ALTITUDE_KM, km);
+    if (this.cam.altKm < this.floorKm) {
+      this.cam = this.zoomed(this.cam, 1);
+      this.applyCamera();
+    }
+  }
+
+  flyTo(target: ViewState, reducedMotion: boolean, retry = false): void {
+    const floor = this.currentFloor();
+    this.wanted = !retry && !this.tilesShown && this.tiles && target.altKm < floor ? { target, reducedMotion } : null;
+    const to = normaliseView({ ...target, altKm: Math.max(target.altKm, floor) }, this.minKm);
+    const ms = viewFlyDurationMs(this.cam, to, reducedMotion);
+    if (ms === 0) {
+      this.flight = null;
+      this.cam = to;
+      this.applyCamera();
+      this.settled();
+      return;
+    }
+    this.flight = { from: this.cam, to, start: performance.now(), ms };
+    this.requestRender();
+  }
+
+  /** Keyboard pan and zoom, for the focusable globe surface. */
+  nudge(dxPx: number, dyPx: number, zoom = 1): void {
+    this.userMove();
+    this.flight = null;
+    this.cam = this.zoomed(panView(this.cam, dxPx, dyPx, this.height, CAMERA_FOV_DEG, this.minKm), zoom);
+    this.applyCamera();
+    this.settleSoon();
+  }
+
+  /** Zoom about the point in view, stopping at the floor, so the point stays put there too. */
+  private zoomed(v: ViewState, factor: number): ViewState {
+    const want = Math.max(v.altKm * factor, this.currentFloor());
+    return zoomView(v, want / v.altKm, this.minKm, this.pivotGround(v));
+  }
+
+  /** Tilt by `dDeg` and turn by `turnDeg` about the point in view (buttons and keys). */
+  orbit(dDeg: number, turnDeg = 0): void {
+    this.userMove();
+    this.flight = null;
+    const g = this.pivotGround(this.cam);
+    this.cam = rotateView(tiltView(this.cam, dDeg, this.minKm, g), turnDeg, this.minKm, g);
+    this.applyCamera();
+    this.settleSoon();
+  }
+
+  /** Back to north up and straight down, over the point in view. */
+  resetOrientation(reducedMotion: boolean): void {
+    this.userMove();
+    const g = this.pivotGround(this.cam);
+    const flat = rotateView(tiltView(this.cam, -90, this.minKm, g), -this.cam.heading, this.minKm, g);
+    this.flyTo(flat, reducedMotion);
+  }
+
+  dispose(): void {
+    this.disposed = true;
+    cancelAnimationFrame(this.frame);
+    window.clearInterval(this.sunTimer);
+    window.clearTimeout(this.settleTimer);
+    this.resize.disconnect();
+    for (const u of this.unlisten) u();
+    for (const m of this.markers) m.label.remove();
+    this.scene.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (mesh.geometry) mesh.geometry.dispose();
+      const mat = mesh.material as THREE.Material | THREE.Material[] | undefined;
+      if (Array.isArray(mat)) mat.forEach((x) => x.dispose());
+      else mat?.dispose();
+    });
+    for (const t of Object.values(this.textures)) t.dispose();
+    this.tiles?.dispose();
+    this.tiles = null;
+    this.landTexture.dispose();
+    this.renderer.dispose();
+    this.renderer.forceContextLoss();
+    this.renderer.domElement.remove();
+  }
+
+  // --- drawing --------------------------------------------------------------------
+
+  private paintLand(): void {
+    const g = this.landCanvas.getContext('2d')!;
+    const W = this.landCanvas.width;
+    const H = this.landCanvas.height;
+    g.fillStyle = cssRgba({ ...this.colours.sea, a: 1 });
+    g.fillRect(0, 0, W, H);
+    g.fillStyle = cssRgba({ ...this.colours.land, a: 1 });
+    const c = this.outlines.close;
+    for (const poly of c.land ?? []) {
+      g.beginPath();
+      for (const ring of poly) {
+        const p = decodeLine(ring, c.quantum);
+        for (let i = 0; i < p.length; i += 2) {
+          const x = ((p[i] + 180) / 360) * W;
+          const y = ((90 - p[i + 1]) / 180) * H;
+          if (i === 0) g.moveTo(x, y);
+          else g.lineTo(x, y);
+        }
+        g.closePath();
+      }
+      g.fill('evenodd');
+    }
+    this.landTexture.needsUpdate = true;
+  }
+
+  private addLines(kind: 'graticule' | 'coast' | 'border', detail: 'far' | 'near' | 'all', lines: Float64Array[], radius: number): void {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(lineSegments(lines, radius, 1), 3));
+    const mat = new THREE.LineBasicMaterial({ transparent: true });
+    const obj = new THREE.LineSegments(geo, mat);
+    obj.renderOrder = 1;
+    this.scene.add(obj);
+    this.lines.push({ mat, obj, kind, detail });
+  }
+
+  private applyLineColours(): void {
+    for (const l of this.lines) {
+      const c = l.kind === 'graticule' ? this.colours.graticule : l.kind === 'coast' ? this.colours.coast : this.colours.border;
+      l.mat.color = toColor(c);
+      // The graticule token is a faint overlay colour; keep it faint on the globe too.
+      l.mat.opacity = l.kind === 'graticule' ? Math.max(0.12, Math.min(0.35, c.a * 3)) : l.kind === 'coast' ? 0.95 : 0.7;
+    }
+  }
+
+  private styleMarker(m: Marker): void {
+    const c = toColor(m.item.tone === 'warn' ? this.colours.warn : this.colours.accent);
+    (m.sprite.material as THREE.SpriteMaterial).color = c;
+    if (m.drop) (m.drop.material as THREE.LineBasicMaterial).color = c;
+    if (m.shadow) (m.shadow.material as THREE.SpriteMaterial).color = c;
+    m.label.dataset.tone = m.item.tone;
+  }
+
+  private styleSelection(): void {
+    const m = this.markers.find((x) => x.item.id === this.selected);
+    this.selectRing.visible = Boolean(m);
+    if (m) {
+      this.selectRing.position.copy(m.pos);
+      (this.selectRing.material as THREE.SpriteMaterial).color = toColor(m.item.tone === 'warn' ? this.colours.warn : this.colours.accent);
+    }
+    for (const x of this.markers) x.label.dataset.selected = String(x.item.id === this.selected);
+  }
+
+  private updateSun(): void {
+    const s = subsolarPoint(new Date());
+    const p = toXyz(s.lat, s.lon);
+    this.sunDir.set(p.x, p.y, p.z).normalize();
+  }
+
+  private onResize(): void {
+    this.width = Math.max(1, this.host.clientWidth);
+    this.height = Math.max(1, this.host.clientHeight);
+    this.renderer.setSize(this.width, this.height, false);
+    this.camera3.aspect = this.width / this.height;
+    this.camera3.updateProjectionMatrix();
+    this.requestRender();
+  }
+
+  /**
+   * Tiles are drawn, or online and between two sets of them (a style switch rebuilds
+   * them all): the close-up stays allowed, so the camera is not thrown up to the 50 km
+   * floor and left there while the new tiles arrive.
+   */
+  private get closeUpAllowed(): boolean {
+    return this.tilesShown || (this.tilesSeen && this.tiles?.online === true);
+  }
+
+  /** The absolute minimum altitude: the close-up while tiles are drawn, else 50 km. */
+  private get minKm(): number {
+    return this.closeUpAllowed ? CLOSE_UP_ALTITUDE_KM : MIN_ALTITUDE_KM;
+  }
+
+  /** Distance from the camera to the nearest marker the globe does not hide, in km. */
+  private nearestMarkerKm(): number {
+    const cam = toXyz(this.cam.lat, this.cam.lon, this.cam.altKm);
+    let best = Infinity;
+    for (const m of this.markers) {
+      if (isOccluded(cam, m.pos)) continue;
+      best = Math.min(best, Math.hypot(m.pos.x - cam.x, m.pos.y - cam.y, m.pos.z - cam.z));
+    }
+    return best * EARTH_RADIUS_KM;
+  }
+
+  /** Tilt and turn about the point in view, on the terrain there. */
+  private orbited(dTilt: number, dTurn: number): ViewState {
+    const g = this.pivotGround(this.cam);
+    return rotateView(tiltView(this.cam, dTilt, this.minKm, g), dTurn, this.minKm, g);
+  }
+
+  /**
+   * The terrain's height at the point in the middle of the view, when tiles are drawn:
+   * tilt, turn and zoom pivot on the ground there, not on sea level under it.
+   */
+  private pivotGround(v: ViewState): number {
+    const t = this.tiles;
+    if (!this.closeUpAllowed || !t) return 0;
+    let g = 0;
+    // Twice: the ray meets the ground nearer than sea level, where the ground differs.
+    for (let i = 0; i < 2; i++) {
+      const at = lookTarget(v, g);
+      if (!at) return g;
+      g = t.groundKm(at.lat, at.lon) ?? g;
+    }
+    return g;
+  }
+
+  /** The ground under the camera, when tiles are drawn and it is known; else 0. */
+  private groundUnderCamera(): number {
+    return this.closeUpAllowed ? (this.tiles?.groundKm(this.cam.lat, this.cam.lon) ?? 0) : 0;
+  }
+
+  /** The lowest the camera may go now: over terrain with tiles, else the 1a floor. */
+  private currentFloor(): number {
+    return this.closeUpAllowed ? terrainFloorKm(this.groundUnderCamera()) : this.floorKm;
+  }
+
+  private applyCamera(): void {
+    // The floor is for the point under the camera; the tilt is then held to its limit there.
+    const floor = this.currentFloor();
+    if (this.cam.altKm < floor) this.cam = { ...this.cam, altKm: floor };
+    this.cam = normaliseView(this.cam, this.minKm);
+    // Over terrain the look direction may not drop below the hills: one in the way
+    // tips the view down to look over it.
+    const t = this.tiles;
+    if (this.closeUpAllowed && t && this.cam.pitch > 0) {
+      const limit = sightPitchLimitDeg(this.cam, (lat, lon) => t.groundKm(lat, lon) ?? 0);
+      if (limit < this.cam.pitch) this.cam = { ...this.cam, pitch: limit };
+    }
+    const clearance = this.closeUpAllowed ? this.cam.altKm - this.groundUnderCamera() : Infinity;
+    const { near, far } = clipPlanes(this.cam.altKm, clearance, this.nearestMarkerKm());
+    const f = viewFrame(this.cam);
+    this.camera3.position.set(f.position.x, f.position.y, f.position.z);
+    this.camera3.up.set(f.up.x, f.up.y, f.up.z);
+    this.camera3.lookAt(f.position.x + f.forward.x, f.position.y + f.forward.y, f.position.z + f.forward.z);
+    this.camera3.near = near;
+    this.camera3.far = far;
+    this.camera3.updateProjectionMatrix();
+    // Labels and picking project with this camera before the next render updates it.
+    this.camera3.updateMatrixWorld();
+    const closeIn = this.cam.altKm < DETAIL_BELOW_KM;
+    const linesOff = this.tilesShown && this.cam.altKm < LINES_HIDDEN_BELOW_KM;
+    for (const l of this.lines) l.obj.visible = !linesOff && (l.detail === 'all' || (l.detail === 'near') === closeIn);
+    // Outside the atmosphere shell it is a rim round the globe; inside, a sky above the
+    // horizon, which a tilted camera sees.
+    const inside = this.cam.altKm < ATMOSPHERE_KM;
+    const u = this.atmosphereMat.uniforms;
+    u.inside.value = inside ? 1 : 0;
+    u.strength.value = inside ? 0.42 : Math.min(0.55, Math.max(0.2, (this.cam.altKm - ATMOSPHERE_KM) / 600));
+    (u.camUp.value as THREE.Vector3).set(f.position.x, f.position.y, f.position.z).normalize();
+    this.cb.onCamera(this.cam, false);
+    this.requestRender();
+  }
+
+  private requestRender(): void {
+    if (this.frame || this.disposed) return;
+    this.frame = requestAnimationFrame((t) => {
+      this.frame = 0;
+      this.tick(t);
+    });
+  }
+
+  private tick(now: number): void {
+    if (this.flight) {
+      const f = this.flight;
+      const t = Math.min(1, (now - f.start) / f.ms);
+      this.cam = interpolateView(f.from, f.to, t, this.minKm);
+      if (t >= 1) {
+        this.flight = null;
+        this.applyCamera();
+        this.settled();
+      } else {
+        this.applyCamera();
+      }
+    }
+    this.updateTiles();
+    this.placeOverlays();
+    this.renderer.render(this.scene, this.camera3);
+  }
+
+  /** Lets the tile layer pick and fetch for this frame, then follows what it shows. */
+  private updateTiles(): void {
+    const t = this.tiles;
+    if (!t) return;
+    t.update(this.cam, this.height, this.width / this.height);
+    const shown = t.active;
+    if (shown) this.tilesSeen = true;
+    if (shown !== this.tilesShown) {
+      this.tilesShown = shown;
+      this.globeMesh.scale.setScalar(shown ? SPHERE_UNDER_TILES : 1);
+      this.applyCamera();
+      this.cb.onCamera(this.cam, true);
+      // A close-up held at the floor until now: on down to it, from where the camera is.
+      const w = this.wanted;
+      this.wanted = null;
+      if (shown && w) this.flyTo(w.target, w.reducedMotion, true);
+    } else if (shown && this.cam.altKm < this.currentFloor()) {
+      // Terrain arrived under the camera: stay above it.
+      this.applyCamera();
+      this.cb.onCamera(this.cam, true);
+    }
+    this.standOnTerrain();
+  }
+
+  /** Puts surface tracks on the terrain, and back on the sphere when tiles go. */
+  private standOnTerrain(): void {
+    for (const m of this.markers) {
+      const ground = this.tilesShown ? (this.tiles?.groundKm(m.item.lat, m.item.lon) ?? 0) : 0;
+      if (Math.abs(ground - m.groundKm) < 1e-3) continue;
+      m.groundKm = ground;
+      const own = m.item.altitudeKm * this.heights;
+      const p = own > ground ? m.item.position : toXyz(m.item.lat, m.item.lon, ground);
+      m.pos.set(p.x, p.y, p.z);
+      m.sprite.position.copy(m.pos);
+      if (m.shadow) {
+        const g = toXyz(m.item.lat, m.item.lon, ground);
+        m.shadow.position.set(g.x, g.y, g.z);
+      }
+      if (m.ahead && m.item.heading !== null) {
+        const t = headingTangent(m.item.lat, m.item.lon, m.item.heading);
+        m.ahead.set(m.pos.x + t.x * 1e-3, m.pos.y + t.y * 1e-3, m.pos.z + t.z * 1e-3);
+      }
+      if (m.drop) {
+        const g = toXyz(m.item.lat, m.item.lon, ground);
+        const attr = m.drop.geometry.getAttribute('position') as THREE.BufferAttribute;
+        attr.setXYZ(0, g.x, g.y, g.z);
+        attr.setXYZ(1, m.pos.x, m.pos.y, m.pos.z);
+        attr.needsUpdate = true;
+        m.drop.geometry.computeBoundingSphere();
+      }
+    }
+    this.styleSelection();
+  }
+
+  /** Marker size, visibility and the HTML labels and tooltip, for this frame. */
+  private placeOverlays(): void {
+    const scale = (2 * MARKER_PX * Math.tan((CAMERA_FOV_DEG * Math.PI) / 360)) / this.height;
+    const camPos = this.camera3.position;
+    const v = new THREE.Vector3();
+    const a = new THREE.Vector3();
+    for (const m of this.markers) {
+      const hidden = isOccluded(camPos, m.pos);
+      const big = m.item.id === this.hovered ? 1.35 : 1;
+      m.sprite.scale.set(scale * big, scale * big, 1);
+      m.sprite.visible = !hidden;
+      if (m.drop) m.drop.visible = !hidden;
+      if (m.shadow) {
+        m.shadow.scale.set(scale * 0.55, scale * 0.55, 1);
+        m.shadow.visible = !isOccluded(camPos, m.shadow.position);
+      }
+      v.copy(m.pos).project(this.camera3);
+      const x = ((v.x + 1) / 2) * this.width;
+      const y = ((1 - v.y) / 2) * this.height;
+      if (m.ahead) {
+        // Turn the marker to its heading as the heading looks on screen at this tilt.
+        a.copy(m.ahead).project(this.camera3);
+        const sx = (a.x - v.x) * this.width, sy = (a.y - v.y) * this.height;
+        if (Math.hypot(sx, sy) > 1e-9) (m.sprite.material as THREE.SpriteMaterial).rotation = Math.atan2(sy, sx) - Math.PI / 2;
+      }
+      const onScreen = !hidden && v.z > -1 && v.z < 1 && x > -40 && x < this.width + 40 && y > -40 && y < this.height + 40;
+      const named = this.cam.altKm < LABELS_BELOW_KM || m.item.id === this.selected || m.item.id === this.hovered;
+      m.label.style.display = onScreen && named ? '' : 'none';
+      m.label.style.transform = `translate(${Math.round(x)}px, ${Math.round(y + MARKER_PX)}px) translateX(-50%)`;
+      if (this.tooltip && m.item.id === this.hovered) {
+        this.tooltip.style.display = onScreen ? '' : 'none';
+        const below = y < 150;
+        this.tooltip.style.left = `${Math.round(Math.min(this.width - 110, Math.max(110, x)))}px`;
+        this.tooltip.style.top = `${Math.round(y)}px`;
+        this.tooltip.style.transform = below ? 'translate(-50%, 22px)' : 'translate(-50%, calc(-100% - 18px))';
+      }
+    }
+    this.selectRing.scale.set(scale * 2, scale * 2, 1);
+    const sel = this.markers.find((m) => m.item.id === this.selected);
+    this.selectRing.visible = Boolean(sel && sel.sprite.visible);
+  }
+
+  // --- input ----------------------------------------------------------------------
+
+  private listen(canvas: HTMLCanvasElement): void {
+    const on = <K extends keyof HTMLElementEventMap>(type: K, fn: (e: HTMLElementEventMap[K]) => void, opts?: AddEventListenerOptions) => {
+      canvas.addEventListener(type, fn as EventListener, opts);
+      this.unlisten.push(() => canvas.removeEventListener(type, fn as EventListener, opts));
+    };
+    on('pointerdown', (e) => {
+      canvas.setPointerCapture(e.pointerId);
+      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      this.flight = null;
+      this.wanted = null;
+      if (this.pointers.size === 1) {
+        const orbit = e.button === 2 || e.ctrlKey || e.altKey;
+        this.drag = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: false, mode: orbit ? 'orbit' : 'pan' };
+      } else {
+        this.drag = null;
+        this.pinch = this.gesture();
+      }
+    });
+    on('pointermove', (e) => {
+      const prev = this.pointers.get(e.pointerId);
+      if (!prev) {
+        this.pick(e);
+        return;
+      }
+      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (this.pointers.size >= 2 && this.pinch) {
+        this.userMove();
+        const g = this.gesture();
+        if (g.d > 0 && this.pinch.d > 0) this.cam = this.zoomed(this.cam, this.pinch.d / g.d);
+        // Both fingers up the screen tilt towards the horizon; twisting them turns.
+        const twist = Math.atan2(Math.sin(g.a - this.pinch.a), Math.cos(g.a - this.pinch.a)) * (180 / Math.PI);
+        const ground = this.pivotGround(this.cam);
+        this.cam = rotateView(tiltView(this.cam, (this.pinch.y - g.y) * TILT_PER_PX, this.minKm, ground), -twist, this.minKm, ground);
+        this.pinch = g;
+        this.applyCamera();
+        return;
+      }
+      if (this.drag && this.drag.id === e.pointerId) {
+        const dx = e.clientX - prev.x;
+        const dy = e.clientY - prev.y;
+        if (!this.drag.moved && Math.abs(e.clientX - this.drag.x) + Math.abs(e.clientY - this.drag.y) > 4) {
+          this.drag.moved = true;
+          this.userMove();
+        }
+        if (this.drag.moved) {
+          this.cam = this.drag.mode === 'orbit'
+            ? this.orbited(-dy * TILT_PER_PX, -dx * TURN_PER_PX)
+            : panView(this.cam, dx, dy, this.height, CAMERA_FOV_DEG, this.minKm);
+          this.applyCamera();
+        }
+      }
+    });
+    const end = (e: PointerEvent) => {
+      const wasDrag = this.drag;
+      const wasPinch = this.pinch !== null;
+      this.pointers.delete(e.pointerId);
+      if (this.pointers.size < 2) this.pinch = null;
+      if (wasPinch && this.pinch === null) {
+        // The pinch is over: settle, and let a finger still down carry on orbiting.
+        const rest = [...this.pointers.entries()][0];
+        this.drag = rest ? { id: rest[0], x: rest[1].x, y: rest[1].y, moved: true, mode: 'pan' } : null;
+        this.settled();
+        return;
+      }
+      if (wasDrag && wasDrag.id === e.pointerId) {
+        this.drag = null;
+        if (!wasDrag.moved && e.type === 'pointerup') {
+          const id = this.pickAt(e);
+          if (id) this.cb.onSelect(id);
+        } else {
+          this.settled();
+        }
+      }
+    };
+    on('pointerup', end);
+    on('pointercancel', end);
+    on('pointerleave', () => { if (!this.drag) this.setHovered(null); });
+    // The right button orbits, so the page's menu stays out of the way.
+    on('contextmenu', (e) => e.preventDefault());
+    on('wheel', (e) => {
+      e.preventDefault();
+      this.userMove();
+      this.flight = null;
+      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? this.height : 1;
+      this.cam = this.zoomed(this.cam, Math.exp(e.deltaY * unit * 0.0015));
+      this.applyCamera();
+      this.settleSoon();
+    }, { passive: false });
+    const lost = (e: Event) => {
+      e.preventDefault();
+      this.cb.onContextLost();
+    };
+    canvas.addEventListener('webglcontextlost', lost);
+    this.unlisten.push(() => canvas.removeEventListener('webglcontextlost', lost));
+  }
+
+  /** The two fingers' spread, angle and mean height. */
+  private gesture(): { d: number; a: number; y: number } {
+    const [a, b] = [...this.pointers.values()];
+    if (!a || !b) return { d: 0, a: 0, y: 0 };
+    return { d: Math.hypot(a.x - b.x, a.y - b.y), a: Math.atan2(b.y - a.y, b.x - a.x), y: (a.y + b.y) / 2 };
+  }
+
+  private pickAt(e: { clientX: number; clientY: number }): string | null {
+    const r = this.host.getBoundingClientRect();
+    const px = e.clientX - r.left;
+    const py = e.clientY - r.top;
+    const v = new THREE.Vector3();
+    let best: string | null = null;
+    let bestD = PICK_PX;
+    for (const m of this.markers) {
+      if (isOccluded(this.camera3.position, m.pos)) continue;
+      v.copy(m.pos).project(this.camera3);
+      if (v.z <= -1 || v.z >= 1) continue;
+      const d = Math.hypot(((v.x + 1) / 2) * this.width - px, ((1 - v.y) / 2) * this.height - py);
+      if (d <= bestD) {
+        bestD = d;
+        best = m.item.id;
+      }
+    }
+    return best;
+  }
+
+  private pick(e: PointerEvent): void {
+    const id = this.pickAt(e);
+    this.renderer.domElement.style.cursor = id ? 'pointer' : 'grab';
+    this.setHovered(id);
+  }
+
+  /** The hovered track; also set from the track list, so keyboard focus shows its tooltip. */
+  setHovered(id: string | null): void {
+    if (id === this.hovered) return;
+    this.hovered = id;
+    this.cb.onHover(id);
+    this.requestRender();
+  }
+
+  private settleSoon(): void {
+    window.clearTimeout(this.settleTimer);
+    this.settleTimer = window.setTimeout(() => this.settled(), 250);
+  }
+
+  /** The user's own move: drops a held close-up and tells the view (tile pause). */
+  private userMove(): void {
+    this.wanted = null;
+    this.cb.onUserMove?.();
+  }
+
+  private settled(): void {
+    window.clearTimeout(this.settleTimer);
+    this.cb.onCamera(this.cam, true);
+  }
+}
+

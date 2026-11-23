@@ -5,6 +5,7 @@ import { initMode } from '@midgard/design-system';
 import { AuthGate, DemonstrationBanner } from '@midgard/ui-shared';
 import { login, whoami, type HeimdallGateway, type Session } from '@midgard/sdk';
 import { router } from './app/routes';
+import { DATA_MODE } from './dataMode';
 
 import '@midgard/design-system/tokens.css';
 
@@ -17,8 +18,8 @@ initMode();
  *
  * Until then it runs in mock mode, behind `AuthGate mode="mock"` and the demonstration
  * banner, with `HeimdallMock` loaded by dynamic import from `@midgard/sdk/mock`; the
- * switch to http is the `mode` line below. [AC-25.2] [VLD-ANB-MIDGARD-0086] */
-const mode: 'http' | 'mock' = 'mock';
+ * switch to http is the `DATA_MODE` line in ./dataMode.ts. [AC-25.2] [VLD-ANB-MIDGARD-0086] */
+const mode = DATA_MODE;
 const baseUrl = import.meta.env.VITE_GATEWAY_URL ?? 'http://127.0.0.1:7710/api/v1';
 
 /** No HTTP HeimdallGateway exists yet, so http mode has no client to build. */

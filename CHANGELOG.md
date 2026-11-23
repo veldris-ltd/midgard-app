@@ -10,6 +10,22 @@ CONTRIBUTING.md for the version policy.
 ## [Unreleased]
 
 ### Added
+- **Heimdall shows its operating picture on a 3D globe and a map.** The console gains a
+  2D / MAP / 3D switch: a three.js globe with terrain, satellite imagery and vector
+  map tiles, and a flat MAP mode. The tile source is fixed at build time by
+  `VITE_HEIMDALL_TILE_SOURCE` and fails closed: `none` (the default, and the build
+  the release signs) has no tile code or host; `mirror` fetches only from one
+  `https://` origin inside the enclosure (`VITE_HEIMDALL_TILE_MIRROR`); `public` uses
+  Mapzen Terrain Tiles, Sentinel-2 cloudless 2016 (EOX, CC BY 4.0) and VersaTiles
+  OSM tiles, as a demo outside the enclosure, and is refused unless the console runs
+  on its mock. Tiles are decoded in a same-origin worker with size limits. CI's
+  `js-build` job builds every mode and checks each `dist/`. See
+  `products/heimdall/ui/README.md`. [FR-H-1] [NFR-PRV-1]
+- **New dependencies of the Heimdall console:** `three` 0.187.0 (MIT),
+  `@mapbox/vector-tile` 3.0.0 (BSD-3-Clause), `pbf` 5.1.2 (BSD-3-Clause), and the
+  development types `@types/three` 0.187.0 (MIT).
+- **ISC is an allowed licence** (`supply-chain/licences.toml`), for
+  `@mapbox/point-geometry`, which `@mapbox/vector-tile` depends on.
 - **Midgard installs from its air-gap bundle alone.** `run.sh release-bundle` now packs
   everything an install needs: the release's service images with the signed
   `images.lock`, the signed chart values and rendering, the chart (`helm package`), a

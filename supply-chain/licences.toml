@@ -20,6 +20,7 @@
 "BSD-3-Clause" = "Permissive; the non-endorsement clause is satisfied by not using contributors' names in promotion."
 "BSD-1-Clause" = "Permissive, weaker than BSD-3. Appears only as an alternative in a dual/triple licence."
 "Unicode-3.0" = "The Unicode data licence, required by unicode-ident. Permissive, data-only."
+"ISC" = "Permissive, functionally MIT. Required by @mapbox/point-geometry, which the Heimdall console's vector-tile decoding (@mapbox/vector-tile) depends on; added with the owner's sign-off for the map tiles (22 Nov 2026)."
 
 [modifiers]
 # Exception modifiers accepted to the right of `WITH`. These are not licences:

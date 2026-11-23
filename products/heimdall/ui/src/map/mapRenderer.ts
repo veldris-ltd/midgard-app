@@ -1,0 +1,596 @@
+/* The 2D geographic map, drawn on a canvas. [FR-H-1] [AC-H-1]
+ *
+ * Under everything, the bundled Natural Earth land (the console's own files), so the
+ * map still shows coasts with no network. Over it, VersaTiles vector tiles
+ * (OpenStreetMap data, Shortbread schema) for the area in view: water, green and
+ * built-up land, buildings, roads, rail, ferries, boundaries and place names, in the
+ * design tokens' colours. While a tile loads, its nearest loaded ancestor stands in.
+ * Track markers are the view's own buttons; this places them each frame.
+ *
+ * Vector tiles are decoded in the decode worker (decodePool.ts), within its limits; at
+ * most `MAX_REQUESTED_TILES` are asked for at once, nearest the centre first, and the
+ * tiles in use this frame are kept in the cache, so a very large screen does not keep
+ * refetching. In the `public` build the loader is paused after a camera move driven
+ * by the tracks (`setPaused`, src/tilePause.ts).
+ *
+ * Reached only in a build with map tiles, like every module that fetches tiles.
+ * [NFR-PRV-1] */
+import { type Rgba, cssRgba, parseCssColour } from '../globe/colours.ts';
+import { type OutlineFile, decodeLine } from '../globe/outlines.ts';
+import { TILES } from '../tiles/active.ts';
+import { type DecodePool, browserDecodePool } from '../tiles/decodePool.ts';
+import { type LoaderState, TileLoader } from '../tiles/loader.ts';
+import { lonToTileX, latToTileY } from '../tiles/tileMath.ts';
+import { ON_SCREEN_BYTES, planView } from './onScreen.ts';
+import { type FillClass, type LineClass, type MapTileData, FILL_CLASSES, LINE_CLASSES, labelCandidates } from './features.ts';
+import { type MapCamera, clampMapCamera, nearestCopyX, panMap, project, visibleTiles, worldWidthPx, zoomMapAt } from './mapCamera.ts';
+
+const VECTOR_MAX_ZOOM = TILES.sources.vector.maxZoom;
+/** The most tiles requested at once; beyond them, ancestors stand in. */
+export const MAX_REQUESTED_TILES = 96;
+/** Decoded tiles kept: above the requested tiles and their stand-ins. */
+const CACHE_ENTRIES = 192;
+/** And at most this many bytes of them besides those on screen, which have their own
+ *  cap (`ON_SCREEN_BYTES`, onScreen.ts). */
+export const CACHE_BYTES = 64 * 1024 * 1024;
+/** How many zooms up a loading tile looks for a stand-in. */
+const ANCESTOR_LEVELS = 5;
+
+export interface MapCallbacks {
+  /** The camera moved; `settled` once a drag, zoom or flight has ended. */
+  onCamera(c: MapCamera, settled: boolean): void;
+  /** The vector tiles' network went away or came back. */
+  onState(s: LoaderState): void;
+  /** The user moved the map: a drag, a zoom or a key. [NFR-PRV-1] */
+  onUserMove?(): void;
+}
+
+interface MapColours {
+  sea: string;
+  land: string;
+  green: string;
+  built: string;
+  bare: string;
+  building: string;
+  coast: string;
+  road: string;
+  roadMajor: string;
+  roadCasing: string;
+  rail: string;
+  boundary: string;
+  label: string;
+  halo: string;
+  font: string;
+}
+
+const mix = (a: Rgba, b: Rgba, t: number): Rgba => ({ r: a.r + (b.r - a.r) * t, g: a.g + (b.g - a.g) * t, b: a.b + (b.b - a.b) * t, a: 1 });
+
+/** Reads the map's colours from the design tokens, as the browser computes them. */
+function readColours(scope: HTMLElement): MapColours {
+  const probe = document.createElement('span');
+  probe.style.display = 'none';
+  scope.appendChild(probe);
+  const read = (token: string, fallback: Rgba): Rgba => {
+    probe.style.color = `var(${token})`;
+    return parseCssColour(getComputedStyle(probe).color) ?? fallback;
+  };
+  try {
+    const sea = read('--bg-sunken', { r: 0.03, g: 0.035, b: 0.04, a: 1 });
+    const land = read('--surface-raised', { r: 0.16, g: 0.17, b: 0.19, a: 1 });
+    const strong = read('--border-strong', { r: 0.3, g: 0.32, b: 0.35, a: 1 });
+    const border = read('--border', { r: 0.24, g: 0.25, b: 0.28, a: 1 });
+    const muted = read('--text-muted', { r: 0.57, g: 0.6, b: 0.64, a: 1 });
+    const faint = read('--text-faint', { r: 0.4, g: 0.42, b: 0.45, a: 1 });
+    const page = read('--bg-page', sea);
+    const dark = 0.2126 * sea.r + 0.7152 * sea.g + 0.0722 * sea.b < 0.5;
+    const green = { r: 0.24, g: 0.55, b: 0.3, a: 1 };
+    const water = mix(sea, { r: 0.2, g: 0.4, b: 0.6, a: 1 }, dark ? 0.12 : 0.18);
+    return {
+      sea: cssRgba(water),
+      land: cssRgba({ ...land, a: 1 }),
+      green: cssRgba(mix(land, green, dark ? 0.14 : 0.2)),
+      built: cssRgba(mix(land, faint, 0.12)),
+      bare: cssRgba(mix(land, muted, 0.08)),
+      building: cssRgba(mix(land, border, 0.6)),
+      coast: cssRgba({ ...strong, a: 1 }),
+      road: cssRgba(mix(border, muted, 0.25)),
+      roadMajor: cssRgba(mix(strong, muted, 0.45)),
+      roadCasing: cssRgba({ ...land, a: 1 }),
+      rail: cssRgba(mix(border, faint, 0.5)),
+      boundary: cssRgba(mix(strong, muted, 0.3)),
+      label: cssRgba({ ...muted, a: 1 }),
+      halo: cssRgba({ ...page, a: 0.85 }),
+      font: getComputedStyle(scope).getPropertyValue('--font-mono').trim() || 'monospace',
+    };
+  } finally {
+    probe.remove();
+  }
+}
+
+const LINE_STYLE: Record<LineClass, { width: number; colour: keyof MapColours; dash?: number[] }> = {
+  water: { width: 0.9, colour: 'sea' },
+  region: { width: 0.8, colour: 'boundary', dash: [4, 3] },
+  country: { width: 1.3, colour: 'boundary', dash: [7, 3, 2, 3] },
+  ferry: { width: 0.8, colour: 'boundary', dash: [3, 4] },
+  rail: { width: 0.9, colour: 'rail', dash: [5, 3] },
+  local: { width: 0.7, colour: 'road' },
+  minor: { width: 1.0, colour: 'road' },
+  major: { width: 1.6, colour: 'roadMajor' },
+  motorway: { width: 2.2, colour: 'roadMajor' },
+};
+
+const FILL_COLOUR: Record<FillClass, keyof MapColours> = {
+  green: 'green',
+  built: 'built',
+  bare: 'bare',
+  water: 'sea',
+  building: 'building',
+};
+
+/** Canvas paths for a decoded tile, built once per tile, in tile units. */
+const PATHS = new WeakMap<MapTileData, Map<string, Path2D>>();
+
+function pathsFor(d: MapTileData): Map<string, Path2D> {
+  let m = PATHS.get(d);
+  if (m) return m;
+  m = new Map();
+  for (const c of FILL_CLASSES) {
+    if (!d.fills[c].length) continue;
+    const p = new Path2D();
+    for (const poly of d.fills[c]) {
+      for (const ring of poly) {
+        p.moveTo(ring[0], ring[1]);
+        for (let i = 2; i < ring.length; i += 2) p.lineTo(ring[i], ring[i + 1]);
+        p.closePath();
+      }
+    }
+    m.set(`fill:${c}`, p);
+  }
+  for (const c of LINE_CLASSES) {
+    if (!d.lines[c].length) continue;
+    const p = new Path2D();
+    for (const l of d.lines[c]) {
+      p.moveTo(l[0], l[1]);
+      for (let i = 2; i < l.length; i += 2) p.lineTo(l[i], l[i + 1]);
+    }
+    m.set(`line:${c}`, p);
+  }
+  PATHS.set(d, m);
+  return m;
+}
+
+export class MapRenderer {
+  private readonly canvas: HTMLCanvasElement;
+  private readonly ctx: CanvasRenderingContext2D;
+  private readonly loader: TileLoader;
+  private readonly pool: DecodePool;
+  /** The tiles drawn or wanted this frame: never evicted from the cache. */
+  private inUse = new Set<string>();
+  private readonly resize: ResizeObserver;
+  private readonly unlisten: (() => void)[] = [];
+  private colours: MapColours;
+  private landPath: Path2D | null = null;
+  private cam: MapCamera = { lat: 57, lon: -2, zoom: 6 };
+  private width = 1;
+  private height = 1;
+  private dpr = 1;
+  private frame = 0;
+  private flight: { from: MapCamera; to: MapCamera; start: number; ms: number } | null = null;
+  private readonly pointers = new Map<number, { x: number; y: number }>();
+  private pinch: number | null = null;
+  private settleTimer = 0;
+  private lastState: LoaderState = 'online';
+  private tooltip: HTMLElement | null = null;
+  private disposed = false;
+
+  private readonly host: HTMLElement;
+  private readonly markerLayer: HTMLElement;
+  private readonly cb: MapCallbacks;
+
+  constructor(host: HTMLElement, markerLayer: HTMLElement, land: OutlineFile | null, cb: MapCallbacks) {
+    this.host = host;
+    this.markerLayer = markerLayer;
+    this.cb = cb;
+    this.canvas = document.createElement('canvas');
+    this.canvas.style.display = 'block';
+    this.canvas.style.width = '100%';
+    this.canvas.style.height = '100%';
+    this.canvas.style.touchAction = 'none';
+    this.canvas.setAttribute('aria-hidden', 'true');
+    host.appendChild(this.canvas);
+    const ctx = this.canvas.getContext('2d');
+    if (!ctx) throw new Error('map: no 2D canvas');
+    this.ctx = ctx;
+    this.colours = readColours(host);
+    this.setLand(land);
+    this.pool = browserDecodePool();
+    this.loader = new TileLoader({
+      fetch: (url, init) => fetch(url, init),
+      tiles: TILES,
+      cacheEntries: CACHE_ENTRIES,
+      cacheBytes: CACHE_BYTES,
+      weigh: (d) => (d as MapTileData).bytes ?? 0,
+      online: () => navigator.onLine !== false,
+      onChange: () => {
+        if (this.loader.state !== this.lastState) {
+          this.lastState = this.loader.state;
+          this.cb.onState(this.lastState);
+        }
+        this.requestRender();
+      },
+    });
+    this.loader.protect = (url) => this.inUse.has(url);
+    const online = () => this.requestRender();
+    window.addEventListener('online', online);
+    this.unlisten.push(() => window.removeEventListener('online', online));
+    this.resize = new ResizeObserver(() => this.onResize());
+    this.resize.observe(host);
+    this.onResize();
+    this.listen();
+  }
+
+  get camera(): MapCamera {
+    return this.cam;
+  }
+
+  get state(): LoaderState {
+    return this.loader.state;
+  }
+
+  /** Paused, no tile is requested; tiles already loaded are still drawn. */
+  setPaused(paused: boolean): void {
+    this.loader.setPaused(paused);
+    this.requestRender();
+  }
+
+  get viewportHeight(): number {
+    return this.height;
+  }
+
+  /** The bundled Natural Earth land, as one path in zoom-0 world pixels. */
+  setLand(land: OutlineFile | null): void {
+    if (!land?.land) {
+      this.landPath = null;
+      return;
+    }
+    const p = new Path2D();
+    for (const poly of land.land) {
+      for (const ring of poly) {
+        const pts = decodeLine(ring, land.quantum);
+        for (let i = 0; i < pts.length; i += 2) {
+          const x = lonToTileX(pts[i], 0) * 256;
+          const y = latToTileY(pts[i + 1], 0) * 256;
+          if (i === 0) p.moveTo(x, y);
+          else p.lineTo(x, y);
+        }
+        p.closePath();
+      }
+    }
+    this.landPath = p;
+    this.requestRender();
+  }
+
+  refreshColours(): void {
+    this.colours = readColours(this.host);
+    this.requestRender();
+  }
+
+  /** Where a position is on the map, in CSS pixels from the canvas's corner. */
+  private project(lat: number, lon: number): { x: number; y: number } {
+    return project(lat, lon, this.cam, this.width, this.height);
+  }
+
+  flyTo(target: MapCamera, reducedMotion: boolean): void {
+    const to = clampMapCamera(target);
+    if (reducedMotion) {
+      this.flight = null;
+      this.cam = to;
+      this.moved(true);
+      return;
+    }
+    this.flight = { from: this.cam, to, start: performance.now(), ms: 700 };
+    this.requestRender();
+  }
+
+  /** Keyboard and button pan and zoom, about the centre. */
+  nudge(dxPx: number, dyPx: number, dZoom = 0): void {
+    this.cb.onUserMove?.();
+    this.flight = null;
+    let c = panMap(this.cam, dxPx, dyPx, this.width, this.height);
+    if (dZoom) c = zoomMapAt(c, c.zoom + dZoom, this.width / 2, this.height / 2, this.width, this.height);
+    this.cam = c;
+    this.moved(false);
+    this.settleSoon();
+  }
+
+  dispose(): void {
+    this.disposed = true;
+    cancelAnimationFrame(this.frame);
+    window.clearTimeout(this.settleTimer);
+    this.resize.disconnect();
+    for (const u of this.unlisten) u();
+    this.loader.destroy();
+    this.pool.dispose();
+    this.canvas.remove();
+  }
+
+  // --- drawing --------------------------------------------------------------------
+
+  requestRender(): void {
+    if (this.frame || this.disposed) return;
+    this.frame = requestAnimationFrame((t) => {
+      this.frame = 0;
+      this.tick(t);
+    });
+  }
+
+  private onResize(): void {
+    this.width = Math.max(1, this.host.clientWidth);
+    this.height = Math.max(1, this.host.clientHeight);
+    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.canvas.width = Math.round(this.width * this.dpr);
+    this.canvas.height = Math.round(this.height * this.dpr);
+    this.requestRender();
+  }
+
+  private tick(now: number): void {
+    if (this.flight) {
+      const f = this.flight;
+      const t = Math.min(1, (now - f.start) / f.ms);
+      const e = t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
+      this.cam = clampMapCamera({
+        lat: f.from.lat + (f.to.lat - f.from.lat) * e,
+        lon: f.from.lon + (f.to.lon - f.from.lon) * e,
+        zoom: f.from.zoom + (f.to.zoom - f.from.zoom) * e,
+      });
+      if (t >= 1) {
+        this.flight = null;
+        this.cam = f.to;
+        this.cb.onCamera(this.cam, true);
+      } else {
+        this.cb.onCamera(this.cam, false);
+        this.requestRender();
+      }
+    }
+    this.draw();
+  }
+
+  private draw(): void {
+    const g = this.ctx;
+    const c = this.colours;
+    const { width: w, height: h, dpr } = this;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.fillStyle = c.sea;
+    g.fillRect(0, 0, w, h);
+
+    // The bundled land, everywhere: what shows with no tiles.
+    const s = 2 ** this.cam.zoom;
+    const cx = lonToTileX(this.cam.lon, 0) * 256;
+    const cy = latToTileY(this.cam.lat, 0) * 256;
+    if (this.landPath) {
+      // Each copy of the world the viewport reaches, so the land wraps at the antimeridian.
+      const world = worldWidthPx(this.cam.zoom);
+      const x0 = w / 2 - cx * s;
+      for (let k = Math.floor(-x0 / world); x0 + k * world < w; k++) {
+        g.setTransform(dpr * s, 0, 0, dpr * s, dpr * (x0 + k * world), dpr * (h / 2 - cy * s));
+        g.fillStyle = c.land;
+        g.fill(this.landPath);
+        g.strokeStyle = c.coast;
+        g.lineWidth = 0.8 / s;
+        g.stroke(this.landPath);
+      }
+    }
+
+    const view = visibleTiles(this.cam, w, h, VECTOR_MAX_ZOOM);
+    const keep = new Set<string>();
+    const labelled: { data: MapTileData; left: number; top: number; size: number }[] = [];
+    // What to draw and ask for, nearest the centre first, within the on-screen cap.
+    const url = (t: { z: number; x: number; y: number }) => TILES.url('vector', t);
+    const plan = planView(
+      view.tiles.map((v) => v.tile),
+      (t) => this.loader.get<MapTileData>(url(t)),
+      url,
+      { maxRequested: MAX_REQUESTED_TILES, maxBytes: ON_SCREEN_BYTES, ancestorLevels: ANCESTOR_LEVELS },
+    );
+    // Offline, the loader queues these and lets one probe the network now and then.
+    plan.request.forEach((t, i) => {
+      const u = url(t);
+      keep.add(u);
+      const st = this.loader.status(u);
+      if (st === 'none' || st === 'failed') this.loader.request(u, i, (b) => this.pool.decode<MapTileData>('vector', b, t.z));
+    });
+    for (const t of plan.used) keep.add(url(t));
+    view.tiles.forEach((v, i) => {
+      const d = plan.draw[i];
+      if (!d) return;
+      // The tile itself, or the ancestor standing in for it.
+      const k = 2 ** d.up;
+      const size = view.size * k;
+      const left = v.left - (v.tile.x - d.from.x * k) * view.size;
+      const top = v.top - (v.tile.y - d.from.y * k) * view.size;
+      g.save();
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      g.beginPath();
+      g.rect(v.left, v.top, view.size, view.size);
+      g.clip();
+      this.drawTile(d.data, left, top, size);
+      g.restore();
+      if (d.up === 0) labelled.push({ data: d.data, left, top, size });
+    });
+    this.inUse = keep;
+    this.loader.retain(keep);
+    this.drawLabels(labelled);
+    this.placeMarkers();
+  }
+
+  private drawTile(d: MapTileData, left: number, top: number, size: number): void {
+    const g = this.ctx;
+    const c = this.colours;
+    const k = size / d.extent;
+    const dpr = this.dpr;
+    g.setTransform(dpr * k, 0, 0, dpr * k, dpr * left, dpr * top);
+    g.fillStyle = c.land;
+    g.fillRect(0, 0, d.extent, d.extent);
+    const paths = pathsFor(d);
+    for (const f of FILL_CLASSES) {
+      const p = paths.get(`fill:${f}`);
+      if (!p) continue;
+      g.fillStyle = c[FILL_COLOUR[f]];
+      g.fill(p);
+    }
+    g.lineCap = 'round';
+    g.lineJoin = 'round';
+    for (const l of LINE_CLASSES) {
+      const p = paths.get(`line:${l}`);
+      if (!p) continue;
+      const st = LINE_STYLE[l];
+      if (l === 'major' || l === 'motorway') {
+        g.setLineDash([]);
+        g.strokeStyle = c.roadCasing;
+        g.lineWidth = (st.width + 1.6) / k;
+        g.stroke(p);
+      }
+      g.setLineDash(st.dash ? st.dash.map((x) => x / k) : []);
+      g.strokeStyle = c[st.colour];
+      g.lineWidth = st.width / k;
+      g.stroke(p);
+    }
+    g.setLineDash([]);
+  }
+
+  private drawLabels(tiles: { data: MapTileData; left: number; top: number; size: number }[]): void {
+    const g = this.ctx;
+    const c = this.colours;
+    g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    // Only the best few hundred near the view are measured, however many tiles show.
+    const all = labelCandidates(tiles, this.width, this.height);
+    const placed: { x0: number; y0: number; x1: number; y1: number }[] = [];
+    for (const { l, x, y } of all) {
+      const size = l.rank === 0 ? 11 : l.rank === 1 ? 10 : 9;
+      g.font = `${l.rank === 0 ? 600 : 400} ${size}px ${c.font}`;
+      const text = l.rank === 0 ? l.text.toUpperCase() : l.text;
+      const wpx = g.measureText(text).width;
+      const box = { x0: x - wpx / 2 - 4, y0: y - size, x1: x + wpx / 2 + 4, y1: y + size };
+      if (placed.some((b) => b.x0 < box.x1 && b.x1 > box.x0 && b.y0 < box.y1 && b.y1 > box.y0)) continue;
+      placed.push(box);
+      g.lineWidth = 3;
+      g.strokeStyle = c.halo;
+      g.strokeText(text, x, y);
+      g.fillStyle = c.label;
+      g.fillText(text, x, y);
+      if (placed.length > 60) break;
+    }
+  }
+
+  /** The hover tooltip's anchor (data-lat, data-lon), kept beside its track as the map moves. */
+  setTooltip(el: HTMLElement | null): void {
+    this.tooltip = el;
+    this.requestRender();
+  }
+
+  /** Puts each of the view's marker elements (data-lat, data-lon), and the tooltip, on
+   *  its position, at the copy of the world nearest the viewport. */
+  private placeMarkers(): void {
+    for (const el of Array.from(this.markerLayer.children) as HTMLElement[]) {
+      const p = this.place(el);
+      if (!p) continue;
+      const off = p.x < -40 || p.y < -40 || p.x > this.width + 40 || p.y > this.height + 40;
+      el.style.visibility = off ? 'hidden' : '';
+      el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px)`;
+    }
+    const t = this.tooltip;
+    const p = t ? this.place(t) : null;
+    if (t && p) {
+      t.style.display = p.x < 0 || p.y < 0 || p.x > this.width || p.y > this.height ? 'none' : '';
+      t.style.left = `${Math.round(Math.min(this.width - 110, Math.max(110, p.x)))}px`;
+      t.style.top = `${Math.round(p.y)}px`;
+      t.style.transform = p.y < 150 ? 'translate(-50%, 22px)' : 'translate(-50%, calc(-100% - 18px))';
+    }
+  }
+
+  private place(el: HTMLElement): { x: number; y: number } | null {
+    const lat = Number(el.dataset.lat);
+    const lon = Number(el.dataset.lon);
+    if (!el.dataset.lat || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    const p = this.project(lat, lon);
+    return { x: nearestCopyX(p.x, this.width, this.cam.zoom), y: p.y };
+  }
+
+  // --- input ----------------------------------------------------------------------
+
+  private moved(settled: boolean): void {
+    this.cb.onCamera(this.cam, settled);
+    this.requestRender();
+  }
+
+  private settleSoon(): void {
+    window.clearTimeout(this.settleTimer);
+    this.settleTimer = window.setTimeout(() => this.cb.onCamera(this.cam, true), 250);
+  }
+
+  private listen(): void {
+    const el = this.canvas;
+    const on = <K extends keyof HTMLElementEventMap>(type: K, fn: (e: HTMLElementEventMap[K]) => void, opts?: AddEventListenerOptions) => {
+      el.addEventListener(type, fn as EventListener, opts);
+      this.unlisten.push(() => el.removeEventListener(type, fn as EventListener, opts));
+    };
+    const local = (e: { clientX: number; clientY: number }) => {
+      const r = this.host.getBoundingClientRect();
+      return { x: e.clientX - r.left, y: e.clientY - r.top };
+    };
+    on('pointerdown', (e) => {
+      el.setPointerCapture(e.pointerId);
+      this.flight = null;
+      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      this.pinch = this.pointers.size === 2 ? this.pinchDistance() : null;
+    });
+    on('pointermove', (e) => {
+      const prev = this.pointers.get(e.pointerId);
+      if (!prev) return;
+      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (this.pointers.size >= 2 && this.pinch) {
+        const d = this.pinchDistance();
+        const [a, b] = [...this.pointers.values()];
+        const mid = local({ clientX: (a.x + b.x) / 2, clientY: (a.y + b.y) / 2 });
+        if (d > 0) this.cam = zoomMapAt(this.cam, this.cam.zoom + Math.log2(d / this.pinch), mid.x, mid.y, this.width, this.height);
+        this.pinch = d;
+      } else {
+        if (e.clientX === prev.x && e.clientY === prev.y) return;
+        this.cam = panMap(this.cam, e.clientX - prev.x, e.clientY - prev.y, this.width, this.height);
+      }
+      this.cb.onUserMove?.();
+      this.moved(false);
+    });
+    const end = (e: PointerEvent) => {
+      if (!this.pointers.delete(e.pointerId)) return;
+      if (this.pointers.size < 2) this.pinch = null;
+      this.cb.onCamera(this.cam, true);
+    };
+    on('pointerup', end);
+    on('pointercancel', end);
+    on('wheel', (e) => {
+      e.preventDefault();
+      this.cb.onUserMove?.();
+      this.flight = null;
+      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? this.height : 1;
+      const p = local(e);
+      this.cam = zoomMapAt(this.cam, this.cam.zoom - e.deltaY * unit * 0.002, p.x, p.y, this.width, this.height);
+      this.moved(false);
+      this.settleSoon();
+    }, { passive: false });
+    on('dblclick', (e) => {
+      this.cb.onUserMove?.();
+      const p = local(e);
+      this.cam = zoomMapAt(this.cam, this.cam.zoom + 1, p.x, p.y, this.width, this.height);
+      this.moved(true);
+    });
+  }
+
+  private pinchDistance(): number {
+    const [a, b] = [...this.pointers.values()];
+    return a && b ? Math.hypot(a.x - b.x, a.y - b.y) : 0;
+  }
+}
+
