@@ -105,8 +105,14 @@ public struct HeimdallPictureCanvas: View {
                 background(size)
                 rings(size)
                 if !large {
-                    readout
-                    if let focus = model.selectedTrack { focusReadout(focus).frame(width: size.width, alignment: .topTrailing) }
+                    // Side by side where they fit (the Mac); where they would overlap (an
+                    // iPhone's width) the focus readout starts under the left one.
+                    PictureReadoutsLayout(spacing: 6) {
+                        readout
+                        if let focus = model.selectedTrack { focusReadout(focus) }
+                    }
+                    .padding(.top, 12)
+                    .frame(width: size.width, alignment: .topLeading)
                 }
                 if model.isOn("feeds") { coverage(size) }
                 ForEach(model.visibleTracks, id: \.id) { track in
@@ -236,7 +242,6 @@ public struct HeimdallPictureCanvas: View {
                     .accessibilityIdentifier("mg.heimdall.withheld")
             }
         }
-        .padding(.top, 12)
         .padding(.leading, 14)
     }
 
@@ -271,7 +276,6 @@ public struct HeimdallPictureCanvas: View {
                 .readoutPlate()
         }
         .multilineTextAlignment(.trailing)
-        .padding(.top, 12)
         .padding(.trailing, 14)
         .accessibilityHidden(MGWeb.readoutsDecorative)
     }
@@ -679,6 +683,41 @@ extension View {
     /// audit.
     func readoutPlate() -> some View {
         padding(.horizontal, 3).background(MGWeb.bgSunken)
+    }
+}
+
+/// The picture's two readout blocks: the first (north, scale, vector) at the top left,
+/// the second (the focus track) at the top right, as the web draws them, when both fit
+/// across the width with `spacing` between them; otherwise the second starts `spacing`
+/// under the first, still at the right, so the two never overlap. [FR-H-4] [DD-7]
+struct PictureReadoutsLayout: Layout {
+    var spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        let width = proposal.width ?? sizes.map(\.width).reduce(spacing, +)
+        let frames = frames(width: width, sizes: sizes)
+        return CGSize(width: width, height: frames.map(\.maxY).max() ?? 0)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let frames = frames(width: bounds.width, sizes: subviews.map { $0.sizeThatFits(.unspecified) })
+        for (subview, frame) in zip(subviews, frames) {
+            subview.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
+                          proposal: ProposedViewSize(frame.size))
+        }
+    }
+
+    func frames(width: CGFloat, sizes: [CGSize]) -> [CGRect] {
+        guard let left = sizes.first else { return [] }
+        var frames = [CGRect(origin: .zero, size: left)]
+        if sizes.count > 1 {
+            let right = CGSize(width: min(sizes[1].width, width), height: sizes[1].height)
+            let beside = left.width + spacing + right.width <= width
+            frames.append(CGRect(x: width - right.width, y: beside ? 0 : left.height + spacing,
+                                 width: right.width, height: right.height))
+        }
+        return frames
     }
 }
 

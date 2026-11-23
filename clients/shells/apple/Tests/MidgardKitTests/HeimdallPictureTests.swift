@@ -114,4 +114,22 @@ final class HeimdallPictureTests: XCTestCase {
             XCTAssertNotNil(ImageRenderer(content: compact).cgImage)
         }
     }
+
+    /// The picture's readouts sit side by side where both fit (the Mac's picture) and
+    /// the focus readout starts under the left one where they would overlap (an iPhone's
+    /// width): never overlapping.
+    func testThePictureReadoutsNeverOverlap() {
+        let layout = PictureReadoutsLayout(spacing: 6)
+        let left = CGSize(width: 200, height: 60)
+        let right = CGSize(width: 180, height: 50)
+        let wide = layout.frames(width: 900, sizes: [left, right])
+        XCTAssertEqual(wide[1].minY, 0)
+        XCTAssertEqual(wide[1].maxX, 900)
+        XCTAssertFalse(wide[0].intersects(wide[1]))
+        let narrow = layout.frames(width: 380, sizes: [left, right])
+        XCTAssertEqual(narrow[1].minY, 66)
+        XCTAssertEqual(narrow[1].maxX, 380)
+        XCTAssertFalse(narrow[0].intersects(narrow[1]))
+        XCTAssertEqual(layout.frames(width: 380, sizes: [left]).count, 1)
+    }
 }
