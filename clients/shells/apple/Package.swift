@@ -17,11 +17,10 @@ let package = Package(
         // The accessibility audit's base class; each app's UI-test target subclasses it
         // (Task A14, clients/shells/apple/audit.sh). Links XCTest: UI-test targets only.
         .library(name: "MidgardAuditKit", targets: ["MidgardAuditKit"]),
-        // The 3D editions' library (Task B7, owner decision 22 Nov 2026): linked only by
-        // the 3D and maps apps (MidgardMac3D, MidgardiOS3D, MidgardMacMaps,
-        // MidgardiOSMaps), never by the release apps
-        // (tools/check-edition.sh). It holds everything an edition shows (banner, About,
-        // Heimdall's 3D view) and registers it at link time as MidgardKit's
+        // The edition library (Task B7; owner decisions 22 and 23 Nov 2026), linked by
+        // the two apps, MidgardMacMaps and MidgardiOSMaps (tools/check-edition.sh). It
+        // holds everything the edition shows (banner, About, Heimdall's MAP and 3D views
+        // with their tile loader) and registers it at link time as MidgardKit's
         // EditionProvider: its strong `midgard_edition_hook` replaces MidgardHooks' weak
         // default.
         .library(name: "MidgardGlobeKit", targets: ["MidgardGlobeKit"]),
@@ -36,10 +35,13 @@ let package = Package(
         .target(name: "MidgardKit", dependencies: ["MidgardCore", "MidgardHooks"], path: "Sources/MidgardKit",
                 resources: [.copy("Resources/Fonts")]),
         .target(name: "MidgardAuditKit", path: "Sources/MidgardAuditKit"),
-        .target(name: "MidgardGlobeKit", dependencies: ["MidgardKit"], path: "Sources/MidgardGlobeKit"),
+        // The Maps edition's library: Heimdall's MAP and 3D views (Phase I), the map tile
+        // loader and the bundled Natural Earth outlines (public domain).
+        .target(name: "MidgardGlobeKit", dependencies: ["MidgardKit"], path: "Sources/MidgardGlobeKit",
+                resources: [.copy("Resources/Outlines")]),
         .testTarget(name: "MidgardKitTests", dependencies: ["MidgardKit", "MidgardCore", "MidgardAuditKit"],
                     path: "Tests/MidgardKitTests"),
         .testTarget(name: "MidgardGlobeKitTests", dependencies: ["MidgardGlobeKit", "MidgardKit"],
-                    path: "Tests/MidgardGlobeKitTests"),
+                    path: "Tests/MidgardGlobeKitTests", exclude: ["Fixtures"]),
     ]
 )
