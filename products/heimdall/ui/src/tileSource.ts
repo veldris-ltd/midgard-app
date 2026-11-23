@@ -7,7 +7,8 @@
  *   optional base path, inside the enclosure, in the fixed layout of `mirrorSources`;
  *   a mirror naming a public tile host or its domain stops the build, and one on a
  *   public IP address draws a warning.
- * - `public`: the three public tile hosts. A demo build only, outside the enclosure.
+ * - `public`: the three public tile hosts. A demo build only, outside the enclosure,
+ *   and refused unless the console's data mode (src/dataMode.ts) is `mock`.
  * Any other value, an empty one included, is an error, and so is a mirror given
  * without `mirror`, or the retired `VITE_HEIMDALL_TILES`. vite.config.ts turns the
  * result into the build-time constants declared in tilesSwitch.d.ts. Pure. */
@@ -45,7 +46,14 @@ export function isPublicIpLiteral(hostname: string): boolean {
   }
   if (hostname.startsWith('[') && hostname.endsWith(']')) {
     const v6 = hostname.slice(1, -1).toLowerCase();
-    const internal = v6 === '::1' || /^f[cd][0-9a-f]{0,2}:/.test(v6) || /^fe[89ab][0-9a-f]?:/.test(v6) || v6.startsWith('::ffff:10.') || v6.startsWith('::ffff:192.168.') || v6.startsWith('::ffff:127.');
+    // URL writes an IPv4-mapped address in hex (`[::ffff:10.0.0.1]` becomes
+    // `[::ffff:a00:1]`), so map it back and judge the IPv4 address.
+    const mapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(v6);
+    if (mapped) {
+      const [hi, lo] = [parseInt(mapped[1], 16), parseInt(mapped[2], 16)];
+      return isPublicIpLiteral(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
+    }
+    const internal = v6 === '::1' || /^f[cd][0-9a-f]{0,2}:/.test(v6) || /^fe[89ab][0-9a-f]?:/.test(v6);
     return !internal;
   }
   return false;
@@ -109,6 +117,8 @@ export interface TileEnv {
   mirror?: string;
   /** The retired switch, VITE_HEIMDALL_TILES: an error if set at all. */
   legacy?: string;
+  /** The console's data mode (src/dataMode.ts); `public` is refused unless it is `mock`. Defaults to `mock`. */
+  dataMode?: 'http' | 'mock';
 }
 
 /** The whole setting, checked together. Throws `TileConfigError` with a clear message. */
@@ -129,6 +139,14 @@ export function tileConfig(env: TileEnv): TileConfig {
   }
   if (env.mirror !== undefined) {
     throw new TileConfigError(`VITE_HEIMDALL_TILE_MIRROR is set, but VITE_HEIMDALL_TILE_SOURCE is ${mode}, not mirror`);
+  }
+  // Pausing the globe only delays requests, so a public build must never carry real
+  // tracks: it is a demo build, on the mock only.
+  if (mode === 'public' && (env.dataMode ?? 'mock') !== 'mock') {
+    throw new TileConfigError(
+      `VITE_HEIMDALL_TILE_SOURCE=public is a demo build and needs the console in mock mode (it is ${env.dataMode}); ` +
+        'use none, or a mirror inside the enclosure',
+    );
   }
   return { mode, mirror: '', warnings: [] };
 }

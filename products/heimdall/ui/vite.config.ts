@@ -2,6 +2,7 @@ import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { fileURLToPath, URL } from 'node:url';
 import { tileConfig } from './src/tileSource.ts';
+import { DATA_MODE } from './src/dataMode.ts';
 
 // Air-gap-first: relative base so the built console serves from any static path.
 // Workspace packages are aliased to source so the monorepo builds without a
@@ -10,7 +11,7 @@ const r = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 
 // The map tile source (src/tileSource.ts), fixed at build time and failing closed:
 // VITE_HEIMDALL_TILE_SOURCE is none (the default), mirror (with VITE_HEIMDALL_TILE_MIRROR)
-// or public, and any other value stops the build. It becomes the constants of
+// or public (refused unless src/dataMode.ts is mock), and any other value stops the build. It becomes the constants of
 // src/tilesSwitch.d.ts, so a `none` build leaves out every tile module and every tile
 // host, and a `mirror` build every public host. [FR-H-1] [NFR-PRV-1]
 
@@ -21,6 +22,7 @@ export default defineConfig(({ mode }) => {
     source: pick('VITE_HEIMDALL_TILE_SOURCE'),
     mirror: pick('VITE_HEIMDALL_TILE_MIRROR'),
     legacy: pick('VITE_HEIMDALL_TILES'),
+    dataMode: DATA_MODE,
   });
   for (const w of tiles.warnings) console.warn(`\n  warning: ${w}\n`);
   return {

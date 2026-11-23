@@ -93,3 +93,23 @@ test('a mirror on a public IP address builds with a warning; a private or loopba
   }
   assert.equal(isPublicIpLiteral('tiles.example'), false);
 });
+
+test('an IPv4-mapped IPv6 mirror is judged by its IPv4 address, as URL writes it', () => {
+  // A canonical mirror is written as URL writes it: 10.0.0.1, 192.168.1.10, 127.0.0.1, 172.16.0.1.
+  for (const host of ['[::ffff:a00:1]', '[::ffff:c0a8:10a]', '[::ffff:7f00:1]', '[::ffff:ac10:1]']) {
+    assert.deepEqual(tileConfig({ source: 'mirror', mirror: `https://${host}/m` }).warnings, [], host);
+  }
+  // 8.8.8.8 and 203.0.113.7.
+  for (const host of ['[::ffff:808:808]', '[::ffff:cb00:7107]']) {
+    assert.equal(tileConfig({ source: 'mirror', mirror: `https://${host}/m` }).warnings.length, 1, host);
+  }
+  assert.equal(isPublicIpLiteral('[::ffff:a00:1]'), false);
+  assert.equal(isPublicIpLiteral('[::ffff:808:808]'), true);
+});
+
+test('a public build is refused unless the console is in mock mode', () => {
+  assert.equal(tileConfig({ source: 'public', dataMode: 'mock' }).mode, 'public');
+  assert.throws(() => tileConfig({ source: 'public', dataMode: 'http' }), /mock mode/);
+  assert.equal(tileConfig({ source: 'mirror', mirror: 'https://m.internal', dataMode: 'http' }).mode, 'mirror');
+  assert.equal(tileConfig({ dataMode: 'http' }).mode, 'none');
+});
