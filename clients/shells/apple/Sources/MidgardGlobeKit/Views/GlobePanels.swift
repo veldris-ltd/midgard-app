@@ -211,9 +211,13 @@ struct CameraReadout: View {
                 Text("—")
             }
         }
-        .font(MGWebFont.mono(9))
-        .tracked(0.08, 9)
-        .foregroundStyle(MGWeb.textBody)
+        // 11 pt in the heading colour (the web's 9 px), with a little of the panel
+        // around the lines: at 9 pt the Mac's contrast audit failed them.
+        .font(MGWebFont.mono(11))
+        .tracked(0.06, 11)
+        .foregroundStyle(MGWeb.textHeading)
+        .padding(.vertical, 2)
+        .padding(.trailing, 4)
         .lineSpacing(2)
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -229,13 +229,23 @@ public struct WebStatBlock: View {
         // readout's colour against the label's in the contrast audit): the value speaks
         // the label too, and the label is not read twice.
         VStack(alignment: .leading, spacing: 4) {
+            // A little of the page around the figure inside its element (the layout
+            // unchanged): cut to the glyphs alone, a one-digit figure ("4") was too
+            // small a sample for the Mac's contrast audit to tell its colour from the
+            // page's.
             Text(value)
                 .font(MGWebFont.display(24, .title).weight(.black))
                 .mgTracking(-0.02, size: 24)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
                 .foregroundStyle(accent?.text ?? MGWeb.textHeading)
+                .padding(.vertical, 1)
+                .padding(.trailing, 8)
+                .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text("\(label.capitalized): \(value)"))
+                .accessibilityAddTraits(.isStaticText)
+                .padding(.vertical, -1)
+                .padding(.trailing, -8)
             Text(label)
                 .font(MGWebFont.mono(11))
                 .mgTracking(0.14, size: MGWebFont.monoSize(11))

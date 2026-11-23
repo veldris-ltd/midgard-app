@@ -641,7 +641,16 @@ public struct WebCheckList: View {
                 HStack(spacing: 8) {
                     Image(systemName: "checkmark").font(MGWebFont.sans(11).weight(.bold)).foregroundStyle(MGWeb.secureText)
                         .accessibilityHidden(true)
-                    Text(item).font(MGWebFont.sans(12, .caption)).foregroundStyle(MGWeb.textBody)
+                    // Its element a little larger than the glyphs (the Mac's contrast
+                    // audit misread a line cut to its text) and in the brighter grey.
+                    Text(item).font(MGWebFont.sans(12, .caption)).foregroundStyle(MGWeb.grey100)
+                        .padding(.vertical, 2)
+                        .padding(.trailing, 6)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(Text(item))
+                        .accessibilityAddTraits(.isStaticText)
+                        .padding(.vertical, -2)
+                        .padding(.trailing, -6)
                     Spacer(minLength: 0)
                 }
                 .padding(.vertical, 6)
@@ -915,13 +924,26 @@ public struct WebTable<Row>: View {
             if isSelected { Rectangle().fill(accent.fill).frame(width: 2) }
         }
         .contentShape(Rectangle())
+        // As a list (the iPhone), the row's own texts are not separate elements: the row
+        // says them all, and its frame covers them, so a row the list's edge cuts is
+        // measured as one element rather than as cut-off pieces of text.
+        let drawn = content.accessibilityHidden(list)
         if let onSelect {
-            Button { onSelect(index) } label: { content }
+            Button { onSelect(index) } label: { drawn }
                 .buttonStyle(.plain)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text(spoken(row)))
                 .accessibilityAddTraits(isSelected ? [.isSelected, .isButton] : [.isButton])
                 .accessibilityIdentifier("\(identifier).row.\(id(row))")
+        } else if list {
+            drawn
+                .overlay {
+                    Color.clear
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(Text(spoken(row)))
+                        .accessibilityAddTraits(.isStaticText)
+                        .accessibilityIdentifier("\(identifier).row.\(id(row))")
+                }
         } else {
             content
                 .accessibilityElement(children: .ignore)
