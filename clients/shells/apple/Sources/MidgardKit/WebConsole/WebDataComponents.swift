@@ -586,7 +586,9 @@ public struct WebPageHeader<Trailing: View>: View {
             HStack(alignment: .bottom, spacing: 24) {
                 heading.fixedSize()
                 Spacer(minLength: 0)
-                HStack(alignment: .bottom, spacing: 24) { trailing }.fixedSize()
+                // A few points' margin: the last figure's tracked label ("AUTO-EXECUTED ·
+                // EVER") measured to the column's very edge and was clipped there.
+                HStack(alignment: .bottom, spacing: 24) { trailing }.fixedSize().padding(.trailing, 6)
             }
             FlowRow(spacing: 18) {
                 heading.padding(.trailing, 24)
@@ -779,6 +781,8 @@ public struct WebTable<Row>: View {
     let id: (Row) -> String
     let selected: Int?
     let compact: Bool
+    /// The web's `minWidth` (where the browser starts scrolling sideways): kept with the
+    /// call, unused, as the columns fit their width here (`WebTableWidths`).
     let minWidth: CGFloat
     let asList: Bool
     let accent: MGWebAccent
@@ -804,43 +808,33 @@ public struct WebTable<Row>: View {
 
     private var list: Bool { asList || typeSize.isAccessibilitySize }
 
-    /// The least a column without a width gets: the web's widths are hints a browser
-    /// grows a column past to fit its content.
-    static var flexibleMinimum: CGFloat { 120 }
-
-    /// The width the table needs: the web's `minWidth`, or its fixed columns and the
-    /// least for each other column, whichever is more.
-    private var needed: CGFloat {
-        let fixed = columns.compactMap(\.width).reduce(0, +)
-        let flexible = CGFloat(columns.filter { $0.width == nil }.count) * Self.flexibleMinimum
-        return max(minWidth, fixed + flexible)
-    }
-
-    /// Scrolled sideways, the room the table takes: each column without a width gets
-    /// enough for most content, as a browser's wider-than-its-hints table does.
-    private var scrolled: CGFloat {
-        let fixed = columns.compactMap(\.width).reduce(0, +)
-        return max(needed, fixed + CGFloat(columns.filter { $0.width == nil }.count) * 180)
+    /// The columns as the width rule sees them (`WebTableWidths`).
+    private var specs: [WebTableWidths.Column] {
+        columns.map { WebTableWidths.Column(width: $0.width, drawn: $0.cell != nil, header: $0.header) }
     }
 
     public var body: some View {
         if list {
-            table
+            table(list: true)
         } else {
-            // The web's `overflowX: auto`: scrolled sideways only when the column is
-            // narrower than the table needs.
+            // The web's `overflowX: auto` scrolled a table wider than its column
+            // sideways, which on the Mac left the last columns (a workflow's state) out
+            // of sight at the window's default width. Here the columns share the
+            // column's width (`WebTableWidths`: drawn chips and badges keep theirs, text
+            // columns give way and truncate); when even their least does not fit (a
+            // narrow window), the table is shown as the iPhone's list.
             ViewThatFits(in: .horizontal) {
-                table.frame(minWidth: needed, maxWidth: .infinity)
-                ScrollView(.horizontal) { table.frame(width: scrolled) }
+                table(list: false).frame(maxWidth: .infinity)
+                table(list: true)
             }
         }
     }
 
-    private var table: some View {
+    private func table(list: Bool) -> some View {
         LazyVStack(spacing: 0) {
             if !list { header }
             ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-                rowView(index, row)
+                rowView(index, row, list: list)
                 if index < rows.count - 1 { Rectangle().fill(MGWeb.divider).frame(height: 1).accessibilityHidden(true) }
             }
         }
@@ -853,7 +847,7 @@ public struct WebTable<Row>: View {
     }
 
     private var header: some View {
-        HStack(spacing: 0) {
+        WebTableColumns(specs) {
             ForEach(Array(columns.enumerated()), id: \.offset) { _, column in
                 frame(column) {
                     Text(column.header.uppercased())
@@ -871,19 +865,16 @@ public struct WebTable<Row>: View {
     }
 
     @ViewBuilder private func frame<V: View>(_ column: WebColumn<Row>, @ViewBuilder _ content: () -> V) -> some View {
+        // `WebTableColumns` proposes each column's width.
         let alignment: Alignment = column.align == .trailing ? .trailing : .leading
-        if let width = column.width {
-            content().padding(.horizontal, 14).frame(width: width, alignment: alignment).clipped()
-        } else {
-            content().padding(.horizontal, 14).frame(maxWidth: .infinity, alignment: alignment)
-        }
+        content().padding(.horizontal, 14).frame(maxWidth: .infinity, alignment: alignment).clipped()
     }
 
     private func spoken(_ row: Row) -> String {
         columns.map { "\($0.header): \($0.text(row))" }.joined(separator: ", ")
     }
 
-    @ViewBuilder private func cellView(_ column: WebColumn<Row>, _ row: Row, first: Bool) -> some View {
+    @ViewBuilder private func cellView(_ column: WebColumn<Row>, _ row: Row, first: Bool, list: Bool) -> some View {
         if let cell = column.cell {
             if column.width != nil {
                 // Chips and badges keep their one line, as the web's `nowrap` cells do.
@@ -903,12 +894,12 @@ public struct WebTable<Row>: View {
         }
     }
 
-    @ViewBuilder private func rowView(_ index: Int, _ row: Row) -> some View {
+    @ViewBuilder private func rowView(_ index: Int, _ row: Row, list: Bool) -> some View {
         let isSelected = index == selected
         let content = Group {
             if list {
                 VStack(alignment: .leading, spacing: 6) {
-                    if let first = columns.first { cellView(first, row, first: true) }
+                    if let first = columns.first { cellView(first, row, first: true, list: true) }
                     FlowRow(spacing: 10) {
                         ForEach(Array(columns.dropFirst().enumerated()), id: \.offset) { _, column in
                             HStack(spacing: 6) {
@@ -916,7 +907,7 @@ public struct WebTable<Row>: View {
                                     .font(MGWebFont.mono(11))
                                     .foregroundStyle(MGWeb.textBody)
                                 if column.cell != nil {
-                                    cellView(column, row, first: false)
+                                    cellView(column, row, first: false, list: true)
                                 } else {
                                     Text(column.text(row))
                                         .font(column.mono ? MGWebFont.mono(12, .caption) : MGWebFont.sans(14))
@@ -935,9 +926,9 @@ public struct WebTable<Row>: View {
                 .padding(.vertical, 10)
                 .frame(maxWidth: .infinity, minHeight: webTarget(40), alignment: .leading)
             } else {
-                HStack(spacing: 0) {
+                WebTableColumns(specs) {
                     ForEach(Array(columns.enumerated()), id: \.offset) { ci, column in
-                        frame(column) { cellView(column, row, first: ci == 0) }
+                        frame(column) { cellView(column, row, first: ci == 0, list: false) }
                     }
                 }
                 .frame(height: compact ? 32 : 40)
@@ -971,6 +962,118 @@ public struct WebTable<Row>: View {
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel(Text(spoken(row)))
                 .accessibilityIdentifier("\(identifier).row.\(id(row))")
+        }
+    }
+}
+
+/// How a `WebTable` shares its width among its columns on the Mac, the same for the
+/// header and every row (the rule depends only on the width given, never on content):
+/// - a column the web gives a width keeps it, and at least its header's width (the
+///   browser grows a column past its hint to fit its header);
+/// - a drawn column (chips, badges, bars) never gives way: a state chip is never cut;
+/// - a text column with a width gives way first, down to its header's width, its text
+///   truncated with "…";
+/// - a column without a width (the web's flexible one: an action's title, a check) takes
+///   what is left, 120 pt or more, and gives way last, down to 64 pt;
+/// - when even the least does not fit, the table does not fit (it is drawn as a list).
+/// [DD-7]
+public enum WebTableWidths {
+    public struct Column: Equatable, Sendable {
+        public let width: CGFloat?
+        public let drawn: Bool
+        public let header: String
+
+        public init(width: CGFloat?, drawn: Bool, header: String) {
+            self.width = width
+            self.drawn = drawn
+            self.header = header
+        }
+    }
+
+    /// The header's width: mono 11 upper case, tracked 0.14 em (an advance of about
+    /// 8.2 pt a letter), and the cell's 14 pt padding each side.
+    public static func headerWidth(_ header: String) -> CGFloat {
+        (CGFloat(header.count) * 8.2 + 28).rounded(.up)
+    }
+
+    /// A flexible column's share before anything gives way, and its least.
+    public static let flexiblePreferred: CGFloat = 120
+    public static let flexibleLeast: CGFloat = 64
+
+    static func base(_ c: Column) -> CGFloat {
+        max(c.width ?? flexiblePreferred, headerWidth(c.header))
+    }
+
+    static func least(_ c: Column) -> CGFloat {
+        if c.width == nil { return max(flexibleLeast, min(headerWidth(c.header), base(c))) }
+        return c.drawn ? base(c) : headerWidth(c.header)
+    }
+
+    /// The least width the columns fit in.
+    public static func minimum(_ columns: [Column]) -> CGFloat {
+        columns.map(least).reduce(0, +)
+    }
+
+    /// Each column's width in `available` points, or nil when they do not fit.
+    public static func widths(_ columns: [Column], in available: CGFloat) -> [CGFloat]? {
+        var widths = columns.map(base)
+        let flexible = columns.indices.filter { columns[$0].width == nil }
+        let total = widths.reduce(0, +)
+        if available >= total {
+            // Room to spare: the flexible columns share it, or the last column takes it.
+            let spare = available - total
+            if flexible.isEmpty {
+                if !widths.isEmpty { widths[widths.count - 1] += spare }
+            } else {
+                for i in flexible { widths[i] += spare / CGFloat(flexible.count) }
+            }
+            return widths
+        }
+        var deficit = total - available
+        // The text columns with a width give way first, each in proportion to its slack…
+        for group in [columns.indices.filter { columns[$0].width != nil && !columns[$0].drawn }, flexible] {
+            let slack = group.map { widths[$0] - least(columns[$0]) }.reduce(0, +)
+            guard slack > 0, deficit > 0 else { continue }
+            let take = min(deficit, slack)
+            for i in group {
+                widths[i] -= (widths[i] - least(columns[i])) * take / slack
+            }
+            deficit -= take
+        }
+        // …then the flexible ones; what is still missing does not fit.
+        return deficit > 0.5 ? nil : widths
+    }
+}
+
+/// A table row's cells side by side at `WebTableWidths`' widths for the width given;
+/// its ideal width (what `ViewThatFits` measures) is the least the columns fit in.
+struct WebTableColumns: Layout {
+    let columns: [WebTableWidths.Column]
+
+    init(_ columns: [WebTableWidths.Column]) {
+        self.columns = columns
+    }
+
+    private func widths(_ width: CGFloat?) -> [CGFloat] {
+        let least = WebTableWidths.minimum(columns)
+        return WebTableWidths.widths(columns, in: max(width ?? least, least))
+            ?? columns.map { WebTableWidths.least($0) }
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let widths = widths(proposal.width)
+        let height = zip(subviews, widths)
+            .map { $0.sizeThatFits(ProposedViewSize(width: $1, height: proposal.height)).height }
+            .max() ?? 0
+        return CGSize(width: widths.reduce(0, +), height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX
+        for (view, width) in zip(subviews, widths(bounds.width)) {
+            view.place(at: CGPoint(x: x, y: bounds.minY), anchor: .topLeading,
+                       proposal: ProposedViewSize(width: width, height: bounds.height))
+            x += width
         }
     }
 }
