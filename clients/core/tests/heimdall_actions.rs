@@ -121,9 +121,9 @@ fn the_audit_row_carries_the_workflows_marking_and_is_withheld_below_it() {
     let analyst = src.grant("k.rao").unwrap();
     let delivered = src.fetch(&analyst, "heimdall.audit").unwrap();
     assert_eq!(delivered.len(), 6);
-    assert!(delivered
-        .iter()
-        .all(|d| matches!(d, Delivered::Withheld { level } if *level == MarkingLevel::Confidential)));
+    assert!(delivered.iter().all(
+        |d| matches!(d, Delivered::Withheld { level } if *level == MarkingLevel::Confidential)
+    ));
     let osei = src.grant("k.osei").unwrap();
     match &src.fetch(&osei, "heimdall.audit").unwrap()[0] {
         Delivered::Row { id, marking, .. } => {
