@@ -96,6 +96,21 @@ public struct MGWebAccent {
     /// Forge's accent text on paper.
     static let forgeTextLight: UInt32 = 0x8A400C
 
+    /// Mimir's scope (`.theme-mimir`). Accent text is `--accent-hover`: `--mimir-300` in
+    /// dark mode; on paper the web's `--mimir-600` reads 4.0:1 on the page (3.7:1 on the
+    /// accent tint), under AA, so a darker shade of it (0x12666F, 5.8:1 on the page, 5.2:1
+    /// on the tint) is used for text there, as Forge's is.
+    public static let mimir = MGWebAccent(
+        fill: Color(mgHex: MGToken.mimir500),
+        text: Color(mgLight: (mimirTextLight, 1), dark: (MGToken.mimir300, 1)),
+        hex: MGToken.mimir500,
+        tint: Color(mgHex: MGToken.mimirTint.0, opacity: MGToken.mimirTint.1),
+        glow: Color(mgHex: MGToken.mimirGlow.0, opacity: MGToken.mimirGlow.1),
+        baseTextLight: mimirTextLight)
+
+    /// Mimir's accent text on paper.
+    static let mimirTextLight: UInt32 = 0x12666F
+
     /// Midgard's scope (`.theme-midgard`), also Admin's. Accent text is `--accent-hover`
     /// (`--midgard-300` in dark mode, `--midgard-600` on paper).
     public static let midgard = MGWebAccent(

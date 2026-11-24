@@ -57,7 +57,7 @@ final class SessionFlowTests: XCTestCase {
 
         // Each console opens at its list of screens.
         let firstScreens = ["midgard.object-fabric", "admin.overview", "heimdall.operating-picture",
-                            "forge.pipeline-builder", "mimir.model-plane", "bifrost.release-console"]
+                            "forge.pipeline-builder", "mimir.agent-studio", "bifrost.release-console"]
         for (index, first) in firstScreens.enumerated() {
             AppNavigation.selectConsole(app, index + 1)
             XCTAssertTrue(app.buttons["mg.1.\(first)"].waitForExistence(timeout: AppNavigation.timeout),
@@ -89,14 +89,14 @@ final class SessionFlowTests: XCTestCase {
                                                         "mg\\.[0-9]+\\.\(AppNavigation.consoles[index].lowercased())\\..*"))
             XCTAssertEqual(rows.count, count, "\(AppNavigation.consoles[index]) lists \(rows.count) screens")
         }
-        // Midgard's, Admin's, Heimdall's and Forge's screens are built (Phases C to F); a
-        // later console's still say when they come.
+        // Midgard's, Admin's, Heimdall's, Forge's and Mimir's screens are built (Phases C to
+        // G); Bifrost's still say when they come.
         AppNavigation.openDetail(app)
         AppNavigation.openAdmin(app, "overview")
         AppNavigation.open(app, console: 3, "entities")
-        AppNavigation.selectConsole(app, 5)
-        AppNavigation.tapClearOfConsoleBar(app, app.buttons["mg.2.mimir.session-traces"])
-        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'Phase G'")).firstMatch
+        AppNavigation.selectConsole(app, 6)
+        AppNavigation.tapClearOfConsoleBar(app, app.buttons["mg.2.bifrost.channels"])
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'Phase H'")).firstMatch
             .waitForExistence(timeout: AppNavigation.timeout))
     }
 

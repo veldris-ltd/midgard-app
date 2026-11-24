@@ -79,6 +79,12 @@ public enum WebIcon {
         case "file-text": return "doc.text"
         case "arrow-up-right": return "arrow.up.right"
         case "chevron-right": return "chevron.right"
+        case "terminal": return "apple.terminal"
+        case "brain-circuit": return "brain"
+        case "settings": return "gearshape"
+        case "arrow-up": return "arrow.up"
+        case "arrow-down": return "arrow.down"
+        case "trash": return "trash"
         default: return "square"
         }
     }
