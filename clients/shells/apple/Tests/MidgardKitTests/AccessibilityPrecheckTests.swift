@@ -200,11 +200,11 @@ final class AccessibilityPrecheckTests: XCTestCase {
     // MARK: dynamic_type
 
     /// Every font in the shared views is an `MGFonts` style, and those scale with the
-    /// text style (`relativeTo:`); no fixed point size and no `.fixedSize`, which would
+    /// text style (`relativeTo:`, caption2 scaling as caption on iOS); no fixed point size and no `.fixedSize`, which would
     /// clip at the largest sizes.
     func testViewsUseOnlyScalingFonts() throws {
         let fonts = try String(contentsOf: sourceRoot().appendingPathComponent("DesignSystem/Fonts.swift"), encoding: .utf8)
-        XCTAssertEqual(occurrences("relativeTo: style)", in: fonts), 3)
+        XCTAssertEqual(occurrences("relativeTo: scaling(style))", in: fonts), 3)
         let fontCall = try NSRegularExpression(pattern: #"\.font\(\s*([A-Za-z.]+)"#)
         for (file, text) in try viewSources() {
             for match in fontCall.matches(in: text, range: NSRange(text.startIndex..., in: text)) {

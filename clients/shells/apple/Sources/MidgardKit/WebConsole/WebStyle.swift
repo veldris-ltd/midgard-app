@@ -146,17 +146,17 @@ public struct MGWebAccent {
 /// on iOS each size scales with its text style (Dynamic Type). [DD-7]
 public enum MGWebFont {
     public static func display(_ size: CGFloat, _ style: Font.TextStyle = .body) -> Font {
-        .custom(MGFonts.displayFamily, size: size, relativeTo: style)
+        .custom(MGFonts.displayFamily, size: size, relativeTo: MGFonts.scaling(style))
     }
 
     public static func sans(_ size: CGFloat, _ style: Font.TextStyle = .body) -> Font {
-        .custom(MGFonts.sansFamily, size: size, relativeTo: style)
+        .custom(MGFonts.sansFamily, size: size, relativeTo: MGFonts.scaling(style))
     }
 
     /// On iOS no smaller than 11 pt at the default text size: the web's 8–9 px mono labels
     /// are below what the iPhone's contrast audit reads.
     public static func mono(_ size: CGFloat, _ style: Font.TextStyle = .caption2) -> Font {
-        .custom(MGFonts.monoFamily, size: monoSize(size), relativeTo: style)
+        .custom(MGFonts.monoFamily, size: monoSize(size), relativeTo: MGFonts.scaling(style))
     }
 
     /// The size `mono(_:)` draws the web's `size` at (before Dynamic Type): the web's
