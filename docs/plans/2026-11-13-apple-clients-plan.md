@@ -7600,8 +7600,20 @@ Still open:
     honesty fixes;
   - the Phase J live re-take, to check the LIVE chips, the `/whoami` subject and no
     `unknown key "outcome"` error.
-- **The six 9–10 pt texts:** measure them on a Retina display, or the owner decides on a
-  Mac size floor.
+- **The six 9–10 pt texts:** raised on the Mac in the last round below; still to be
+  measured.
 - The 900 pt window's header chips wrap inside their pills ("12 FEEDS · FUSED"). They
   are not cut.
 - From part 1: signed builds, the on-device iPhone check and H4's audit record.
+
+Last round (owner's go, 24 Nov evening):
+
+- **The borderline texts, raised on the Mac (iOS unchanged):** the human gate's detail,
+  Mimir's proposal detail and Mimir's speaker line are now 11 pt at least
+  (`MGWebFont.macLegible`). The terminal's title and `#` lines use the body grey
+  (`MGWebFont.terminalFaint`), for Bifrost's drill log. After a clean rebuild of the Mac
+  Debug build, the Swift package's 230 tests pass.
+- **Not measured:** the screen stayed locked for the whole 20-minute wait (18:12 to
+  18:32), and the alert was still on screen. The full Mac suite, the Mac `audit.sh` pass
+  and the Phase J re-take (`phaseE-gw.sh`) have still not run. They are the next
+  unlocked session's first steps, with the alert cleared.
