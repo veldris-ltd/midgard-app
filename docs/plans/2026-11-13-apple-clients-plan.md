@@ -7514,3 +7514,94 @@ Still open:
 - **On-device iPhone check:** the app on the owner's iPhone, with a VoiceOver walk-through
   of each console (H1), and H2's offline and conflict pass.
 - H4's audit record from `shell-audit.yml`, after the above.
+
+## Finish pass, part 2 (Mac) (24 Nov 2026)
+
+The Mac's screen was unlocked, so the Mac was measured for the first time since Phase D.
+This Mac's two displays are both 1x (1920 × 1200 and 1680 × 1050), not Retina.
+
+- **Mac UI suite (one full run, before the fixes):** 21 tests. Every console flow passed
+  (Midgard, Admin, Heimdall, the Heimdall picture, Forge, Mimir and Bifrost), as did
+  `SessionFlowTests` and the three `EditionTests`. `YourDataFlowTests` (3) skipped as
+  designed, because no files or gateway were given. `HeimdallMapsFlowTests` failed when
+  another app's window came in front of the globe (XCUITest's interruption check named
+  it); it passed when run again alone, so it is flaky from interference, not a fault in
+  the app. The audit tests failed on contrast, screen-reader labels and keyboard
+  navigation. Keyboard navigation is expected to fail, because the setting was kept.
+- **The light-mode audit and screenshots were dark.** AppKit follows the system's
+  appearance and ignores `-AppleInterfaceStyle Light`. This Mac is in dark mode, so every
+  earlier "light" contrast pass and screenshot on the Mac was dark. With
+  `-MidgardUITesting`, Debug builds now set `NSApp.appearance` from that argument, so the
+  light runs are really light.
+- **Screen-reader labels (fixed):** sixteen combined elements had no role ("Unknown
+  role"): Heimdall's workflow stages, Forge's filter tags, mode and code view, Mimir's
+  citations and guardrail rows. They, and every other `children: .ignore` element in the
+  kit, now add the static-text trait. `testCombinedElementsHaveARole` now checks every
+  MidgardKit source, not just `Views/`. The Your Data window's root group is named
+  (`WindowName`).
+- **Contrast:** on a 1x display the Mac's contrast audit fails text whose drawn pixels
+  measure well above AA. The finish-pass scratch notes record each element's measured
+  contrast: white on the card at 14.9:1, for example, is still reported. These results
+  are not fixed by changing colours. Fixed:
+  - the audit's Your Data step now closes the console window first, because eleven
+    findings were console texts that the Your Data window covered;
+  - the picture's honesty line was 9 pt faint, drawn at 2.3:1 at 1x, and is now 11 pt in
+    the body grey on the Mac;
+  - the Mac's demo banner no longer runs under the title bar, where its element took in
+    the bar and the window buttons.
+
+  Still reported in light mode: six small (9–10 pt) mono texts in accent or muted
+  colours, drawn at 4.4–4.5:1 at 1x, for example "HUMAN AUTHORISATION REQUIRED · AI IS
+  ADVISORY", Mimir's speaker line and Bifrost's rollback log. They meet AA by token and
+  were not changed. They need a Retina display, or the owner's decision on a Mac size
+  floor.
+- **Clipping and overlap seen in the screenshots (fixed):**
+  - Bifrost's fleet tables and Artefacts cut "Awaiting courier", "Not reproducible" and
+    the core's "not checked (demo)". The STATE columns are wider, and the fleet's agent
+    badge wraps onto a second line (`WebColumn(fitted:)`, `WebBadge(lines:)`).
+  - The air-gap ring card cut "RING 3 · …" and "OFFLIN…". OFFLINE BUNDLE is now under the
+    ring's name.
+  - The channel cards wrapped "Healthy" and "Rolling" inside their pills.
+  - Heimdall's Entities and Forge's Datasets cut "CONFIDENTIAL // OPS-N". In a fitted
+    column the marking chip drops its compartment; the inspector and VoiceOver still say
+    the whole marking.
+  - Forge's pipeline graph opened centred, which cut off its sources. It now opens at
+    its first column.
+  - At the 900 pt minimum, the Workflows list ran past the inspector. A list row's
+    fields now wrap (`FlowRow(wrapsWide:)`, used for table lists only: used everywhere,
+    it clipped headings and tags at iPhone accessibility sizes).
+
+  Heimdall's Workflows shows its STATE column and "AUTO-EXECUTED · EVER" whole at the
+  default width. The new `HeimdallFlowTests/testWorkflowsAtTheMinimumWindowAreAList`
+  keeps a screenshot of the 900 pt list. After these fixes, the Heimdall, Forge, Mimir
+  and Bifrost flows passed in dark and in light, and the Maps flow passed.
+- **Audit (`audit.sh`, `MIDGARD_AUDIT_KBD=keep`):**
+  - Pass 1, iPhone: passed contrast, focus order, hit targets, reduced motion and
+    screen-reader labels. Dynamic Type failed on Forge's pipeline tags and Object
+    Fabric's section label, which the first, unconditional FlowRow change had clipped.
+    The FlowRow change is now opt-in.
+  - Pass 1, Mac: passed focus order, hit targets and reduced motion. It failed contrast,
+    as above, and screen-reader labels on the Your Data window, now named.
+  - Pass 2 stopped part-way when the owner paused the session. Its iPhone half passed
+    every affordance except keyboard navigation, Dynamic Type included. The Mac half did
+    not run.
+- **After the session resumed:** the Mac's UI tests could no longer reach the app. Every
+  query timed out ("Failed to get matching snapshots"), and the app opened no window. A
+  system alert had stayed on screen since the X9 drive was unplugged. The same failure
+  happened with the last known-good build, so the cause is this Mac's state, not this
+  change. The final Mac suite, the Mac audit of these fixes and the Phase J gateway
+  re-take (`phaseE-gw.sh`) were therefore not run.
+- **Swift package:** 230 tests pass, with the broadened role rule.
+
+Still open:
+
+- **Next unlocked session, with the alert cleared:**
+  - the full Mac UI suite and one Mac `audit.sh` pass, for the window name, banner and
+    honesty fixes;
+  - the Phase J live re-take, to check the LIVE chips, the `/whoami` subject and no
+    `unknown key "outcome"` error.
+- **The six 9–10 pt texts:** measure them on a Retina display, or the owner decides on a
+  Mac size floor.
+- The 900 pt window's header chips wrap inside their pills ("12 FEEDS · FUSED"). They
+  are not cut.
+- From part 1: signed builds, the on-device iPhone check and H4's audit record.
