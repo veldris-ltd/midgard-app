@@ -940,6 +940,10 @@ no readable value, and hidden text failed the contrast audit):
 | "Animations on" / "Animations off (Reduce Motion)", in every phase | `mg.motion` | `full` / `reduced` |
 | "Console n of 6: Name", once signed in | `mg.console.selected` | `1`…`6`, as ⌘1…⌘6 |
 
+On the iPhone at accessibility text sizes the line shows short words ("Heimdall · 3 of
+6", "Motion on"), stacked when they do not fit side by side; the spoken labels stay the
+full ones above. It follows Dynamic Type at every size, uncapped.
+
 Motion is reduced by the system's Reduce Motion or by launching with
 `MIDGARD_REDUCE_MOTION=1`. Focusable elements on audited screens carry identifiers
 `mg.<n>.<name>` in reading order.

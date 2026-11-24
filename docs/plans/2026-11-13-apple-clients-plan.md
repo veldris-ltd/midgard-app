@@ -7473,3 +7473,44 @@ navigation).
 
 The README's "Bifrost's screens (Phase H)" section lists where the apps knowingly differ
 from the web.
+
+## Finish pass, part 1 (24 Nov 2026)
+
+The checks that do not need the Mac's screen, after Phase H. The Mac was locked
+throughout, so no Mac UI test or Mac audit ran.
+
+- **Repository checks:** `cargo fmt --check` passes (the Heimdall action tests and
+  `services/ontology-import`'s import order reformatted); `numbers.sh --check` passes
+  (the sheet rewritten with `--write`, README and GETTING_STARTED at 72 crates).
+- **Dynamic Type on the iPhone:** the 61 "partially unsupported" findings were the
+  status line (44: capped at XXXL) and the web's mono labels scaling with caption2
+  (17: section labels and stat-block labels). The status line now scales uncapped: one
+  line where both texts fit whole, else stacked, and at accessibility sizes short words
+  ("Heimdall · 3 of 6", "Motion on") with the full spoken labels. On iOS `MGFonts` and
+  `MGWebFont` scale caption2 as caption (`MGFonts.scaling`), base sizes unchanged.
+- **Audit (one pass, `MIDGARD_AUDIT_KBD=keep`):** the iPhone passes contrast (both
+  appearances), Dynamic Type, focus order, hit targets, reduced motion and
+  screen-reader labels on every audited screen; keyboard navigation is not measured
+  (setting kept). The Mac reported "Failed to activate application" for every
+  affordance: nothing measured.
+- **Edition and contents:** `check-edition.sh` passes for both apps (maps edition,
+  entitlements, no data bundled, ATS loopback only). No placeholder, "Phase" or "coming
+  soon" copy, user-visible TODO, competitor name or leak data in the app sources or
+  bundles; the only such strings in the binaries are the core's data guard's deny-list.
+  "LIVE" appears only as the web consoles' own labels under the demo banner, and as the
+  banner of a gateway the user connects.
+- **Tests:** core (`midgard-client-core`) 232 passed; Swift package 230 (one source rule
+  updated for `MGFonts.scaling`); iPhone UI suite 30 tests, 3 skipped, 2 failed: the
+  expected iOS `keyboard_navigation`, and `testCommandDigitsWorkWhileSearching` (⌘2 not
+  delivered), which passed when run again alone.
+
+Still open:
+
+- **Everything on the Mac:** the full Mac UI suite and the Mac audit, not measured since
+  Phase D (the screen locked), including the Mac's Heimdall, Forge, Mimir and Bifrost
+  flows, the session flows and the table-width screenshot.
+- **Signed builds:** H3's `release-mac.sh` and `release-ios.sh` (signed DMG and `.ipa`,
+  sizes, bundle contents), and `check-edition.sh` on the signed archives.
+- **On-device iPhone check:** the app on the owner's iPhone, with a VoiceOver walk-through
+  of each console (H1), and H2's offline and conflict pass.
+- H4's audit record from `shell-audit.yml`, after the above.
