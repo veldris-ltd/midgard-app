@@ -134,18 +134,18 @@ struct ForgePipelineScreen: View {
     /// The build status, meter and the pipeline tags (the web's strip above the graph).
     private var strip: some View {
         FlowRow(spacing: 10) {
+            // The pill says the meter's figure too: the meter is drawn only (as one
+            // element it measured under the touch target's height in the second audit
+            // pass, a frame around it notwithstanding).
             forgePill(model.building ? "live" : "healthy", model.building ? model.phase : "Ready")
+                .accessibilityLabel(Text("\(model.building ? model.phase : "Ready"), build \(model.progress)%"))
                 .accessibilityIdentifier("mg.forge.pipeline.status")
             HStack(spacing: 8) {
                 WebLabel("BUILD")
                 WebMeterBar(Double(model.progress), width: 90, accent: ctx.accent)
             }
-            // At least the touch target's height: the iPhone's audit measures any
-            // element's size, a readout's too.
-            .frame(minHeight: webTarget(22))
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text("Build \(model.progress)%"))
-            .accessibilityIdentifier("mg.forge.pipeline.meter")
+            .accessibilityHidden(true)
+
             ForEach(Array(model.rows.enumerated()), id: \.offset) { i, r in
                 WebTag(r.item.name, active: model.pipelineIndex == i, accent: ctx.accent,
                        identifier: "mg.forge.pipeline.tag.\(r.item.id)") {
