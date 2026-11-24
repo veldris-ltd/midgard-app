@@ -7336,3 +7336,68 @@ Pipelines first).
 
 The README's "Forge's screens (Phase F)" section lists where the apps knowingly differ
 from the web.
+
+## Phase G done (24 Nov 2026)
+
+Mimir's seven screens are built on both apps, matched to the rc.3 web console over the
+release's sample data, following the Phase C–F pattern (`Sources/MidgardKit/Consoles/Mimir/`;
+`MimirChrome.swift` and `MGWebAccent.mimir` in `Sources/MidgardKit/WebConsole/`; the Mac's
+`MimirConsole` in the console's own frame, the iPhone's list in the web's order and words,
+Agents first).
+
+- **Actions** (`clients/core/src/demo/actions/mimir.rs`, which lists where the port
+  differs): `mimir.runEval` (each suite's battery, its score to a tenth as `Math.round`
+  gives it, the 90 % gate) and `mimir.simulateGuardrail` (the mock's two patterns spelled
+  out as literal alternations, `.*` as "to the end of the line", no regex crate), from
+  `MimirMock`; and two the mock does not hold: `mimir.applyProposal` (the Studio's
+  proposal, refused without a token — "Human gate required to authorise \"Schedule
+  maintenance · AC-2214 → FAC-DUB\"" — and decided once, a second press a conflict) and
+  `mimir.saveLogic` (refused when a human gate would be deleted or a state-mutating
+  action left without one after it: the Logic Builder's rule enforced in the core's
+  handler, whatever a screen sends). All audited in the runtime `mimir.audit` in the
+  mock's numbering (`A-77121` from 14:32:10), refusals included, at the target's marking.
+- **Golden parity:** `clients/demo/tools/extract-golden.sh` records `MimirMock`'s own
+  answers (every suite run, then 32 guardrail inputs: the screen's three presets, one per
+  alternation and the near misses, newlines included) into
+  `clients/demo/golden/<release>/mimir.json`; `mimir_actions.rs` replays them through a
+  session and compares answers and audit ids. The plan's `fixtures/<release>/golden/` is
+  not used: the fixtures directory is what the signed demo dataset is built and checked
+  from (`extract-fixtures.sh --check` diffs it whole), so a golden file there would have
+  needed the dataset re-signed.
+- **Studio exchange:** `clients/demo/studio.json` (the web screen's lines 25–29, 80 and 97,
+  copied once, with the screen's blob), served by `extract-sample.mjs` as
+  `mimir.studioExchange` (`MimirStudioExchange`, hand-written in core and FFI as
+  `HeimdallMotion` is). The extractor stops when the screen's blob changes, and records
+  both files in `inputs`; `extract-sample.sh --check` holds the screen to the tag as it
+  does the mocks. It is in the sample only (not the signed demo dataset, which is
+  unchanged).
+- **Tier chip:** offline the header's AI chip says AI OFF (owner decision 6), not the
+  on-device tier of Q6; the Studio exchange still plays offline from the cached row.
+- **Tests:** `clients/core/tests/mimir_actions.rs` (5, and 3 unit tests);
+  `MimirConsoleTests` (6); one `MimirFlowTests` per app (seven screens, the proposal
+  authorised as A-77121, the selected suite run from the header as A-77122, the injection
+  preset stopped as A-77123; on the Mac the gate's Delete disabled and another step
+  deleted and restored). The FFI sample test, `sample_source.rs` and `AppModelTests` count
+  56 collections. The audit adds Mimir's Agent Studio and Guardrails on both apps.
+- **Audit (two passes, `MIDGARD_AUDIT_KBD=keep`):** the Mac was locked during both
+  passes and the whole phase ("Failed to activate application"), so nothing was measured
+  there and the Mac's `MimirFlowTests` was built but not run. On the iPhone both passes
+  passed focus order, hit targets, reduced motion and screen-reader labels on every
+  audited screen, Mimir's included. Contrast failed on the Agent Studio only: pass 1 on
+  the OPERATOR speaker line the console bar cut (faint text) and on the console bar
+  itself; after the line was made one element in the muted colour (`WholeElement`),
+  pass 2 no longer reports the line but still reports the console bar over the Agent
+  Studio, in both appearances — not resolved (no other screen's console bar is
+  reported; the likeliest cause is the session's sunken panel drawn under the bar's
+  edge). Dynamic Type still fails only on the "partially unsupported" findings from
+  Phase J; keyboard navigation is not measured (setting kept).
+- **Deviations from the web** beyond the above: the README's "Mimir's screens (Phase G)"
+  section lists them (the proposal decided and audited by the core with its real audit
+  id, logic edits saved, evals and checks not queued offline, handler-less controls
+  disabled with a reason, no header search or icons, the Mac opening on Model plane, no
+  synthetic audit stream, accent text on paper 0x12666F). No web reference screenshots
+  were taken (no web build or Chromium run in this phase); the screens were matched from
+  the screen sources.
+
+The README's "Mimir's screens (Phase G)" section lists where the apps knowingly differ
+from the web.

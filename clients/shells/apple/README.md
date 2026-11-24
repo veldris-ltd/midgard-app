@@ -130,7 +130,7 @@ With a team in `Signing.local.xcconfig` the first signed build may need
 
 `test` runs the scheme's UI tests (`SessionFlowTests`, `MidgardFlowTests`,
 `AdminFlowTests`, `HeimdallFlowTests`, `HeimdallPictureFlowTests`, `HeimdallMapsFlowTests`,
-`ForgeFlowTests`, `YourDataFlowTests`, `EditionTests` and `AccessibilityAudit`; add
+`ForgeFlowTests`, `MimirFlowTests`, `YourDataFlowTests`, `EditionTests` and `AccessibilityAudit`; add
 `-only-testing:MidgardMacMapsUITests/HeimdallPictureFlowTests`, or
 `MidgardiOSMapsUITests/...`, for one class). The UI tests launch the app with
 `-MidgardUITesting`, which in Debug builds only selects a key root that never prompts and
@@ -220,8 +220,13 @@ their own data, a gateway or feeds: [Your data](#your-data-phase-j)). Each app's
   [Admin's screens](#admins-screens-phase-d)), as it numbers its ledger (`A-9111`, from
   14:02:13, in the runtime `admin.audit`). The rows' wording stays the core's (`applied ·
   heimdall.authoriseWorkflow`), which the device's audit key checks before signing it.
-  The other consoles' actions come with their phases and are refused as unknown until
-  then;
+  Forge's (Phase F) and Mimir's (Phase G, see [Mimir's screens](#mimirs-screens-phase-g))
+  are numbered as `ForgeMock` and `MimirMock` number them (`FRG-2044` from 14:02:13;
+  `A-77121` from 14:32:10, in the runtime `mimir.audit`). Bifrost's actions come with
+  Phase H and are refused as unknown until then. One row the mocks do not hold is added:
+  Mimir's Agent Studio exchange (`clients/demo/studio.json`, copied once from the web
+  screen, served as `mimir.studioExchange`; `extract-sample.sh --check` holds that screen
+  to the tag);
 - the banner above everything is the web consoles' own demonstration notice,
   "Demonstration data. This console runs on built-in sample data and is not connected to
   an enclosure." (`mg.banner.demo`).
@@ -533,6 +538,80 @@ and discards it. `ForgeConsoleTests` covers the screen models against the core a
 Mac table's widths, and `clients/core/tests/forge_actions.rs` the actions. The audit
 covers Forge's Pipelines and Transform IDE on both apps (and its Connectors, the
 console's first screen, on the Mac).
+
+## Mimir's screens (Phase G)
+
+All seven of Mimir's screens are built on both apps, matched to the rc.3 web console
+(`products/mimir/ui/src/screens/`) over the release's sample data:
+`Sources/MidgardKit/Consoles/Mimir/` (the screen models and views) and, in
+`Sources/MidgardKit/WebConsole/`, `MimirChrome.swift` (the navigation's items, badges,
+each screen's context line and inspector width; the Evals pass bar) and Mimir's accent
+(`MGWebAccent.mimir`). The Mac shows each screen in the web's frame (the CONFIDENTIAL ·
+RECIPIENT EYES ONLY banner, the header with its INFERENCE · LOCAL and NO EGRESS seals and
+the screen's toolbar item, the navigation's BUILD, GOVERN and SERVE sections in the web's
+order, words and badges, the screen and its inspector); the iPhone lists the screens in
+the same order and words, Agents first, and shows each under the console's banner and
+header with its tables as lists, its inspector in a sheet and every control at least
+44 pt.
+
+| Screen | What it does here |
+|---|---|
+| Agents (Agent Studio) | the agents as cards (eval pass, description), the OAG session: the opening question, the grounded answer with its object citations and the proposal "Schedule maintenance · AC-2214 → FAC-DUB" behind the human gate; Authorise sends `mimir.applyProposal` with a token made from the press and the header shows ACTION AUTHORISED · AUDIT #<id>; a question asked gets the follow-up answer after 1.2 s, as on the web; the inspector's eval figures, guardrails and SELF-* loops |
+| Logic (no-code) | the dispatch agent's seven steps as the web draws them, the gate outlined in warn with MANDATORY; the selected step's inspector (its MANDATORY STEP note on the gate), its settings (title, detail) and the versions; on the Mac steps are also added, moved and deleted (the gate's Delete is disabled); Save sends `mimir.saveLogic`, and the core refuses any save that deletes a gate or leaves a state-mutating action without one after it, whatever the screen sends |
+| Session traces | S-8812's plan–act–observe steps with their timings, the gate PENDING, the selected step and the PQ-encrypted memory records; above the persona's clearance a trace is withheld by count |
+| Evals | the suites with pass bar, delta and state, the kind tags (they filter, as on the web); Run (the inspector's, or the header's Run suite) sends `mimir.runEval` and shows the gate's verdict, the score meter, every case and the audit id |
+| Guardrails | the rail inventory, a rail's mode (core rails locked), LIVE INTERCEPTION: the three presets or a typed input through `mimir.simulateGuardrail`, the verdict with its refusal code, rail, reason and audit id; the incidents table |
+| Governed feedback | the records with provenance and state; the selected one's PATH TO POLICY, or for the poisoning attempt its POISONING DEFENCE · DISCARDED note; the learning ledger |
+| Model plane | the four families as cards, the selected one's throughput, weights provenance and canary prompts; the consumers table |
+
+The actions are the core's ports (`clients/core/src/demo/actions/mimir.rs`, which lists
+where the port knowingly differs): `mimir.runEval` and `mimir.simulateGuardrail` from
+`MimirMock` (its two patterns as literal alternations, no regex engine; golden-tested on
+the mock's own answers, `clients/demo/golden/<release>/mimir.json`, recorded by
+`clients/demo/tools/extract-golden.sh`), and two the mock does not hold:
+`mimir.applyProposal` (refused without a token, "Human gate required to authorise
+\"Schedule maintenance · AC-2214 → FAC-DUB\"", and decided once) and `mimir.saveLogic`.
+All are audited in `mimir.audit` in the mock's numbering (`A-77121` from 14:32:10), at
+the target's marking. Rows above the persona are withheld by count: K. Rao (restricted)
+reads neither session trace, J. Benjamin (OPS-N) reads S-8812 only.
+
+Where the apps knowingly differ from the web console:
+- **The proposal is decided by the core.** The web's Authorise only hides the proposal
+  and shows a fixed "AUDIT #A-77120"; here it is an audited action, so the badge shows the
+  id the core gave it (A-77121 for the first action of a session), and a second
+  authorisation of the same proposal is a conflict ("already authorised").
+- **Logic edits are saved** (in the sample's memory, until the app quits): the web screen
+  is read-only and the mock has no write. The plan's canvas edits are steps added, moved
+  and deleted in the web's vertical layout, not a free canvas.
+- **Evals and guardrail checks are not queued offline**: they are reads the enclosure
+  computes, and the screen says so. The Studio exchange still plays offline (it is a
+  cached row); the header's AI chip shows AI OFF offline (owner decision 6), not the
+  plan's on-device tier (Q6).
+- **Controls the web leaves without a handler are disabled with a reason**: the model and
+  route selects, Test run, Publish v7, Export trace, Export incident log, the guardrail
+  mode switch of a non-core rail, and the proposal's Reject. Settings (an icon with no
+  handler) is left out.
+- **No search box, colour-mode toggle, notifications or account icons** in the header, as
+  on Forge's; the account menu is the persona menu.
+- **The Mac opens Mimir on Model plane**, the catalogue's first screen, where the web opens
+  Agents at `/`; the navigation and the iPhone's list are in the web's order, Agents first.
+- **No live audit stream is invented**: the mock's `auditStream` adds a record every 4.2 s;
+  no Mimir screen shows the audit on the web, and `mimir.audit` holds what this device's
+  actions add.
+- **Accent text on paper** is a darker shade of `--mimir-600` (0x12666F): the web's reads
+  4.0:1 on the light page, under AA.
+- **Connected to a gateway** Mimir is not served by it: its screens keep the sample data
+  and say so ("NOT SERVED BY <host>"), and its actions stay on the sample data.
+- **Imported data** (Your Data) is not listed here: Mimir's screens list agents, suites,
+  rails and models, not object types.
+
+`MimirFlowTests` on each app opens all seven screens, authorises the Studio's proposal
+(A-77121), runs the selected suite from the header (A-77122, the gate blocking) and stops
+the injection preset at the input rail (A-77123); on the Mac it also checks the gate's
+Delete is disabled and deletes and restores another step. `MimirConsoleTests` covers the
+screen models against the core, and `clients/core/tests/mimir_actions.rs` the actions.
+The audit covers Mimir's Agent Studio and Guardrails on both apps (and its Model plane,
+the console's first, on the Mac).
 
 ## Heimdall's MAP and 3D views (Phase I)
 
