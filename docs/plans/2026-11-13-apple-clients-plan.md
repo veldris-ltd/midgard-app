@@ -7401,3 +7401,75 @@ Agents first).
 
 The README's "Mimir's screens (Phase G)" section lists where the apps knowingly differ
 from the web.
+
+## Phase H done (24 Nov 2026)
+
+Bifrost's six screens are built on both apps, matched to the rc.3 web console over the
+release's sample data, following the Phase C–G pattern (`Sources/MidgardKit/Consoles/Bifrost/`;
+`BifrostChrome.swift` and `MGWebAccent.bifrost` in `Sources/MidgardKit/WebConsole/`; the
+Mac's `BifrostConsole` in the console's own frame, the iPhone's list in the web's order and
+words, Releases first). With it every console is built: no screen on either app is a
+placeholder (the Mac's split-view shell for unbuilt consoles and
+`ConsoleCatalog.placeholder` are gone; both `SessionFlowTests` check that no screen says
+"arrives in Phase", and `ConsoleCatalogTests` that every screen is in its web console's
+navigation).
+
+- **Phase G leftover, first:** the iPhone audit's console-bar contrast over the Agent
+  Studio. On the iPhone the agents are now tags over the chosen agent's card (three
+  stacked cards pushed the session to the bar's edge), and the answer's text is one
+  element over its drawn text (`WholeElement`), as the speaker line already was. Audit
+  pass 2 passes contrast on every iPhone screen, the Studio included, in both appearances.
+- **Actions** (`clients/core/src/demo/actions/bifrost.rs`, which lists where the port
+  differs): `bifrost.promoteRelease` (param `ring`: one step of `max(1, ceil(15 %))` of
+  the ring's installations, WATCH while rolling, PASS once rolled, the ring's progress
+  kept) and `bifrost.rollback`, from `BifrostMock`, both for the role `release-manager`
+  only (A. Holt among the sample personas; the others are refused, "Role release-manager
+  required to promote REL-2050"). The mock's gates keep its words: a promotion to the
+  air-gap ring is refused, fail closed, as "Promote · REL-2050 → ring air-gap (bundle
+  required)" (the mock answers `healthGate: 'fail'`; here it is a refusal, audited as
+  one), and a plan that is not armed or available is "Rollback held by gate" (the web
+  screen's gate). The mock's own record wording comes with each answer as `step`. Audited
+  in `bifrost.audit` after the mock's five seed records, in its numbering (`AUD-B-1044`
+  from 14:32:10: the mock's `nextId` skips 1043), refusals included, at the target's
+  marking (at least restricted, so A. Holt, internal, does not read the new rows; the
+  audit id still comes with each answer).
+- **Golden parity:** `extract-golden.sh` now also records `BifrostMock`'s answers (at its
+  default 180 ms latency, so its stamps are its own): the broad ring promoted to 100 % and
+  once more, the canary ring, the air-gap ring, every plan rolled back, the audit records
+  those calls wrote and the rings after them, into `clients/demo/golden/<release>/bifrost.json`;
+  `bifrost_actions.rs` replays them through a session and compares answers, record
+  wording, ids, stamps and rings. `mimir.json` changed only in its recorded blob of the
+  extractor.
+- **Screens:** Promote to Ring 2 (the header's) steps the broad ring through the core until
+  it is rolled or the gate fails, as the web's loop does, 180 ms apart, the meter, gate
+  pill and LAST STEP · AUDIT following each answer; the inspector also lists the
+  session's steps. Run drill plays the web's canned drill into the log at the web's pace;
+  Execute rollback goes through the core. Handler-less controls are disabled with a
+  reason; on the iPhone the channel select gives way so Promote fits the header.
+- **Tests:** `clients/core/tests/bifrost_actions.rs` (4, and 1 unit test; the core suite
+  passes); `BifrostConsoleTests` (5; the package's 230 tests pass); one
+  `BifrostFlowTests` per app (A. Holt; six screens, the broad ring promoted as AUD-B-1044
+  to AUD-B-1047 with GATE PASS, the drill, the release plan executed as AUD-B-1048). The
+  audit adds Bifrost's Release Console and Rollback centre on the iPhone, and Fleet &
+  drift and Rollback centre (with Release Console, the console's first) on the Mac.
+- **Audit (two passes, `MIDGARD_AUDIT_KBD=keep`):** the Mac was locked for the whole
+  phase ("Failed to activate application"), so nothing was measured there and the Mac's
+  `BifrostFlowTests` and `SessionFlowTests` were built but not run. On the iPhone pass 1
+  failed contrast on the Agent Studio's answer text and the Release Console's last ring
+  card ("0/9"), both under the console bar's edge, and the screen-reader check on the
+  release badge "v2.5.0"; after the answer and the ring card were made one element each
+  (`WholeElement`) and the badge spoken "Version 2.5.0", pass 2 passed contrast (both
+  appearances), focus order, hit targets, reduced motion and screen-reader labels on every
+  audited screen, Bifrost's included. Dynamic Type still fails only on the "partially
+  unsupported" findings (61, from 55 in Phase G: the two new screens' small mono labels,
+  capped as since Phase J); keyboard navigation is not measured (setting kept).
+- **Deviations from the web** beyond the above: the README's "Bifrost's screens (Phase H)"
+  section lists them (core-decided, role-checked promotions and rollbacks, the air-gap
+  refusal, a step queued offline, the session's steps listed, handler-less controls
+  disabled, no header search or icons, no synthetic audit stream, the accent's dark-mode
+  numerals at `--bifrost-300`). The accent text is the web's own `--bifrost-600` on paper
+  (AA as it is). No web reference screenshots were taken; the screens were matched from
+  the screen sources.
+
+The README's "Bifrost's screens (Phase H)" section lists where the apps knowingly differ
+from the web.

@@ -130,7 +130,7 @@ With a team in `Signing.local.xcconfig` the first signed build may need
 
 `test` runs the scheme's UI tests (`SessionFlowTests`, `MidgardFlowTests`,
 `AdminFlowTests`, `HeimdallFlowTests`, `HeimdallPictureFlowTests`, `HeimdallMapsFlowTests`,
-`ForgeFlowTests`, `MimirFlowTests`, `YourDataFlowTests`, `EditionTests` and `AccessibilityAudit`; add
+`ForgeFlowTests`, `MimirFlowTests`, `BifrostFlowTests`, `YourDataFlowTests`, `EditionTests` and `AccessibilityAudit`; add
 `-only-testing:MidgardMacMapsUITests/HeimdallPictureFlowTests`, or
 `MidgardiOSMapsUITests/...`, for one class). The UI tests launch the app with
 `-MidgardUITesting`, which in Debug builds only selects a key root that never prompts and
@@ -222,8 +222,9 @@ their own data, a gateway or feeds: [Your data](#your-data-phase-j)). Each app's
   heimdall.authoriseWorkflow`), which the device's audit key checks before signing it.
   Forge's (Phase F) and Mimir's (Phase G, see [Mimir's screens](#mimirs-screens-phase-g))
   are numbered as `ForgeMock` and `MimirMock` number them (`FRG-2044` from 14:02:13;
-  `A-77121` from 14:32:10, in the runtime `mimir.audit`). Bifrost's actions come with
-  Phase H and are refused as unknown until then. One row the mocks do not hold is added:
+  `A-77121` from 14:32:10, in the runtime `mimir.audit`), and Bifrost's (Phase H, see
+  [Bifrost's screens](#bifrosts-screens-phase-h)) as `BifrostMock` numbers them
+  (`AUD-B-1044` from 14:32:10, after its five seed records). One row the mocks do not hold is added:
   Mimir's Agent Studio exchange (`clients/demo/studio.json`, copied once from the web
   screen, served as `mimir.studioExchange`; `extract-sample.sh --check` holds that screen
   to the tag);
@@ -593,6 +594,10 @@ Where the apps knowingly differ from the web console:
   handler) is left out.
 - **No search box, colour-mode toggle, notifications or account icons** in the header, as
   on Forge's; the account menu is the persona menu.
+- **On the iPhone the Agent Studio's agents are tags** with only the chosen agent's card
+  under them (the Mac keeps the web's three cards): stacked, the cards pushed the
+  session to the console bar's edge, where the audit read the bar against the cut text;
+  the answer's text is one element over its drawn text, as the speaker line is.
 - **The Mac opens Mimir on Model plane**, the catalogue's first screen, where the web opens
   Agents at `/`; the navigation and the iPhone's list are in the web's order, Agents first.
 - **No live audit stream is invented**: the mock's `auditStream` adds a record every 4.2 s;
@@ -612,6 +617,84 @@ Delete is disabled and deletes and restores another step. `MimirConsoleTests` co
 screen models against the core, and `clients/core/tests/mimir_actions.rs` the actions.
 The audit covers Mimir's Agent Studio and Guardrails on both apps (and its Model plane,
 the console's first, on the Mac).
+
+## Bifrost's screens (Phase H)
+
+All six of Bifrost's screens are built on both apps, matched to the rc.3 web console
+(`products/bifrost/ui/src/screens/`) over the release's sample data:
+`Sources/MidgardKit/Consoles/Bifrost/` (the screen models and views) and, in
+`Sources/MidgardKit/WebConsole/`, `BifrostChrome.swift` (the navigation's items, badges,
+each screen's context line and inspector width; the health-gate pill) and Bifrost's
+accent (`MGWebAccent.bifrost`). The Mac shows each screen in the web's frame (the
+INTERNAL · RELEASE CONTROL PLANE banner, the header with its ARTEFACTS ML-DSA ✓ seal and
+the screen's toolbar item, the navigation's DELIVERY and FLEET sections in the web's
+order, words and badges, the screen and its inspector); the iPhone lists the screens in
+the same order and words, Releases first, and shows each under the console's banner and
+header with its tables as lists, its inspector in a sheet and every control at least
+44 pt. With Bifrost in, every console's screens are built: neither app has a placeholder
+screen any more (the Mac's split-view shell for unbuilt consoles is gone).
+
+| Screen | What it does here |
+|---|---|
+| Releases (Release Console) | the release's rollout: installations, failed requests, rollback gate, the four rings with their meters (OFFLINE BUNDLE on the air-gap ring), the fleet and the supply-chain terminal; the header's Promote to Ring 2 sends `bifrost.promoteRelease` for the broad ring step after step until it is fully rolled or the gate fails, as the web's loop does, the meter and gate pill (WATCH, then PASS) following each answer and the inspector showing LAST STEP · AUDIT <id> and every step this session made; the inspector's release intelligence, health gates and provenance |
+| Artefacts | the registry with reproducibility, critical CVEs and state; the selected artefact's verification, and for the non-reproducible one its BLOCKED · NOTHING WAS PROMOTED note |
+| Channels | the three channels as cards (cadence, current, subscribers, next), the promotion history; the selected channel's promotion policy and subscriber mix |
+| Offline bundles | the six-stage bundle pipeline (the first two outlined while the selected bundle awaits its courier), the bundles; the selected one's contents and offline verification |
+| Fleet & drift | converged, version-drift and config-drift counts, the installations; the selected one's desired and actual versions, its CONFIG DRIFT diff where it has one, and its on-host agent |
+| Rollback centre | the standing plans; the header's Run drill plays the web's canned drill into the DRILL LOG at the web's pace; the selected plan's triggers and health gate, and Execute rollback sends `bifrost.rollback` (EXECUTED · AUDIT <id>, and the log's closing lines) |
+
+The actions are the core's ports of `BifrostMock` (`clients/core/src/demo/actions/bifrost.rs`,
+which lists where the port knowingly differs), golden-tested on the mock's own answers
+and audit records (`clients/demo/golden/<release>/bifrost.json`, recorded by
+`clients/demo/tools/extract-golden.sh`), audited in `bifrost.audit` in the mock's
+numbering (`AUD-B-1044` from 14:32:10, after its five seed records) at the target's
+marking, at least restricted. They keep the mock's gates and words: a promotion step
+advances the ring by `max(1, ceil(15 %))` of its installations, WATCH while rolling and
+PASS once rolled; a promotion to the air-gap ring is refused, fail closed, as "Promote ·
+REL-2050 → ring air-gap (bundle required)"; a rollback runs only while its plan is armed
+or available ("Rollback held by gate"). Both need the role `release-manager`: of the
+sample personas only A. Holt holds it, and the others are refused ("Role release-manager
+required to promote REL-2050").
+
+Where the apps knowingly differ from the web console:
+- **Promotions and rollbacks are decided by the core**, for the release-manager role
+  only (the mock checks no role and always names `j.benjamin`); the persona signed in is
+  the actor, and the refusal is shown in the screen. The air-gap ring's gate is a
+  refusal (the mock answers `healthGate: 'fail'`); an unknown ring or plan is refused.
+  The rings read back as the core left them, so a second Promote starts from 100 %.
+- **A. Holt does not read Bifrost's new audit rows**: the core marks an action's audit
+  row at least restricted, above A. Holt's internal clearance; the audit id still comes
+  with each answer, which is all the web screens show. K. Osei reads them.
+- **Offline a step or a rollback is queued** (they are actions, not reads): Promote
+  stops after the first step and says so.
+- **The promotion's steps are listed** in the inspector (STEPS · THIS SESSION, each with
+  the mock's own record wording, which the core returns as `step`), where the web shows
+  only the last audit id.
+- **Controls the web leaves without a handler are disabled with a reason**: the channel
+  select (left out on the iPhone, so Promote fits the header), Prepare rollback plan,
+  Register artefact, New channel, Open release console,
+  Cut new bundle, Reconcile all, Revert to desired and Adopt. The Artefacts filter tags
+  highlight but filter nothing, as on the web. Run drill is the web's canned rehearsal
+  (no action), played here as there.
+- **No search box, colour-mode toggle, notifications or account icons** in the header,
+  as on the other consoles; the account menu is the persona menu.
+- **No live audit stream is invented**: the mock's `auditStream` adds a record every
+  4.2 s; no Bifrost screen shows the audit on the web.
+- **Accent**: text in the web's own `--bifrost-600` on paper (5.9:1 on the page, 5.0:1
+  on the tint) and `--bifrost-300` in dark mode; the section numerals, the base violet on
+  the web, are `--bifrost-300` in dark mode (the base reads 4.3:1 on the dark page).
+- **Connected to a gateway** Bifrost is not served by it: its screens keep the sample
+  data and say so ("NOT SERVED BY <host>"), and its actions stay on the sample data.
+- **Imported data** (Your Data) is not listed here: Bifrost's screens list releases,
+  artefacts and installations, not object types.
+
+`BifrostFlowTests` on each app signs in as A. Holt, opens all six screens, promotes the
+broad ring to 100 % from the header (AUD-B-1044 to AUD-B-1047, GATE PASS), plays the
+drill and executes the release rollback plan (AUD-B-1048). `BifrostConsoleTests` covers
+the screen models against the core (and the refusals without the role, and the queued
+step offline), and `clients/core/tests/bifrost_actions.rs` the actions. The audit covers
+Bifrost's Release Console and Rollback centre on the iPhone, and its Release Console
+(the console's first), Fleet & drift and Rollback centre on the Mac.
 
 ## Heimdall's MAP and 3D views (Phase I)
 
