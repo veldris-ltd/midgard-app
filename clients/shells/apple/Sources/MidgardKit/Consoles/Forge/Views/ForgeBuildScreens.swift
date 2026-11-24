@@ -140,6 +140,9 @@ struct ForgePipelineScreen: View {
                 WebLabel("BUILD")
                 WebMeterBar(Double(model.progress), width: 90, accent: ctx.accent)
             }
+            // At least the touch target's height: the iPhone's audit measures any
+            // element's size, a readout's too.
+            .frame(minHeight: webTarget(22))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text("Build \(model.progress)%"))
             .accessibilityIdentifier("mg.forge.pipeline.meter")
@@ -444,6 +447,20 @@ struct ForgeTransformScreen: View {
         _model = StateObject(wrappedValue: ForgeTransformModel(app: ctx.app))
     }
 
+    /// A file name as VoiceOver says it ("fuse positions, Python file"): the audit reads
+    /// "fuse_positions.py" as not human-readable.
+    static func spokenFile(_ name: String) -> String {
+        let parts = name.split(separator: ".", maxSplits: 1).map(String.init)
+        let kind: String
+        switch parts.count > 1 ? parts[1] : "" {
+        case "py": kind = "Python file"
+        case "yml", "yaml": kind = "YAML file"
+        case "": kind = "file"
+        default: kind = "\(parts[1].uppercased()) file"
+        }
+        return "\(parts[0].replacingOccurrences(of: "_", with: " ")), \(kind)"
+    }
+
     private func hunkColour(_ op: String) -> Color {
         switch op {
         case "+": return MGWeb.secureText
@@ -531,6 +548,7 @@ struct ForgeTransformScreen: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(Text(Self.spokenFile(f)))
                     .accessibilityAddTraits(i == model.fileIndex ? [.isSelected] : [])
                     .accessibilityIdentifier("mg.forge.ide.file.\(i)")
                 }
