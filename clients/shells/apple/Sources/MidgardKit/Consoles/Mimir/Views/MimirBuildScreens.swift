@@ -133,10 +133,15 @@ struct MimirStudioScreen: View {
 
     private func message(_ m: MimirStudioModel.Message) -> some View {
         VStack(alignment: m.operatorSaid ? .trailing : .leading, spacing: 6) {
+            // One element over the drawn speaker line (`WholeElement`), in the muted
+            // colour: where the console bar cuts it at the scroll's edge it is not
+            // measured as a cut-off faint text (the first audit pass).
             Text(m.operatorSaid ? "OPERATOR" : "MIMIR · Mistral Small 3.2 · LOCAL")
                 .font(MGWebFont.mono(10))
                 .mgTracking(0.14, size: MGWebFont.monoSize(10))
-                .foregroundStyle(MGWeb.textFaint)
+                .foregroundStyle(MGWeb.textMuted)
+                .modifier(WholeElement(label: m.operatorSaid ? "Operator" : "Mimir, Mistral Small 3.2, local",
+                                       traits: .isStaticText, identifier: "", action: nil))
             VStack(alignment: .leading, spacing: 10) {
                 Text(m.text)
                     .font(MGWebFont.sans(14))
