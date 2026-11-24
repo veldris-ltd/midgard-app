@@ -184,8 +184,9 @@ struct WindowSetup: NSViewRepresentable {
     }
 }
 
-/// Signed in: Heimdall, Midgard and Admin in their web consoles' own frames
-/// (`HeimdallConsole`, `MidgardConsole`, `AdminConsole`, matched to the web suite, owner
+/// Signed in: Heimdall, Midgard, Admin and Forge in their web consoles' own frames
+/// (`HeimdallConsole`, `MidgardConsole`, `AdminConsole`, `ForgeConsole`, matched to the
+/// web suite, owner
 /// decision 22 Nov 2026); every other
 /// console, until its phase
 /// matches it, the persona menu above a three-column split view. The sidebar lists the
@@ -205,6 +206,9 @@ struct ConsoleShell: View {
                 .navigationTitle(ConsoleCatalog.console(route).name)
         } else if ConsoleCatalog.console(route).id == "admin" {
             AdminConsole(model: model, persona: persona, route: $route)
+                .navigationTitle(ConsoleCatalog.console(route).name)
+        } else if ConsoleCatalog.console(route).id == "forge" {
+            ForgeConsole(model: model, persona: persona, route: $route)
                 .navigationTitle(ConsoleCatalog.console(route).name)
         } else {
             SplitConsoleShell(model: model, persona: persona, route: $route)
@@ -451,6 +455,64 @@ struct AdminConsole: View {
         return WebSideNav(rail: WebSideNavSection(title: "CONSOLES", items: consoles), sections: sections,
                           accent: AdminChrome.accent) {
             if screen == "Overview" { AdminStatusFooter() }
+        }
+    }
+}
+
+/// Forge as the web console draws it (`ConsoleShell product="forge"` with each of its
+/// seven screens): the RESTRICTED · DATA PLANE banner, the header (mark, the screen's
+/// context, the seal, the screen's toolbar item, the persona menu), the navigation (the
+/// six consoles as a row of tiles, then Forge's DATA OPS and FABRIC sections in the web's
+/// order, words and badges), and the screen with its inspector. [FR-C-1] [FR-F-1] [DD-7]
+struct ForgeConsole: View {
+    @ObservedObject var model: AppModel
+    let persona: PersonaInfo
+    @Binding var route: ConsoleRoute
+    @StateObject private var toolbar = ForgeToolbar()
+
+    private var forge: Console { ConsoleCatalog.console(route) }
+    private var screen: String { ConsoleCatalog.screenName(route) }
+
+    var body: some View {
+        let item = ForgeChrome.item(for: screen)
+        let context = screen == "Pipeline Builder" ? toolbar.context ?? item?.context ?? "" : item?.context ?? ""
+        WebConsoleFrame(banner: ForgeChrome.banner, product: "Forge", accent: ForgeChrome.accent,
+                        context: context, seals: ForgeChrome.seals) {
+            nav
+        } content: {
+            ForgeScreen(app: model, persona: persona.id, screen: screen, compact: false, toolbar: toolbar) { open($0) }
+        } trailing: {
+            ForgeToolbarItem(screen: screen, toolbar: toolbar)
+            PersonaMenu(model: model, persona: persona)
+        }
+    }
+
+    private func open(_ screen: String) {
+        let index = forge.screens.firstIndex(of: screen) ?? 0
+        route = ConsoleRoute(console: route.clamped.console, screen: index).clamped
+    }
+
+    /// The consoles first, as a row of tiles (numbered from 1; the persona menu is 0),
+    /// then Forge's sections in the web's order.
+    private var nav: some View {
+        var number = 0
+        func next() -> Int { number += 1; return number }
+        let consoles = ConsoleCatalog.consoles.enumerated().map { index, console in
+            WebSideNavItem(id: "console.\(console.slug)", label: "\(console.name) console", symbol: console.symbol, badge: nil,
+                           identifier: "mg.\(next()).console.\(console.slug)", selected: console.id == "forge",
+                           action: { route.select(console: index) })
+        }
+        let sections = ForgeChrome.sections.map { section in
+            WebSideNavSection(title: section.title, items: section.items.map { item in
+                WebSideNavItem(id: item.id, label: item.label, symbol: item.symbol, badge: item.badge,
+                               identifier: "mg.\(next()).screen.\(ConsoleCatalog.slug(item.screen))",
+                               selected: item.screen == screen,
+                               action: { open(item.screen) })
+            })
+        }
+        return WebSideNav(rail: WebSideNavSection(title: "CONSOLES", items: consoles), sections: sections,
+                          accent: ForgeChrome.accent) {
+            EmptyView()
         }
     }
 }

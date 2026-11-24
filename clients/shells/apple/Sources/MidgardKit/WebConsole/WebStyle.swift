@@ -81,6 +81,20 @@ public struct MGWebAccent {
         tint: Color(mgHex: MGToken.heimdallTint.0, opacity: MGToken.heimdallTint.1),
         glow: Color(mgHex: MGToken.heimdallGlow.0, opacity: MGToken.heimdallGlow.1))
 
+    /// Forge's scope (`.theme-forge`). Accent text is `--accent-hover`: `--forge-300` in
+    /// dark mode; on paper the web's `--forge-600` reads 4.3:1 on the page, under AA, so
+    /// a darker shade of it (0x9A4A10, 5.4:1) is used for text there, as Heimdall's is.
+    public static let forge = MGWebAccent(
+        fill: Color(mgHex: MGToken.forge500),
+        text: Color(mgLight: (forgeTextLight, 1), dark: (MGToken.forge300, 1)),
+        hex: MGToken.forge500,
+        tint: Color(mgHex: MGToken.forgeTint.0, opacity: MGToken.forgeTint.1),
+        glow: Color(mgHex: MGToken.forgeGlow.0, opacity: MGToken.forgeGlow.1),
+        baseTextLight: forgeTextLight)
+
+    /// Forge's accent text on paper.
+    static let forgeTextLight: UInt32 = 0x9A4A10
+
     /// Midgard's scope (`.theme-midgard`), also Admin's. Accent text is `--accent-hover`
     /// (`--midgard-300` in dark mode, `--midgard-600` on paper).
     public static let midgard = MGWebAccent(

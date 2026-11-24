@@ -267,12 +267,14 @@ struct ConsoleTab: View {
 
     /// Midgard's screens in its web console's order (FABRIC, GOVERNANCE, PLATFORM),
     /// Admin's in its (OVERSEE, ADMINISTER, EMERGENCY, ASSIST), Heimdall's in its
-    /// (PICTURE, DECIDE); every other console's in the catalogue's.
+    /// (PICTURE, DECIDE), Forge's in its (DATA OPS, FABRIC); every other console's in the
+    /// catalogue's.
     private var ordered: [String] {
         switch console.id {
         case "midgard": return MidgardChrome.sections.flatMap(\.items).map(\.screen)
         case "admin": return AdminChrome.screens
         case "heimdall": return HeimdallChrome.screens
+        case "forge": return ForgeChrome.screens
         default: return console.screens
         }
     }
@@ -444,6 +446,8 @@ struct ScreenPlaceholder: View {
             AdminScreen(app: model, persona: persona.id, screen: screen, compact: true, link: link, open: open)
         } else if console.id == "heimdall" {
             HeimdallScreen(app: model, persona: persona.id, screen: screen, compact: true) { open($0, nil) }
+        } else if console.id == "forge" {
+            ForgeScreen(app: model, persona: persona.id, screen: screen, compact: true) { open($0, nil) }
         } else {
             ScrollView {
                 VStack(spacing: MGSpace.s3) {
@@ -464,14 +468,15 @@ struct ScreenPlaceholder: View {
     }
 }
 
-/// A screen's name in the list and its navigation bar: Midgard's, Admin's and
-/// Heimdall's web navigation label ("Object types", "Identity & roles", "Action
-/// workflows"); every other console's catalogue name.
+/// A screen's name in the list and its navigation bar: Midgard's, Admin's, Heimdall's
+/// and Forge's web navigation label ("Object types", "Identity & roles", "Action
+/// workflows", "Pipelines"); every other console's catalogue name.
 func screenLabel(_ console: Console, _ screen: String) -> String {
     switch console.id {
     case "midgard": return MidgardChrome.item(for: screen)?.label ?? screen
     case "admin": return AdminChrome.item(for: screen)?.label ?? screen
     case "heimdall": return HeimdallChrome.item(for: screen)?.label ?? screen
+    case "forge": return ForgeChrome.item(for: screen)?.label ?? screen
     default: return screen
     }
 }

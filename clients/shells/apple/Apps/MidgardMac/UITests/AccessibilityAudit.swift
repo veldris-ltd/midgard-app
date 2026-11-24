@@ -4,7 +4,8 @@ import XCTest
 /// The accessibility audit of the macOS apps (clients/shells/apple/audit.sh), both
 /// editions: the sign-in screen, each console's first screen (Admin's Overview among
 /// them), two more of Midgard's (Data Search, Policies), Admin's Approvals, Heimdall's
-/// Workflows and Decision Lineage, the Your Data window, and the screens only this
+/// Workflows and Decision Lineage, Forge's Pipelines and Transform IDE (and its
+/// Connectors, the console's first), the Your Data window, and the screens only this
 /// edition has (`Edition.auditedScreens`: Heimdall's MAP and 3D
 /// views). Dynamic Type is measured on iOS only; its macOS test fails by design and the
 /// scheme skips it, so `xcodebuild test` stays green while audit.sh still reads it as
@@ -28,6 +29,12 @@ final class AccessibilityAudit: AccessibilityAuditBase {
         for slug in ["workflows", "decision-lineage"] {
             list.append { app in
                 Nav.openConsole(app, 3)
+                Nav.openScreen(app, slug)
+            }
+        }
+        for slug in ["pipeline-builder", "transform-ide"] {
+            list.append { app in
+                Nav.openConsole(app, 4)
                 Nav.openScreen(app, slug)
             }
         }

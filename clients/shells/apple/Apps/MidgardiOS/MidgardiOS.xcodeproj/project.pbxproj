@@ -15,6 +15,7 @@
 		4BA089763D6823ECAA779EC6 /* AdminFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 223C959AEB6A7F8220782A99 /* AdminFlowTests.swift */; };
 		4E05142893FE5E23FA9C0EDC /* HeimdallMapsFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AE7A3A5938BADB873A1EBDC /* HeimdallMapsFlowTests.swift */; };
 		590023073AC207A06265843C /* MidgardiOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEAD789E2E1859BD0DD1CC83 /* MidgardiOSApp.swift */; };
+		62F3DAED6B5183A5E733F384 /* ForgeFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FE0E3EE5A77394B000D73FC /* ForgeFlowTests.swift */; };
 		8435284787E9A50C343037E9 /* MidgardAuditKit in Frameworks */ = {isa = PBXBuildFile; productRef = B74B1683299E9FDA4F81656A /* MidgardAuditKit */; };
 		93BDD0D21C96DEA5F8424484 /* Edition.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDA680AC8C5741514BEDB7FE /* Edition.swift */; };
 		9627722445E3C9F84941C176 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCA691AC4CE9B877E1875A4D /* RootView.swift */; };
@@ -43,6 +44,7 @@
 		49D6B35EFADEBFE6B5B92AA7 /* MidgardiOSMapsUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = MidgardiOSMapsUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		57336E7E400D5D3788353F2B /* EditionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditionTests.swift; sourceTree = "<group>"; };
 		603C59FCD35B12560685113F /* apple */ = {isa = PBXFileReference; lastKnownFileType = folder; name = apple; path = ../..; sourceTree = SOURCE_ROOT; };
+		7FE0E3EE5A77394B000D73FC /* ForgeFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForgeFlowTests.swift; sourceTree = "<group>"; };
 		8525C30A74E6A5AECF5FB7E7 /* HeimdallFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeimdallFlowTests.swift; sourceTree = "<group>"; };
 		9AE7A3A5938BADB873A1EBDC /* HeimdallMapsFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeimdallMapsFlowTests.swift; sourceTree = "<group>"; };
 		BC2A3D5A6F5594F93A07AFF4 /* AccessibilityAudit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityAudit.swift; sourceTree = "<group>"; };
@@ -111,6 +113,7 @@
 				223C959AEB6A7F8220782A99 /* AdminFlowTests.swift */,
 				C7C7C5AB080B324A94894BFF /* AppNavigation.swift */,
 				57336E7E400D5D3788353F2B /* EditionTests.swift */,
+				7FE0E3EE5A77394B000D73FC /* ForgeFlowTests.swift */,
 				8525C30A74E6A5AECF5FB7E7 /* HeimdallFlowTests.swift */,
 				9AE7A3A5938BADB873A1EBDC /* HeimdallMapsFlowTests.swift */,
 				0921C9C2A4C059101F8C3936 /* HeimdallPictureFlowTests.swift */,
@@ -286,6 +289,7 @@
 				E72FA0FF5999CD0731FC2065 /* AppNavigation.swift in Sources */,
 				93BDD0D21C96DEA5F8424484 /* Edition.swift in Sources */,
 				F634EC179EDC270D1F74C498 /* EditionTests.swift in Sources */,
+				62F3DAED6B5183A5E733F384 /* ForgeFlowTests.swift in Sources */,
 				D349070D94C8D7A4FDB95432 /* HeimdallFlowTests.swift in Sources */,
 				4E05142893FE5E23FA9C0EDC /* HeimdallMapsFlowTests.swift in Sources */,
 				40BC10DD225D6FC6CDF25E6F /* HeimdallPictureFlowTests.swift in Sources */,

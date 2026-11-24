@@ -147,13 +147,16 @@ public struct WebStatusPill: View {
 /// `Badge`: mono 11, tracked 0.06 em, on its tone's tint (secure, warn, danger, info)
 /// or a raised fill (neutral).
 public struct WebBadge: View {
-    public enum Tone { case neutral, secure, warn, danger, info }
+    /// `accent`: the console's accent text on its tint (the web's `tone="accent"`).
+    public enum Tone { case neutral, secure, warn, danger, info, accent }
     let text: String
     let tone: Tone
+    let accent: MGWebAccent
 
-    public init(_ text: String, tone: Tone) {
+    public init(_ text: String, tone: Tone, accent: MGWebAccent = .midgard) {
         self.text = text
         self.tone = tone
+        self.accent = accent
     }
 
     private var colours: (fg: Color, bg: Color, border: Color) {
@@ -163,6 +166,7 @@ public struct WebBadge: View {
         case .warn: return (MGWeb.warnText, MGWeb.warnTint, .clear)
         case .danger: return (MGWeb.dangerText, MGWeb.dangerTint, .clear)
         case .info: return (MGWeb.infoText, MGWeb.infoTint, .clear)
+        case .accent: return (accent.text, accent.tint, .clear)
         }
     }
 

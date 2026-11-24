@@ -72,6 +72,13 @@ public enum WebIcon {
         case "alert-triangle": return "exclamationmark.triangle"
         case "sparkles": return "sparkles"
         case "undo-2": return "arrow.uturn.backward"
+        case "workflow": return "flowchart"
+        case "database": return "cylinder"
+        case "table": return "tablecells"
+        case "radio-tower": return "antenna.radiowaves.left.and.right"
+        case "file-text": return "doc.text"
+        case "arrow-up-right": return "arrow.up.right"
+        case "chevron-right": return "chevron.right"
         default: return "square"
         }
     }

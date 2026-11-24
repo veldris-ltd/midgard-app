@@ -4,7 +4,8 @@ import XCTest
 /// The seven affordances (clients/shells/apple/accessibility.toml), measured on the
 /// iPhone apps, both editions, by clients/shells/apple/audit.sh: the sign-in screen, each
 /// console's list of screens, two of Midgard's screens (Object Fabric, Policies), Admin's
-/// Overview, Heimdall's Operating Picture, Feeds and Workflows, the Your Data sheet, and
+/// Overview, Heimdall's Operating Picture, Feeds and Workflows, Forge's Pipelines and
+/// Transform IDE, the Your Data sheet, and
 /// the screens only this edition has (`Edition.auditedScreens`: Heimdall's MAP and 3D
 /// views). [RC-49] [AC-C-11]
 final class AccessibilityAudit: AccessibilityAuditBase {
@@ -22,6 +23,8 @@ final class AccessibilityAudit: AccessibilityAuditBase {
         list.append(AppNavigation.openPicture)
         list.append { AppNavigation.open($0, console: 3, "feeds") }
         list.append { AppNavigation.open($0, console: 3, "workflows") }
+        list.append { AppNavigation.open($0, console: 4, "pipeline-builder") }
+        list.append { AppNavigation.open($0, console: 4, "transform-ide") }
         // Last: on the iPhone it is a sheet over the console.
         let yourData: (XCUIApplication) -> Void = { app in
             AppNavigation.signIn(app)
