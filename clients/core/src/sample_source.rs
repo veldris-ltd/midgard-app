@@ -60,12 +60,18 @@
 //!   deleted). Their rows go to the runtime `mimir.audit`, numbered `A-77121`,
 //!   `A-77122`, … from `14:32:10`, as `MimirMock` numbers them.
 //!
-//! Bifrost's actions come with its phase (Phase H, Task 2); until then an action on it
-//! is refused as unknown ("no such action").
+//! - Bifrost's, ported from `BifrostMock` (`crate::demo::actions::bifrost`, which lists
+//!   them and where they knowingly differ): `bifrost.promoteRelease` on
+//!   `bifrost.releases/<id>` (param `ring`, a ring stage: one health-gated step; an
+//!   air-gap ring refused in the mock's words, "Promote · <release> → ring air-gap
+//!   (bundle required)") and `bifrost.rollback` on `bifrost.rollbacks/<id>` (only while
+//!   the plan is armed or available), both for the role `release-manager` only. Their
+//!   rows go to `bifrost.audit`, numbered `AUD-B-1044`, `AUD-B-1045`, … from `14:32:10`,
+//!   as `BifrostMock` numbers them.
 
 use attest::json::{parse, Json};
 
-use crate::demo::actions::{admin, forge, heimdall, midgard, mimir};
+use crate::demo::actions::{admin, bifrost, forge, heimdall, midgard, mimir};
 use crate::demo::canon;
 use crate::demo::enclosure::{
     ActionRequest, Collection, DemoEnclosure, DemoState, MockAuditClock, Outcome, StoredRow,
@@ -137,7 +143,12 @@ impl SampleSource {
                 rows: Vec::new(),
             },
         );
+        inner
+            .state_mut()
+            .set_mock_clock("bifrost", bifrost::BIFROST_CLOCK);
         inner.register("heimdall.authoriseWorkflow", heimdall::authorise_workflow);
+        inner.register("bifrost.promoteRelease", bifrost::promote_release);
+        inner.register("bifrost.rollback", bifrost::rollback);
         inner.register("mimir.runEval", mimir::run_eval);
         inner.register("mimir.simulateGuardrail", mimir::simulate_guardrail);
         inner.register("mimir.applyProposal", mimir::apply_proposal);

@@ -13,6 +13,12 @@
 // alternation of the mock's two patterns, with the near misses the patterns do not
 // match. The audit ids are kept: the mock numbers them in call order, and the port is
 // called in the same order.
+//
+// Bifrost (`BifrostMock`, fresh, its default 180 ms latency, so the stamps are the
+// mock's own): `promoteRelease` of the first release to the broad ring until it is fully
+// rolled and once more, to the canary ring (already rolled) and to the air-gap ring (the
+// courier-bundle gate), then `rollback` of every standing plan; and the audit records
+// those calls wrote, newest first. The port is called in the same order.
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
@@ -74,6 +80,25 @@ const runEval = [];
 for (const e of await m.listEvals()) runEval.push({ id: e.id, result: await m.runEval(e.id) });
 const simulateGuardrail = [];
 for (const input of GUARDRAIL_INPUTS) simulateGuardrail.push({ input, result: await m.simulateGuardrail(input) });
+
+const b = new mock.BifrostMock();
+const seeded = (await b.getAudit(200)).length;
+const releaseId = (await b.listReleases())[0].id;
+const promote = [];
+const promoteOnce = async (ring) => promote.push({ release: releaseId, ring, result: await b.promoteRelease(releaseId, ring) });
+do { await promoteOnce('broad'); } while (promote[promote.length - 1].result.progress < 100);
+await promoteOnce('broad');
+await promoteOnce('canary');
+await promoteOnce('air-gap');
+const rollback = [];
+for (const p of await b.listRollbacks()) rollback.push({ id: p.id, result: await b.rollback(p.id) });
+const all = await b.getAudit(200);
+const audit = all.slice(0, all.length - seeded);
+const rings = await b.listRings();
+const bInputs = Object.fromEntries(['sdk/ts/src/mock/bifrost.ts', 'clients/demo/tools/extract-golden.mjs'].map((p) => [p, blob(p)]));
+mkdirSync(out, { recursive: true });
+writeFileSync(join(out, 'bifrost.json'), canon({ format: 'midgard-golden', version: 1, release, console: 'bifrost', inputs: bInputs, promote, rollback, audit, rings }));
+console.log(`extract-golden: bifrost ${promote.length} promotions, ${rollback.length} rollbacks -> ${out}`);
 
 const inputs = Object.fromEntries(['sdk/ts/src/mock/mimir.ts', 'clients/demo/tools/extract-golden.mjs'].map((p) => [p, blob(p)]));
 mkdirSync(out, { recursive: true });
