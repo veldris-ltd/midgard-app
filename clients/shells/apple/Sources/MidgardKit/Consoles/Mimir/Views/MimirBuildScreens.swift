@@ -52,12 +52,38 @@ struct MimirStudioScreen: View {
         session
     }
 
-    /// The AGENTS column (a row of cards on a narrow page, as the web's `isNarrow`).
-    private var agentPicker: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            WebLabel("AGENTS")
-            FlowRow(spacing: 8) {
-                ForEach(Array(model.agents.enumerated()), id: \.offset) { _, row in
+    /// The AGENTS column (a row of cards on a narrow page, as the web's `isNarrow`). On
+    /// the iPhone the agents are a row of tags with only the chosen agent's card under
+    /// them, not three cards stacked: stacked, they pushed the session down to the
+    /// console bar's edge, where its opening lines were cut by the bar and the audit
+    /// measured the bar's contrast against them (Phase G, both appearances). A row that
+    /// scrolled sideways would leave a card cut by the screen's edge instead.
+    @ViewBuilder private var agentPicker: some View {
+        if ctx.compact {
+            VStack(alignment: .leading, spacing: 8) {
+                WebLabel("AGENTS")
+                FlowRow(spacing: 8) {
+                    ForEach(model.agents, id: \.id) { row in
+                        WebTag(row.item.name, active: row.item.id == model.agent?.id, accent: ctx.accent,
+                               identifier: "mg.mimir.agent-tag.\(row.item.id)") {
+                            model.agentId = row.item.id
+                        }
+                    }
+                }
+                agentCards
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                WebLabel("AGENTS")
+                FlowRow(spacing: 8) { agentCards }
+            }
+        }
+    }
+
+    /// Every agent's card on the Mac; the chosen one's on the iPhone.
+    @ViewBuilder private var agentCards: some View {
+                ForEach(Array(model.agents.filter { !ctx.compact || $0.item.id == model.agent?.id }.enumerated()),
+                        id: \.offset) { _, row in
                     let a = row.item
                     let selected = a.id == (model.agent?.id ?? "")
                     WebPanel(accentRule: selected, accent: ctx.accent, identifier: "mg.mimir.agent.\(a.id)",
@@ -78,8 +104,6 @@ struct MimirStudioScreen: View {
                     .overlay(RoundedRectangle(cornerRadius: MGRadius.md)
                         .strokeBorder(selected ? ctx.accent.fill : .clear))
                 }
-            }
-        }
     }
 
     @ViewBuilder private var session: some View {

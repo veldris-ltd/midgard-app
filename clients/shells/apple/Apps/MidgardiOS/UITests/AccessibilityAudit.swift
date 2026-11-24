@@ -5,7 +5,8 @@ import XCTest
 /// iPhone apps, both editions, by clients/shells/apple/audit.sh: the sign-in screen, each
 /// console's list of screens, two of Midgard's screens (Object Fabric, Policies), Admin's
 /// Overview, Heimdall's Operating Picture, Feeds and Workflows, Forge's Pipelines and
-/// Transform IDE, Mimir's Agent Studio and Guardrails, the Your Data sheet, and
+/// Transform IDE, Mimir's Agent Studio and Guardrails, Bifrost's Release Console and
+/// Rollback centre, the Your Data sheet, and
 /// the screens only this edition has (`Edition.auditedScreens`: Heimdall's MAP and 3D
 /// views). [RC-49] [AC-C-11]
 final class AccessibilityAudit: AccessibilityAuditBase {
@@ -27,6 +28,8 @@ final class AccessibilityAudit: AccessibilityAuditBase {
         list.append { AppNavigation.open($0, console: 4, "transform-ide") }
         list.append { AppNavigation.open($0, console: 5, "agent-studio") }
         list.append { AppNavigation.open($0, console: 5, "guardrails") }
+        list.append { AppNavigation.open($0, console: 6, "release-console") }
+        list.append { AppNavigation.open($0, console: 6, "rollback") }
         // Last: on the iPhone it is a sheet over the console.
         let yourData: (XCUIApplication) -> Void = { app in
             AppNavigation.signIn(app)

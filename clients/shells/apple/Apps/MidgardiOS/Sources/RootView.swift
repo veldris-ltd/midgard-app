@@ -256,8 +256,8 @@ struct ConsoleBar: View {
     }
 }
 
-/// One console: its screens, searchable, pull to refresh (sync now), each opening its
-/// placeholder.
+/// One console: its screens, searchable, pull to refresh (sync now), each opening the
+/// screen.
 struct ConsoleTab: View {
     @ObservedObject var model: AppModel
     let console: Console
@@ -268,7 +268,7 @@ struct ConsoleTab: View {
     /// Midgard's screens in its web console's order (FABRIC, GOVERNANCE, PLATFORM),
     /// Admin's in its (OVERSEE, ADMINISTER, EMERGENCY, ASSIST), Heimdall's in its
     /// (PICTURE, DECIDE), Forge's in its (DATA OPS, FABRIC), Mimir's in its (BUILD, GOVERN,
-    /// SERVE); every other console's in the catalogue's.
+    /// SERVE), Bifrost's in its (DELIVERY, FLEET).
     private var ordered: [String] {
         switch console.id {
         case "midgard": return MidgardChrome.sections.flatMap(\.items).map(\.screen)
@@ -276,6 +276,7 @@ struct ConsoleTab: View {
         case "heimdall": return HeimdallChrome.screens
         case "forge": return ForgeChrome.screens
         case "mimir": return MimirChrome.screens
+        case "bifrost": return BifrostChrome.screens
         default: return console.screens
         }
     }
@@ -342,7 +343,7 @@ struct ConsoleTab: View {
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: String.self) { element in
                 let (screen, link) = MidgardLink.decode(element)
-                ScreenPlaceholder(model: model, console: console, screen: screen, persona: persona, link: link) { next, link in
+                ConsoleScreen(model: model, console: console, screen: screen, persona: persona, link: link) { next, link in
                     path.append(link?.encoded(for: next) ?? next)
                 }
             }
@@ -402,16 +403,16 @@ struct ScreenSearchField: View {
     }
 }
 
-/// A screen until its phase: what it is and when it arrives; Midgard's eleven screens
-/// (`MidgardScreen`, compact: the inspector in a sheet), Admin's eight (`AdminScreen`,
-/// the same, the screen's toolbar item in its header) and Heimdall's Operating
-/// Picture, matched to the web console (owner decision 22 Nov 2026), are built: the
-/// picture first and the inspector as a sheet (`HeimdallOperatingPictureCompact`). In the
-/// Maps edition the Operating Picture also has the view switch, 2D / MAP / 3D, in the
+/// One of a console's screens, matched to its web console (owner decision 22 Nov 2026),
+/// compact: Midgard's (`MidgardScreen`), Admin's (`AdminScreen`), Heimdall's
+/// (`HeimdallScreen`; the Operating Picture first and the inspector as a sheet,
+/// `HeimdallOperatingPictureCompact`), Forge's, Mimir's and Bifrost's, each with the
+/// inspector in a sheet and the screen's toolbar item in its header. No screen is a
+/// placeholder. In the Maps edition the Operating Picture also has the view switch, 2D / MAP / 3D, in the
 /// navigation bar: MAP and 3D come from the edition library (`AppModel.pictureViews`, the
 /// link-time edition provider) and show in the picture's place; a release app has no
 /// provider. [FR-C-1] [FR-H-1] [FR-H-4] [FR-H-5]
-struct ScreenPlaceholder: View {
+struct ConsoleScreen: View {
     @ObservedObject var model: AppModel
     let console: Console
     let screen: String
@@ -452,28 +453,14 @@ struct ScreenPlaceholder: View {
         } else if console.id == "mimir" {
             MimirScreen(app: model, persona: persona.id, screen: screen, compact: true)
         } else {
-            ScrollView {
-                VStack(spacing: MGSpace.s3) {
-                    Image(systemName: console.symbol).font(.largeTitle).accessibilityHidden(true)
-                    Text(screen).font(MGFonts.display(.title2)).accessibilityAddTraits(.isHeader)
-                    Text("This \(console.name) screen arrives in Phase \(console.phase), matched to its web console.")
-                        .font(MGFonts.sans(.body))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .multilineTextAlignment(.center)
-                .foregroundStyle(Color.primary)
-                .padding(MGSpace.s5)
-                .frame(maxWidth: .infinity)
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("mg.placeholder.\(console.slug).\(ConsoleCatalog.slug(screen))")
-            }
+            BifrostScreen(app: model, persona: persona.id, screen: screen, compact: true)
         }
     }
 }
 
-/// A screen's name in the list and its navigation bar: Midgard's, Admin's, Heimdall's,
-/// Forge's and Mimir's web navigation label ("Object types", "Identity & roles", "Action
-/// workflows", "Pipelines", "Agents"); every other console's catalogue name.
+/// A screen's name in the list and its navigation bar: its console's web navigation
+/// label ("Object types", "Identity & roles", "Action workflows", "Pipelines", "Agents",
+/// "Rollback centre").
 func screenLabel(_ console: Console, _ screen: String) -> String {
     switch console.id {
     case "midgard": return MidgardChrome.item(for: screen)?.label ?? screen
@@ -481,6 +468,7 @@ func screenLabel(_ console: Console, _ screen: String) -> String {
     case "heimdall": return HeimdallChrome.item(for: screen)?.label ?? screen
     case "forge": return ForgeChrome.item(for: screen)?.label ?? screen
     case "mimir": return MimirChrome.item(for: screen)?.label ?? screen
+    case "bifrost": return BifrostChrome.item(for: screen)?.label ?? screen
     default: return screen
     }
 }

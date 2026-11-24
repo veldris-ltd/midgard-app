@@ -6,7 +6,8 @@ import XCTest
 /// them), two more of Midgard's (Data Search, Policies), Admin's Approvals, Heimdall's
 /// Workflows and Decision Lineage, Forge's Pipelines and Transform IDE (and its
 /// Connectors, the console's first), Mimir's Agent Studio and Guardrails (and its Model
-/// Plane, the console's first), the Your Data window, and the screens only this
+/// Plane, the console's first), Bifrost's Fleet & drift and Rollback centre (and its
+/// Release Console, the console's first), the Your Data window, and the screens only this
 /// edition has (`Edition.auditedScreens`: Heimdall's MAP and 3D
 /// views). Dynamic Type is measured on iOS only; its macOS test fails by design and the
 /// scheme skips it, so `xcodebuild test` stays green while audit.sh still reads it as
@@ -42,6 +43,12 @@ final class AccessibilityAudit: AccessibilityAuditBase {
         for slug in ["agent-studio", "guardrails"] {
             list.append { app in
                 Nav.openConsole(app, 5)
+                Nav.openScreen(app, slug)
+            }
+        }
+        for slug in ["fleet", "rollback"] {
+            list.append { app in
+                Nav.openConsole(app, 6)
                 Nav.openScreen(app, slug)
             }
         }

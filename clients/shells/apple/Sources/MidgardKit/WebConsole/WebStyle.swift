@@ -111,6 +111,20 @@ public struct MGWebAccent {
     /// Mimir's accent text on paper.
     static let mimirTextLight: UInt32 = 0x12666F
 
+    /// Bifrost's scope (`.theme-bifrost`). Accent text is `--accent-hover`: `--bifrost-300`
+    /// in dark mode (7.7:1 on the page), the web's own `--bifrost-600` on paper (5.9:1 on
+    /// the page, 5.0:1 on the accent tint), both AA as they are. The base violet reads
+    /// 4.3:1 on the dark page, under AA for the section numerals' 11 pt: lifted to
+    /// `--bifrost-300` there, as Midgard's red is.
+    public static let bifrost = MGWebAccent(
+        fill: Color(mgHex: MGToken.bifrost500),
+        text: Color(mgLight: (MGToken.bifrost600, 1), dark: (MGToken.bifrost300, 1)),
+        hex: MGToken.bifrost500,
+        tint: Color(mgHex: MGToken.bifrostTint.0, opacity: MGToken.bifrostTint.1),
+        glow: Color(mgHex: MGToken.bifrostGlow.0, opacity: MGToken.bifrostGlow.1),
+        baseTextLight: MGToken.bifrost600,
+        baseTextDark: MGToken.bifrost300)
+
     /// Midgard's scope (`.theme-midgard`), also Admin's. Accent text is `--accent-hover`
     /// (`--midgard-300` in dark mode, `--midgard-600` on paper).
     public static let midgard = MGWebAccent(

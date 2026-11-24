@@ -184,14 +184,10 @@ struct WindowSetup: NSViewRepresentable {
     }
 }
 
-/// Signed in: Heimdall, Midgard, Admin, Forge and Mimir in their web consoles' own frames
-/// (`HeimdallConsole`, `MidgardConsole`, `AdminConsole`, `ForgeConsole`, `MimirConsole`,
-/// matched to the web suite, owner
-/// decision 22 Nov 2026); every other
-/// console, until its phase
-/// matches it, the persona menu above a three-column split view. The sidebar lists the
-/// six consoles (⌘1…⌘6) and, under the selected one, its screens; the content and
-/// detail columns show the screen's placeholder until its phase builds it. [FR-C-1]
+/// Signed in: each of the six consoles in its web console's own frame (`MidgardConsole`,
+/// `AdminConsole`, `HeimdallConsole`, `ForgeConsole`, `MimirConsole`, `BifrostConsole`),
+/// matched to the web suite (owner decision 22 Nov 2026): every screen is built, none is
+/// a placeholder. [FR-C-1]
 struct ConsoleShell: View {
     @ObservedObject var model: AppModel
     let persona: PersonaInfo
@@ -214,7 +210,8 @@ struct ConsoleShell: View {
             MimirConsole(model: model, persona: persona, route: $route)
                 .navigationTitle(ConsoleCatalog.console(route).name)
         } else {
-            SplitConsoleShell(model: model, persona: persona, route: $route)
+            BifrostConsole(model: model, persona: persona, route: $route)
+                .navigationTitle(ConsoleCatalog.console(route).name)
         }
     }
 }
@@ -576,43 +573,60 @@ struct MimirConsole: View {
     }
 }
 
-/// The split-view shell of the consoles not yet matched to the web suite: the persona
-/// menu above the sidebar, the screen's content and its detail. [FR-C-1]
-struct SplitConsoleShell: View {
+/// Bifrost as the web console draws it (`ConsoleShell product="bifrost"` with each of its
+/// six screens): the INTERNAL · RELEASE CONTROL PLANE banner, the header (mark, the
+/// screen's context, the ARTEFACTS ML-DSA seal, the screen's toolbar item, the persona
+/// menu), the navigation (the six consoles as a row of tiles, then Bifrost's DELIVERY and
+/// FLEET sections in the web's order, words and badges), and the screen with its
+/// inspector. [FR-C-1] [FR-B-2] [DD-7]
+struct BifrostConsole: View {
     @ObservedObject var model: AppModel
     let persona: PersonaInfo
     @Binding var route: ConsoleRoute
+    @StateObject private var toolbar = BifrostToolbar()
+
+    private var bifrost: Console { ConsoleCatalog.console(route) }
+    private var screen: String { ConsoleCatalog.screenName(route) }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                PersonaMenu(model: model, persona: persona)
-                Spacer()
-            }
-            .padding(.horizontal, MGSpace.s3)
-            .padding(.vertical, MGSpace.s1)
-            Divider()
-            NavigationSplitView {
-                ConsoleSidebar(route: $route)
-                    .navigationSplitViewColumnWidth(min: 200, ideal: 230)
-                    .accessibilityElement(children: .contain)
-                    .accessibilityLabel(Text("Consoles"))
-            } content: {
-                ScreenContent(route: route.clamped)
-                    .navigationSplitViewColumnWidth(min: 280, ideal: 360)
-            } detail: {
-                ScreenDetail(route: route.clamped)
-                    .accessibilityElement(children: .contain)
-                    .accessibilityLabel(Text("Details"))
-            }
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel(Text("Console"))
+        WebConsoleFrame(banner: BifrostChrome.banner, product: "Bifrost", accent: BifrostChrome.accent,
+                        context: BifrostChrome.item(for: screen)?.context ?? "", seals: BifrostChrome.seals) {
+            nav
+        } content: {
+            BifrostScreen(app: model, persona: persona.id, screen: screen, compact: false, toolbar: toolbar)
+        } trailing: {
+            BifrostToolbarItem(screen: screen, toolbar: toolbar)
+            PersonaMenu(model: model, persona: persona)
         }
-        // The window keeps its title (Window menu, Mission Control) but does not draw
-        // it (RootView's WindowSetup hides it): the titlebar's grey title text fails the
-        // contrast audit, and the sidebar and the screen heading already say where the
-        // window is.
-        .navigationTitle(ConsoleCatalog.console(route).name)
+    }
+
+    private func open(_ screen: String) {
+        let index = bifrost.screens.firstIndex(of: screen) ?? 0
+        route = ConsoleRoute(console: route.clamped.console, screen: index).clamped
+    }
+
+    /// The consoles first, as a row of tiles (numbered from 1; the persona menu is 0),
+    /// then Bifrost's sections in the web's order.
+    private var nav: some View {
+        var number = 0
+        func next() -> Int { number += 1; return number }
+        let consoles = ConsoleCatalog.consoles.enumerated().map { index, console in
+            WebSideNavItem(id: "console.\(console.slug)", label: "\(console.name) console", symbol: console.symbol, badge: nil,
+                           identifier: "mg.\(next()).console.\(console.slug)", selected: console.id == "bifrost",
+                           action: { route.select(console: index) })
+        }
+        let sections = BifrostChrome.sections.map { section in
+            WebSideNavSection(title: section.title, items: section.items.map { item in
+                WebSideNavItem(id: item.id, label: item.label, symbol: item.symbol, badge: item.badge,
+                               identifier: "mg.\(next()).screen.\(ConsoleCatalog.slug(item.screen))",
+                               selected: item.screen == screen,
+                               action: { open(item.screen) })
+            })
+        }
+        return WebSideNav(rail: WebSideNavSection(title: "CONSOLES", items: consoles), sections: sections,
+                          accent: BifrostChrome.accent) {
+            EmptyView()
+        }
     }
 }
 
@@ -648,125 +662,6 @@ struct PersonaMenu: View {
         .fixedSize()
         .accessibilityLabel(Text("Signed in as \(model.signedInName(persona))"))
         .accessibilityIdentifier("mg.0.persona-menu")
-    }
-}
-
-/// One sidebar line: a console or one of the selected console's screens, numbered in
-/// reading order for the audit's `mg.<n>.<name>` identifiers.
-struct SidebarEntry: Identifiable, Hashable {
-    enum Item: Hashable {
-        case console(Int)
-        case screen(Int, Int)
-    }
-
-    let item: Item
-    let number: Int
-    let title: String
-
-    var id: Item { item }
-
-    var identifier: String {
-        switch item {
-        case let .console(c): return "mg.\(number).console.\(ConsoleCatalog.consoles[c].slug)"
-        case let .screen(c, s): return "mg.\(number).screen.\(ConsoleCatalog.slug(ConsoleCatalog.consoles[c].screens[s]))"
-        }
-    }
-
-    /// The lines for `route`, numbered from `first` (the persona menu is 0).
-    static func entries(for route: ConsoleRoute, first: Int = 1) -> [SidebarEntry] {
-        let route = route.clamped
-        var list: [SidebarEntry] = []
-        for (c, console) in ConsoleCatalog.consoles.enumerated() {
-            list.append(SidebarEntry(item: .console(c), number: first + list.count, title: console.name))
-            if c == route.console {
-                for (s, screen) in console.screens.enumerated() {
-                    list.append(SidebarEntry(item: .screen(c, s), number: first + list.count, title: screen))
-                }
-            }
-        }
-        return list
-    }
-}
-
-struct ConsoleSidebar: View {
-    @Binding var route: ConsoleRoute
-
-    private var selection: Binding<SidebarEntry.Item?> {
-        Binding(get: {
-            let r = route.clamped
-            return .screen(r.console, r.screen)
-        }, set: { item in
-            switch item {
-            case let .console(c)?: route.select(console: c)
-            case let .screen(c, s)?: route = ConsoleRoute(console: c, screen: s).clamped
-            case nil: break
-            }
-        })
-    }
-
-    var body: some View {
-        List(selection: selection) {
-            ForEach(SidebarEntry.entries(for: route)) { entry in
-                row(entry)
-                    .tag(entry.item)
-                    .accessibilityIdentifier(entry.identifier)
-            }
-        }
-        .listStyle(.sidebar)
-        // Opaque: over the translucent sidebar material the rows' contrast depends on
-        // whatever is behind the window.
-        .scrollContentBackground(.hidden)
-        .background(Color(nsColor: .windowBackgroundColor))
-    }
-
-    @ViewBuilder private func row(_ entry: SidebarEntry) -> some View {
-        switch entry.item {
-        case let .console(c):
-            Label(entry.title, systemImage: ConsoleCatalog.consoles[c].symbol)
-                .font(MGFonts.sans(.body).weight(.semibold))
-                .accessibilityLabel(Text("\(entry.title) console"))
-        case .screen:
-            Text(entry.title)
-                .font(MGFonts.sans(.body))
-                .padding(.leading, MGSpace.s4)
-        }
-    }
-}
-
-/// The content column: the screen's name and what will appear there.
-struct ScreenContent: View {
-    let route: ConsoleRoute
-
-    var body: some View {
-        let name = ConsoleCatalog.screenName(route)
-        VStack(alignment: .leading, spacing: MGSpace.s3) {
-            Text(name).font(MGFonts.display(.title2)).accessibilityAddTraits(.isHeader)
-            Text(ConsoleCatalog.placeholder(for: route)).font(MGFonts.sans(.body))
-            Text("Until then it shows nothing of the sample data.")
-                .font(MGFonts.sans(.body))
-        }
-        .padding(MGSpace.s5)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("mg.content.\(ConsoleCatalog.slug(name))")
-    }
-}
-
-/// The detail column: the inspector a screen's rows will open.
-struct ScreenDetail: View {
-    let route: ConsoleRoute
-
-    var body: some View {
-        let console = ConsoleCatalog.console(route)
-        let name = ConsoleCatalog.screenName(route)
-        VStack(alignment: .leading, spacing: MGSpace.s3) {
-            Text("Details").font(MGFonts.display(.title3)).accessibilityAddTraits(.isHeader)
-            Text("\(name) details arrive in Phase \(console.phase) (\(console.name)).").font(MGFonts.sans(.body))
-        }
-        .padding(MGSpace.s5)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("mg.detail.\(ConsoleCatalog.slug(name))")
     }
 }
 

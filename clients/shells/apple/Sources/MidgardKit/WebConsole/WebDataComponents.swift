@@ -85,6 +85,9 @@ public enum WebIcon {
         case "arrow-up": return "arrow.up"
         case "arrow-down": return "arrow.down"
         case "trash": return "trash"
+        case "rocket": return "paperplane"
+        case "package": return "shippingbox"
+        case "upload": return "arrow.up.to.line"
         default: return "square"
         }
     }

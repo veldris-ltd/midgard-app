@@ -35,13 +35,17 @@ final class SessionFlowTests: XCTestCase {
                        "Demonstration data. This console runs on built-in sample data and is not connected to an enclosure.")
         XCTAssertFalse(Nav.element(app, "mg.banner.nosource").exists)
 
-        // Each console, from the sidebar, shows its first screen's placeholder.
+        // Each console, from the sidebar, shows its first screen, built (Phases C to H):
+        // its content and inspector in the web's frame, no placeholder anywhere.
         let firsts = ["object-fabric", "overview", "operating-picture", "connectors", "model-plane", "release-console"]
         for n in 1...6 {
             Nav.openConsole(app, n)
             XCTAssertTrue(Nav.element(app, "mg.detail.\(firsts[n - 1])").waitForExistence(timeout: 5),
                           "console \(n) does not show its first screen")
+            XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'arrives in Phase'"))
+                .firstMatch.exists, "console \(n) shows a placeholder")
         }
+        XCTAssertTrue(Nav.element(app, "mg.content.bifrost.release-console").exists, "Bifrost's screen is not built")
         // ⌘1 goes back to Midgard.
         app.typeKey("1", modifierFlags: .command)
         XCTAssertTrue(Nav.wait(Nav.element(app, "mg.console.selected"), value: "1"))

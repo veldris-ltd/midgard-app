@@ -79,7 +79,7 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertTrue(element("mg.banner.demo").exists)
     }
 
-    func testEveryScreenOpensItsPlaceholder() {
+    func testEveryConsoleListsItsScreensAndNoneIsAPlaceholder() {
         AppNavigation.signIn(app)
         let counts = [11, 8, 6, 7, 7, 6]
         XCTAssertEqual(counts.reduce(0, +), 45)
@@ -89,15 +89,17 @@ final class SessionFlowTests: XCTestCase {
                                                         "mg\\.[0-9]+\\.\(AppNavigation.consoles[index].lowercased())\\..*"))
             XCTAssertEqual(rows.count, count, "\(AppNavigation.consoles[index]) lists \(rows.count) screens")
         }
-        // Midgard's, Admin's, Heimdall's, Forge's and Mimir's screens are built (Phases C to
-        // G); Bifrost's still say when they come.
+        // Every console's screens are built (Phases C to H): one of each opens its screen,
+        // and no screen says when it arrives.
         AppNavigation.openDetail(app)
         AppNavigation.openAdmin(app, "overview")
         AppNavigation.open(app, console: 3, "entities")
-        AppNavigation.selectConsole(app, 6)
-        AppNavigation.tapClearOfConsoleBar(app, app.buttons["mg.2.bifrost.channels"])
-        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'Phase H'")).firstMatch
-            .waitForExistence(timeout: AppNavigation.timeout))
+        AppNavigation.open(app, console: 6, "channels")
+        XCTAssertTrue(app.descendants(matching: .any)["mg.content.bifrost.channels"].exists)
+        XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'arrives in Phase'")).firstMatch.exists,
+                       "a screen is still a placeholder")
+        XCTAssertFalse(app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH 'mg.placeholder.'")).firstMatch.exists)
     }
 
     func testSearchFiltersTheScreens() {

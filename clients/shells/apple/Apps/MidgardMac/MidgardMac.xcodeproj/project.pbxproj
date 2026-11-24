@@ -15,6 +15,7 @@
 		3985C0DDA840F3460437AF08 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFCD086C5408628651DCE82B /* RootView.swift */; };
 		3C1E16D313541DF0A090C3E6 /* MidgardKit in Frameworks */ = {isa = PBXBuildFile; productRef = F9C82844BDCFA8503EC612AD /* MidgardKit */; };
 		3CD35B98D60FD5BC1B2E0D17 /* YourDataFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D754B5ADEE66C75BBA6715B /* YourDataFlowTests.swift */; };
+		46626B60228868B06D945683 /* BifrostFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DD7E7F6FC903ED556B8BEFF /* BifrostFlowTests.swift */; };
 		52D5343E8126DF5F60ACB1EE /* MidgardAuditKit in Frameworks */ = {isa = PBXBuildFile; productRef = 0E17EEB29F8D425A5B52BCA1 /* MidgardAuditKit */; };
 		5A35A17FC79E204FB95719F9 /* AdminFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9FE317A6AB198192C18DF23 /* AdminFlowTests.swift */; };
 		6F592540DDEA0EFB1B67CE64 /* HeimdallPictureFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E26511B12D395787805057D2 /* HeimdallPictureFlowTests.swift */; };
@@ -42,6 +43,7 @@
 		045679D09ABCFB0DD5FEA121 /* SessionFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionFlowTests.swift; sourceTree = "<group>"; };
 		1549396EBB7C1DAE0B5734A2 /* Commands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Commands.swift; sourceTree = "<group>"; };
 		196BF5AFC469E0FE14ED72F3 /* AccessibilityAudit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityAudit.swift; sourceTree = "<group>"; };
+		3DD7E7F6FC903ED556B8BEFF /* BifrostFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BifrostFlowTests.swift; sourceTree = "<group>"; };
 		409BD2BC78EA7C8AC526937B /* EditionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditionTests.swift; sourceTree = "<group>"; };
 		4A6B209DB7388FF87BD77F44 /* HeimdallMapsFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeimdallMapsFlowTests.swift; sourceTree = "<group>"; };
 		4E316CDB290820D0E2F2E46E /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
@@ -112,6 +114,7 @@
 			children = (
 				196BF5AFC469E0FE14ED72F3 /* AccessibilityAudit.swift */,
 				D9FE317A6AB198192C18DF23 /* AdminFlowTests.swift */,
+				3DD7E7F6FC903ED556B8BEFF /* BifrostFlowTests.swift */,
 				409BD2BC78EA7C8AC526937B /* EditionTests.swift */,
 				C60B0ED740074D0117626660 /* ForgeFlowTests.swift */,
 				80228FD88CEB8E8CC1E05BB0 /* HeimdallFlowTests.swift */,
@@ -302,6 +305,7 @@
 			files = (
 				05EDCC05BED1D4E656A00CE4 /* AccessibilityAudit.swift in Sources */,
 				5A35A17FC79E204FB95719F9 /* AdminFlowTests.swift in Sources */,
+				46626B60228868B06D945683 /* BifrostFlowTests.swift in Sources */,
 				B287ABE05ADEA0D4817EA019 /* Edition.swift in Sources */,
 				B49FACBEE692C1E16D13B28B /* EditionTests.swift in Sources */,
 				37934EA3E403282FDFD9B9D7 /* ForgeFlowTests.swift in Sources */,

@@ -44,9 +44,21 @@ final class ConsoleCatalogTests: XCTestCase {
         XCTAssertEqual(ConsoleCatalog.slug("Transform IDE"), "transform-ide")
     }
 
-    func testPlaceholderNamesThePhase() {
-        let route = ConsoleRoute(console: 4, screen: 2)
-        XCTAssertEqual(ConsoleCatalog.placeholder(for: route), "Agent Studio arrives in Phase G (Mimir).")
+    /// Every console's screens are built (Phases C to H): each is in its web console's
+    /// navigation, so no screen is left as a placeholder.
+    func testEveryScreenIsInItsWebConsolesNavigation() {
+        let web: [String: [String]] = [
+            "midgard": MidgardChrome.sections.flatMap(\.items).map(\.screen),
+            "admin": AdminChrome.screens,
+            "heimdall": HeimdallChrome.screens,
+            "forge": ForgeChrome.screens,
+            "mimir": MimirChrome.screens,
+            "bifrost": BifrostChrome.screens,
+        ]
+        for console in ConsoleCatalog.consoles {
+            XCTAssertEqual(Set(web[console.id] ?? []), Set(console.screens), console.name)
+        }
+        XCTAssertEqual(BifrostChrome.screens, ["Release Console", "Artefacts", "Channels", "Bundles", "Fleet", "Rollback"])
     }
 
     func testRouteClampsOutOfRangeValues() {

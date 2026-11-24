@@ -54,8 +54,8 @@ public struct ConsoleRoute: Codable, Hashable, Sendable {
     }
 }
 
-/// The six consoles and their 45 screens, in the design's order (⌘1…⌘6). Until its
-/// phase builds it, every screen is a placeholder that says so. [FR-C-1]
+/// The six consoles and their 45 screens, in the design's order (⌘1…⌘6), each built by
+/// its phase (C to H) and matched to its web console. [FR-C-1]
 public enum ConsoleCatalog {
     public static let consoles: [Console] = [
         Console(1, "Midgard", phase: "C",
@@ -90,11 +90,5 @@ public enum ConsoleCatalog {
     public static func screenName(_ route: ConsoleRoute) -> String {
         let r = route.clamped
         return consoles[r.console].screens[r.screen]
-    }
-
-    /// The placeholder a screen shows until its phase builds it.
-    public static func placeholder(for route: ConsoleRoute) -> String {
-        let console = console(route)
-        return "\(screenName(route)) arrives in Phase \(console.phase) (\(console.name))."
     }
 }
