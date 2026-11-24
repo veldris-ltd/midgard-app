@@ -2,5 +2,6 @@
 //! for that console (Phases C to H, Task 2). `[FR-C-4]`
 
 pub mod admin;
+pub mod forge;
 pub mod heimdall;
 pub mod midgard;

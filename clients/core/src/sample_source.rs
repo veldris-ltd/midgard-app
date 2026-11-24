@@ -42,12 +42,20 @@
 //!   to the runtime collection `admin.audit`, seeded with the mock stream's three
 //!   records and numbered `A-9111`, `A-9112`, … from `14:02:13`, as `AdminMock` does.
 //!
-//! The other consoles' actions come with their phases (Phases F to H, Task 2); until
+//! - Forge's, ported from `ForgeMock` (`crate::demo::actions::forge`, which lists them
+//!   and where they knowingly differ): `forge.runPipeline` on `forge.pipelines/<id>`
+//!   (the mock's staged build), `forge.previewTransform` (param `sql`, the sandboxed
+//!   diff) and `forge.applyTransform` (params `sql`, `humanGateToken`) on
+//!   `forge.transform/transform`, a commit without a token refused ("Human gate
+//!   required to commit \"fuse_positions\""). Their rows go to `forge.audit`, numbered
+//!   `FRG-2044`, `FRG-2045`, … from `14:02:13`, as `ForgeMock` numbers them.
+//!
+//! The other consoles' actions come with their phases (Phases G and H, Task 2); until
 //! then an action on them is refused as unknown ("no such action").
 
 use attest::json::{parse, Json};
 
-use crate::demo::actions::{admin, heimdall, midgard};
+use crate::demo::actions::{admin, forge, heimdall, midgard};
 use crate::demo::canon;
 use crate::demo::enclosure::{
     ActionRequest, Collection, DemoEnclosure, DemoState, MockAuditClock, Outcome, StoredRow,
@@ -105,7 +113,13 @@ impl SampleSource {
             .state_mut()
             .collections
             .insert(admin::AUDIT.to_string(), admin::seeded_audit());
+        inner
+            .state_mut()
+            .set_mock_clock("forge", forge::FORGE_CLOCK);
         inner.register("heimdall.authoriseWorkflow", heimdall::authorise_workflow);
+        inner.register("forge.runPipeline", forge::run_pipeline);
+        inner.register("forge.previewTransform", forge::preview_transform);
+        inner.register("forge.applyTransform", forge::apply_transform);
         inner.register("midgard.requestApproval", midgard::request_approval);
         inner.register("midgard.decideApproval", midgard::decide_approval);
         inner.register("midgard.applyAction", midgard::apply_action);
