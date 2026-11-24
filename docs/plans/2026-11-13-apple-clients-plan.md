@@ -7274,3 +7274,65 @@ Phase I's own MAP view; no MapKit is used.
 
 The README's "Heimdall's screens (Phase E)" section lists where the apps knowingly differ
 from the web.
+
+## Phase F done (24 Nov 2026)
+
+Forge's seven screens are built on both apps, matched to the rc.3 web console over the
+release's sample data, following the Phase C–E pattern (`Sources/MidgardKit/Consoles/Forge/`;
+`ForgeChrome.swift` and `MGWebAccent.forge` in `Sources/MidgardKit/WebConsole/`; the Mac's
+`ForgeConsole` in the console's own frame, the iPhone's list in the web's order and words,
+Pipelines first).
+
+- **Phase E leftover, first:** Mac tables no longer scroll sideways. One shared rule,
+  `WebTableWidths` (used by every `WebTable`, the header and each row alike): drawn chips
+  and badges keep the web's width, text columns give way first down to their header's
+  width and truncate, the flexible column (the action's title) takes what is left and
+  gives way last; when even the least does not fit (a narrow window, e.g. the 900 pt
+  minimum) the table is drawn as the iPhone's list. Heimdall's Action workflows now shows
+  its STATE chips whole at the default window; the page header keeps a margin so
+  "AUTO-EXECUTED · EVER" is not clipped. This applies to Midgard's, Admin's and
+  Heimdall's tables as well (all are `WebTable`).
+- **Actions:** `ForgeMock`'s, ported into `SampleSource`
+  (`clients/core/src/demo/actions/forge.rs`): `forge.runPipeline` (the mock's six staged
+  steps under the next version and `RUN-1601`, `RUN-1602`, …), `forge.previewTransform`
+  (the sandboxed diff) and `forge.applyTransform` (refused without a token in
+  `ForgeHumanGateRequiredError`'s words, "Human gate required to commit
+  \"fuse_positions\""), audited in `forge.audit` in the mock's numbering (`FRG-2044` from
+  14:02:13), refusals included, at the target's marking. The mock has no connector test,
+  schedule change or projection sync: those buttons are disabled with a reason, as are
+  the web's other handler-less controls. The module lists where the port differs.
+- **Pipeline Builder:** Run build replays the returned steps 560 ms apart into the log and
+  meter, as the web does, and ends with the audit id. The graph is viewed and a node's
+  settings (label, detail) edited on both apps; on the Mac nodes are also dragged, added,
+  connected and removed, and a new graph drawn. All edits are a draft on the device (the
+  enclosure and the mock have no graph write); a build runs the enclosure's graph and a
+  new graph is not built.
+- **Transform IDE:** Preview run and Commit v43 both preview (as on the web); the gate's
+  Authorise commits with a token from the press; Reject stays on screen. The code can be
+  edited before a preview (a deviation: the web's is read-only).
+- **Your data:** not listed in Forge: its screens list connectors, datasets and
+  projections, not object types.
+- **Tests:** `clients/core/tests/forge_actions.rs` (4, and 1 unit test);
+  `ForgeConsoleTests` (7, including the Mac table widths); one `ForgeFlowTests` per app
+  (seven screens, a build as FRG-2044, the commit through the gate as FRG-2046; on the Mac
+  a drawn node discarded). The audit adds Forge's Pipelines and Transform IDE on both apps.
+- **Deviations from the web** beyond the above: no header search, mode toggle or icons
+  (handler-less on the web); the Mac opens Forge on Connectors (the catalogue's first);
+  Data health draws the web's pass meter, not the plan's Swift Charts; no synthetic audit
+  stream; accent text on paper is 0x8A400C (the web's `--forge-600` is under AA there).
+- **Audit (two passes, `MIDGARD_AUDIT_KBD=keep`):** the Mac was locked during both
+  passes ("Failed to activate application"), so nothing was measured there, and the Mac
+  UI tests (the Forge flow, the table fix's screenshot) and the Phase E gateway retake
+  could not run in this phase. On the iPhone, pass 1 failed contrast on Forge's accent
+  text on paper (the BRANCH badge, the F mark; darkened to 0x8A400C), the screen-reader
+  check on the IDE's file names (now spoken "fuse positions, Python file") and the hit
+  target of the BUILD meter; pass 2 passed contrast, screen-reader labels, focus order and
+  reduced motion (so Phase E's replacement row is now measured: it passes hit targets and
+  VoiceOver) and still flagged the meter (21 pt tall), which is now drawn only, its
+  figure said by the status pill (not re-measured; the Forge flow passes after it).
+  Dynamic Type still fails only on the "partially unsupported" findings from Phase J (the
+  status line, console bar and small mono labels capped); keyboard navigation is not
+  measured (setting kept).
+
+The README's "Forge's screens (Phase F)" section lists where the apps knowingly differ
+from the web.

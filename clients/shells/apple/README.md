@@ -129,8 +129,8 @@ With a team in `Signing.local.xcconfig` the first signed build may need
 `-allowProvisioningUpdates`.
 
 `test` runs the scheme's UI tests (`SessionFlowTests`, `MidgardFlowTests`,
-`AdminFlowTests`, `HeimdallPictureFlowTests`, `HeimdallMapsFlowTests`, `EditionTests` and
-`AccessibilityAudit`; add
+`AdminFlowTests`, `HeimdallFlowTests`, `HeimdallPictureFlowTests`, `HeimdallMapsFlowTests`,
+`ForgeFlowTests`, `YourDataFlowTests`, `EditionTests` and `AccessibilityAudit`; add
 `-only-testing:MidgardMacMapsUITests/HeimdallPictureFlowTests`, or
 `MidgardiOSMapsUITests/...`, for one class). The UI tests launch the app with
 `-MidgardUITesting`, which in Debug builds only selects a key root that never prompts and
@@ -242,6 +242,14 @@ the web's frame (classification banner, header with seals, navigation, picture,
 inspector); the iPhone app shows the picture first and the inspector as a sheet. Where the
 web's colours fail WCAG AA they are lifted to the nearest that passes (`MGWeb`), so the
 accessibility audit still holds.
+
+Tables (`WebTable`) follow one width rule on the Mac (`WebTableWidths`): where the web
+scrolls a table sideways (`overflowX: auto`), the app shares the column's width among
+the table's columns. Drawn chips, badges and bars keep the web's width; text columns give
+way first, down to their header's width, and truncate with "…"; the flexible column (an
+action's title, a check) takes what is left and gives way last. When even the least does
+not fit (a narrow window) the table is drawn as the iPhone's list. So at the default
+window width no state chip or column is out of sight.
 
 ## Midgard's screens (Phase C)
 
@@ -452,6 +460,79 @@ the head of the lineage tail; `HeimdallConsoleTests` covers the screen models ag
 the core and `clients/core/tests/heimdall_actions.rs` the action. The audit covers
 Heimdall's Workflows and Decision Lineage on the Mac and its Feeds and Workflows on the
 iPhone, beside the Operating Picture, and the Your Data screen on both.
+
+## Forge's screens (Phase F)
+
+All seven of Forge's screens are built on both apps, matched to the rc.3 web console
+(`products/forge/ui/src/screens/`) over the release's sample data:
+`Sources/MidgardKit/Consoles/Forge/` (the screen models and views) and, in
+`Sources/MidgardKit/WebConsole/`, `ForgeChrome.swift` (the navigation's items, badges,
+each screen's context line and inspector width; the pass meter and the lineage chain)
+and Forge's accent (`MGWebAccent.forge`). The Mac shows each screen in the web's frame
+(the RESTRICTED · DATA PLANE banner, the header with the PQ-SEALED seal and the screen's
+toolbar item, the navigation's DATA OPS and FABRIC sections in the web's order, words and
+badges, the screen and its inspector); the iPhone lists the screens in the same order and
+words, and shows each under the console's banner and header with its tables as lists and
+its inspector in a sheet.
+
+| Screen | What it does here |
+|---|---|
+| Pipelines (Pipeline Builder) | the pipelines as tags, the selected one's graph (sources → transforms → dataset → projection) and the selected node's inspector (version, expectations, version history, encryption); Run build sends `forge.runPipeline` and replays the staged steps it returns into the build log and the BUILD meter, 560 ms apart, as the web does, ending with the audit id; Mimir's suggestion; node settings (label, detail) edited on both apps; on the Mac nodes dragged, added, connected and removed, and a new graph drawn |
+| Connectors | the typed inbound-pull sources with kind, cadence, datasets fed, volume and state; the selected one's trust boundary, the expiring certificate's ACTION REQUIRED, and its last pull |
+| Datasets | the versioned, branched datasets with marking and state; the selected one's version diff and seal; the lineage chain under the table |
+| Data health | the expectations with pass rate, trend and state; the selected one's pass rate, projection gate and pass meter, and Mimir's diagnosis where there is one |
+| Schedules | batch and streaming schedules with trigger, last run, next and state; the selected one's trigger rules and the retry note; the run ledger |
+| Transform IDE | the transform's files and code with line numbers; Preview run and Commit v43 both preview in the sandbox (`forge.previewTransform`), which opens the human gate; Authorise sends `forge.applyTransform` with a token made from the press and shows the audit id; Reject stays on screen |
+| Object projection | the Aircraft projection's source → mapping → target with its marking, and the mapping rules; the selected rule and the governance carry-through |
+
+The actions are the core's ports of `ForgeMock` (`clients/core/src/demo/actions/forge.rs`,
+which lists where the port knowingly differs): `forge.runPipeline`,
+`forge.previewTransform` and `forge.applyTransform`, the commit refused without a token in
+`ForgeHumanGateRequiredError`'s words ("Human gate required to commit
+\"fuse_positions\""), all audited in `forge.audit` in the mock's numbering (`FRG-2044` from
+14:02:13) at the target's marking. Rows above the persona are withheld by count: K. Rao
+(restricted) does not see the OPS-N pipeline flight_tracks_eu, its dataset or the
+Aircraft projection, and cannot build that pipeline.
+
+Where the apps knowingly differ from the web console:
+- **Graph edits are drafts on this device.** The enclosure has no graph write in this
+  release (nor has the web mock), so a moved, renamed, added or connected node, and a new
+  graph drawn on the Mac, stay on the device (DRAFT · THIS MAC ONLY · NOT SENT) until
+  discarded or the screen closes; a build runs the enclosure's own graph, and a new graph
+  is not built. On the iPhone the graph is viewed and a node's settings edited only, as
+  the plan has it.
+- **The Transform IDE's code can be edited** here before a preview (Edit code; Revert):
+  the preview and the commit carry the edited text. The web shows the code read-only.
+- **Controls the web leaves without a handler are disabled with a reason**: Add
+  connector, Rotate certificate, New branch, Time travel, Open in builder, New
+  expectation, Preview quarantine, Dismiss, New schedule, Branch, Preview transform,
+  Open projection mapping, Sync now and Open type in Midgard. The Connectors and Schedules
+  filter tags and the Datasets tabs are drawn as on the web and, as there, filter
+  nothing; the low-code / pro-code tags are the web's fixed ones.
+- **No search box, colour-mode toggle, notifications or account icons** in the header
+  (the shared `ConsoleToolbar`, which has no handler on the web); the account menu is the
+  persona menu.
+- **The Mac opens Forge on Connectors**, the catalogue's first screen, where the web
+  opens Pipelines at `/`; the navigation and the iPhone's list are in the web's order,
+  Pipelines first.
+- **Data health draws the web's meter**, not a chart (the plan's "Swift Charts for
+  drift"): the web shows a pass meter, warn under 98 %, danger under 95 %.
+- **No live audit stream is invented.** The mock's `auditStream` adds a record every
+  4.2 s; no Forge screen shows the audit on the web, and `forge.audit` holds the seed and
+  what this device's actions add.
+- **Imported data** (Your Data) is not listed here: Forge's screens list connectors,
+  datasets and projections, not object types, and an import is neither.
+- **Accent text on paper** is a darker shade of `--forge-600` (0x8A400C): the web's
+  reads 4.3:1 on the light page, under AA.
+- **Connected to a gateway** Forge is not served by it: its screens keep the sample data
+  and say so ("NOT SERVED BY <host>"), and its actions stay on the sample data.
+
+`ForgeFlowTests` on each app opens all seven screens, builds flight_tracks_eu (FRG-2044)
+and commits the transform through the gate (FRG-2046); on the Mac it also draws a node
+and discards it. `ForgeConsoleTests` covers the screen models against the core and the
+Mac table's widths, and `clients/core/tests/forge_actions.rs` the actions. The audit
+covers Forge's Pipelines and Transform IDE on both apps (and its Connectors, the
+console's first screen, on the Mac).
 
 ## Heimdall's MAP and 3D views (Phase I)
 
