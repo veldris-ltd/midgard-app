@@ -161,8 +161,8 @@ struct MimirStudioScreen: View {
             // colour: where the console bar cuts it at the scroll's edge it is not
             // measured as a cut-off faint text (the first audit pass).
             Text(m.operatorSaid ? "OPERATOR" : "MIMIR · Mistral Small 3.2 · LOCAL")
-                .font(MGWebFont.mono(10))
-                .mgTracking(0.14, size: MGWebFont.monoSize(10))
+                .font(MGWebFont.mono(MGWebFont.macLegible(10)))
+                .mgTracking(0.14, size: MGWebFont.monoSize(MGWebFont.macLegible(10)))
                 .foregroundStyle(MGWeb.textMuted)
                 .modifier(WholeElement(label: m.operatorSaid ? "Operator" : "Mimir, Mistral Small 3.2, local",
                                        traits: .isStaticText, identifier: "", action: nil))
@@ -225,8 +225,8 @@ struct MimirStudioScreen: View {
                             .fixedSize(horizontal: false, vertical: true)
                         Text(model.gate == .queued ? "QUEUED · SENT WHEN THE ENCLOSURE IS REACHABLE"
                              : "STATE MUTATION · HUMAN GATE REQUIRED")
-                            .font(MGWebFont.mono(9))
-                            .mgTracking(0.1, size: MGWebFont.monoSize(9))
+                            .font(MGWebFont.mono(MGWebFont.macLegible(9)))
+                            .mgTracking(0.1, size: MGWebFont.monoSize(MGWebFont.macLegible(9)))
                             .foregroundStyle(MGWeb.warnText)
                     }
                 }

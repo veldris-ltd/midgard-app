@@ -421,7 +421,7 @@ public struct WebTerminal: View {
                     Text(title.uppercased())
                         .font(MGWebFont.mono(11))
                         .mgTracking(0.14, size: MGWebFont.monoSize(11))
-                        .foregroundStyle(MGWeb.textFaint)
+                        .foregroundStyle(MGWebFont.terminalFaint)
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
@@ -453,7 +453,7 @@ public struct WebTerminal: View {
                 .fixedSize(horizontal: false, vertical: true)
         } else {
             Text(line.isEmpty ? " " : line)
-                .foregroundStyle(line.hasPrefix("#") ? MGWeb.textFaint : MGWeb.grey300)
+                .foregroundStyle(line.hasPrefix("#") ? MGWebFont.terminalFaint : MGWeb.grey300)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }

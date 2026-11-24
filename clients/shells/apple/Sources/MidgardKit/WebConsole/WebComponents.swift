@@ -433,8 +433,8 @@ public struct WebHumanGate: View {
                         .font(MGWebFont.mono(11))
                         .foregroundStyle(MGWeb.textHeading)
                     Text(state == .queued ? "QUEUED · SENT WHEN THE ENCLOSURE IS REACHABLE" : detail)
-                        .font(MGWebFont.mono(9))
-                        .mgTracking(0.1, size: MGWebFont.monoSize(9))
+                        .font(MGWebFont.mono(MGWebFont.macLegible(9)))
+                        .mgTracking(0.1, size: MGWebFont.monoSize(MGWebFont.macLegible(9)))
                         .foregroundStyle(MGWeb.warnText)
                 }
             }

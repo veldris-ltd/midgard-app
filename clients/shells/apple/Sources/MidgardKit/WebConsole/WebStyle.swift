@@ -169,6 +169,28 @@ public enum MGWebFont {
         return size
         #endif
     }
+
+    /// The web's `size`, or on the Mac 11 pt at least: for the small mono texts the Mac's
+    /// light-mode contrast audit measured drawn at 4.4–4.5:1 on a 1x display (the human
+    /// gate's detail, Mimir's speaker line), as the picture's honesty line before them.
+    /// iOS is unchanged (its mono is 11 pt at least already).
+    public static func macLegible(_ size: CGFloat) -> CGFloat {
+        #if os(macOS)
+        return max(size, 11)
+        #else
+        return size
+        #endif
+    }
+
+    /// The terminal's faint parts (its title, `#` lines): on the Mac the body grey, for
+    /// the same audit (Bifrost's drill log at 4.4:1 drawn); the web's faint on iOS.
+    public static var terminalFaint: Color {
+        #if os(macOS)
+        return MGWeb.textBody
+        #else
+        return MGWeb.textFaint
+        #endif
+    }
 }
 
 extension View {
