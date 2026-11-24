@@ -110,6 +110,7 @@ public struct ForgePassMeter: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("\(label.capitalized): \(String(format: "%.1f", value)) percent"))
+        .accessibilityAddTraits(.isStaticText)
     }
 }
 
@@ -175,5 +176,6 @@ public struct ForgeHopChain: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(hops.map(\.label).joined(separator: ", then ")))
         .accessibilityIdentifier(identifier)
+        .accessibilityAddTraits(.isStaticText)
     }
 }

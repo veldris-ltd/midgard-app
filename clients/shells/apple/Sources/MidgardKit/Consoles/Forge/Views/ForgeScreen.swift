@@ -282,5 +282,6 @@ struct ForgeStaticTags: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("Filters: \(tags.joined(separator: ", ")); shown as on the web, not applied"))
+        .accessibilityAddTraits(.isStaticText)
     }
 }

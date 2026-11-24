@@ -84,7 +84,8 @@ struct BifrostReleaseScreen: View {
                 WebColumn("Ring", width: 110, mono: true) { $0.item.ring },
                 WebColumn("Version", width: 110, mono: true) { $0.item.actual },
                 WebColumn("Target", width: 90, mono: true) { $0.item.desired },
-                WebColumn("State", width: 160, text: { $0.item.stateLabel }) { r in
+                // Wider than the web's 160: "Awaiting courier" was cut at the table's edge.
+                WebColumn("State", width: 184, text: { $0.item.stateLabel }) { r in
                     bifrostPill(r.item.state, r.item.stateLabel)
                 },
             ], rows: model.fleet, id: \.id, minWidth: 640, asList: ctx.compact, accent: ctx.accent,
@@ -107,13 +108,17 @@ struct BifrostReleaseScreen: View {
         let rolling = r.stage == BifrostReleaseModel.promoteStage && model.promoting
         return WebPanel(accentRule: rolling, accent: ctx.accent) {
             VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 8) {
-                    Text(r.name)
-                        .font(MGWebFont.mono(10))
-                        .mgTracking(0.1, size: MGWebFont.monoSize(10))
-                        .foregroundStyle(MGWeb.textMuted)
-                        .lineLimit(1)
-                    if r.offlineBundle == true { WebBadge("OFFLINE BUNDLE", tone: .neutral) }
+                HStack(alignment: .top, spacing: 8) {
+                    // OFFLINE BUNDLE under the name: beside it, both were cut in the
+                    // card's 190 pt ("RING 3 · …", "OFFLIN…").
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(r.name)
+                            .font(MGWebFont.mono(10))
+                            .mgTracking(0.1, size: MGWebFont.monoSize(10))
+                            .foregroundStyle(MGWeb.textMuted)
+                            .lineLimit(1)
+                        if r.offlineBundle == true { WebBadge("OFFLINE BUNDLE", tone: .neutral) }
+                    }
                     Spacer(minLength: 4)
                     Text("\(bifrostCount(r.done))/\(bifrostCount(r.total))")
                         .font(MGWebFont.mono(11))
@@ -240,7 +245,9 @@ struct BifrostArtefactsScreen: View {
             WebColumn("Size", width: 90, align: .trailing, mono: true) { $0.item.size },
             WebColumn("Reproducible", width: 110, mono: true) { $0.item.reproducible },
             WebColumn("Crit. CVEs", width: 90, align: .trailing, mono: true) { bifrostCount($0.item.criticalCves) },
-            WebColumn("State", width: 150, text: { $0.item.stateLabel }) { r in bifrostPill(r.item.state, r.item.stateLabel) },
+            // Wider than the web's 150: the core's "not checked (demo)" and "Not reproducible"
+            // were cut at the table's edge.
+            WebColumn("State", width: 200, text: { $0.item.stateLabel }) { r in bifrostPill(r.item.state, r.item.stateLabel) },
         ], rows: model.rows, id: \.id, selected: model.rows.isEmpty ? nil : model.selected, minWidth: 820,
            asList: ctx.compact, accent: ctx.accent, identifier: "mg.bifrost.artefacts.table") { i in
             ctx.select(i, { model.selected = $0 }, $inspecting)
@@ -339,7 +346,9 @@ struct BifrostChannelsScreen: View {
                                 .foregroundStyle(MGWeb.textHeading)
                             WebBadge(c.cadence.uppercased(), tone: i == 0 ? .accent : .neutral, accent: ctx.accent)
                             Spacer(minLength: 8)
-                            bifrostPill(c.state, c.stateLabel)
+                            // One line: in the 230 pt card "Healthy" and "Rolling" wrapped
+                            // inside their pills beside the MONTHLY and ON MERGE badges.
+                            bifrostPill(c.state, c.stateLabel).fixedSize()
                         }
                         HStack(alignment: .top, spacing: 18) {
                             WebStatBlock(value: c.current, label: "CURRENT")
@@ -347,7 +356,7 @@ struct BifrostChannelsScreen: View {
                         }
                         Text("NEXT · \(c.next.uppercased())").font(MGWebFont.mono(10)).foregroundStyle(MGWeb.textFaint)
                     }
-                    .frame(width: ctx.compact ? nil : 230, alignment: .leading)
+                    .frame(width: ctx.compact ? nil : 250, alignment: .leading)
                 }
                 .overlay(RoundedRectangle(cornerRadius: MGRadius.md).strokeBorder(selected ? ctx.accent.fill : .clear))
             }

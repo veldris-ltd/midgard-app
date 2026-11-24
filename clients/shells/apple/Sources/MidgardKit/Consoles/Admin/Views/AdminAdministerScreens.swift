@@ -79,6 +79,7 @@ struct AdminIamScreen: View {
                         .overlay(alignment: .bottom) { Rectangle().fill(MGWeb.divider).frame(height: 1) }
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel(Text((item.1 ? "Can: " : "Cannot: ") + item.0))
+                        .accessibilityAddTraits(.isStaticText)
                     }
                 }
             }

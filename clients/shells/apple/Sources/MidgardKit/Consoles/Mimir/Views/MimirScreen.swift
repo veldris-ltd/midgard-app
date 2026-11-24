@@ -282,5 +282,6 @@ struct MimirCheckRow: View {
         .overlay(alignment: .bottom) { Rectangle().fill(MGWeb.divider).frame(height: 1) }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("\(failed ? "Failed" : done ? "Passed" : "Pending"): \(text)\(detail.map { ", \($0)" } ?? "")"))
+        .accessibilityAddTraits(.isStaticText)
     }
 }

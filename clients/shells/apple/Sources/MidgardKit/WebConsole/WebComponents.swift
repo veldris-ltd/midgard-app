@@ -152,11 +152,14 @@ public struct WebBadge: View {
     let text: String
     let tone: Tone
     let accent: MGWebAccent
+    let lines: Int
 
-    public init(_ text: String, tone: Tone, accent: MGWebAccent = .midgard) {
+    /// `lines`: 2 lets a long badge wrap in a narrow column rather than run past it.
+    public init(_ text: String, tone: Tone, accent: MGWebAccent = .midgard, lines: Int = 1) {
         self.text = text
         self.tone = tone
         self.accent = accent
+        self.lines = lines
     }
 
     private var colours: (fg: Color, bg: Color, border: Color) {
@@ -175,7 +178,8 @@ public struct WebBadge: View {
         Text(text)
             .font(MGWebFont.mono(11).weight(.medium))
             .mgTracking(0.06, size: MGWebFont.monoSize(11))
-            .lineLimit(1)
+            .lineLimit(lines)
+            .fixedSize(horizontal: false, vertical: lines > 1)
             .foregroundStyle(c.fg)
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
@@ -207,8 +211,20 @@ public struct WebMarkingChip: View {
     }
 
     public var body: some View {
+        // Whole where it fits; in a narrower place (a fitted table column) without the
+        // compartment, rather than cut.
+        ViewThatFits(in: .horizontal) {
+            drawn(compartments)
+            if compartments != nil { drawn(nil) }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("Marking: \(chip.label)"))
+        .accessibilityAddTraits(.isStaticText)
+    }
+
+    private func drawn(_ compartments: String?) -> some View {
         let fill = MGToken.markingHex(chip.level)
-        HStack(spacing: 6) {
+        return HStack(spacing: 6) {
             Text(String(levelWord.prefix(1)))
                 .font(MGWebFont.mono(8).weight(.bold))
                 .foregroundStyle(Color(mgHex: MGContrast.ink(on: fill)))
@@ -226,9 +242,7 @@ public struct WebMarkingChip: View {
         .padding(.vertical, 2)
         .background(Capsule().fill(MGWeb.surfaceInset))
         .overlay(Capsule().strokeBorder(MGWeb.border))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text("Marking: \(chip.label)"))
-        .accessibilityAddTraits(.isStaticText)
+        .fixedSize()
     }
 }
 

@@ -72,10 +72,13 @@ struct BifrostFleetScreen: View {
             WebColumn("Desired", width: 90, mono: true) { $0.item.desired },
             WebColumn("Actual", width: 100, mono: true) { $0.item.actual },
             WebColumn("Drift", width: 140, mono: true) { $0.item.drift },
-            WebColumn("Agent", width: 110, text: { $0.item.agent }) { r in
-                WebBadge(r.item.agent, tone: r.item.agent == "offline" ? .neutral : .secure)
+            // Wider than the web's 110 and 160: the core's "not checked (demo)" in place of
+            // the mock's agent claim, wrapped, and "Awaiting courier" were cut at the Mac's
+            // default window.
+            WebColumn("Agent", width: 126, fitted: true, text: { $0.item.agent }) { r in
+                WebBadge(r.item.agent, tone: r.item.agent == "offline" ? .neutral : .secure, lines: 2)
             },
-            WebColumn("State", width: 160, text: { $0.item.stateLabel }) { r in bifrostPill(r.item.state, r.item.stateLabel) },
+            WebColumn("State", width: 184, text: { $0.item.stateLabel }) { r in bifrostPill(r.item.state, r.item.stateLabel) },
         ], rows: model.rows, id: \.id, selected: model.rows.isEmpty ? nil : model.selected, minWidth: 860,
            asList: ctx.compact, accent: ctx.accent, identifier: "mg.bifrost.fleet.table") { i in
             ctx.select(i, { model.selected = $0 }, $inspecting)

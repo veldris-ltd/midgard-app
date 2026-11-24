@@ -108,4 +108,19 @@ final class HeimdallFlowTests: XCTestCase {
         XCTAssertTrue(Nav.element(app, "mg.heimdall.lineage.tail.row.D-4473").exists, "no D-4473")
         keep("lineage-after")
     }
+
+    /// Workflows at the 900 × 760 pt minimum window: the table does not fit, so it is
+    /// drawn as the iPhone's list (`WebTableWidths`), its rows still there to choose.
+    func testWorkflowsAtTheMinimumWindowAreAList() {
+        app = XCUIApplication()
+        var launch = Nav.freshLaunch
+        launch[launch.count - 1] = "100 130 900 760 0 0 1920 1170"
+        app.launchArguments = ["-MidgardUITesting", "-AppleInterfaceStyle", appearance] + launch
+        app.launch()
+        Nav.openConsole(app, 3)
+        Nav.openScreen(app, "workflows")
+        XCTAssertLessThanOrEqual(app.windows.firstMatch.frame.width, 901, "the window is not at its minimum")
+        XCTAssertTrue(Nav.element(app, "mg.heimdall.workflows.table.row.W-0913").waitForExistence(timeout: 10))
+        keep("workflows-minimum")
+    }
 }

@@ -68,7 +68,9 @@ struct HeimdallEntitiesScreen: View {
             },
             WebColumn("Feeds", width: 60, align: .trailing, mono: true) { "\(Int($0.item.feeds))" },
             WebColumn("First seen", width: 90, mono: true) { $0.item.firstSeen },
-            WebColumn("Marking", width: 150, text: { $0.marking.label }) { r in WebMarkingChip(r.marking) },
+            // Fitted: "CONFIDENTIAL // OPS-N" was cut at the column's edge; in 150 pt the
+            // chip drops its compartment (the inspector and VoiceOver say it whole).
+            WebColumn("Marking", width: 150, fitted: true, text: { $0.marking.label }) { r in WebMarkingChip(r.marking) },
             WebColumn("State", width: 120, text: { $0.item.statusLabel }) { r in heimdallPill(r.item.status, r.item.statusLabel) },
         ], rows: rows, id: \.id, selected: currentIndex, minWidth: 780, asList: ctx.compact, accent: ctx.accent,
            identifier: "mg.heimdall.entities.table") { i in ctx.select(i, { selected = $0 }, $inspecting) }

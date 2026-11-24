@@ -471,6 +471,19 @@ public struct HeimdallStatsFooter: View {
 
     public init(honesty: String = HeimdallStatsFooter.referenceOnly) { self.honesty = honesty }
 
+    // The web's 9 pt faint, tracked line is under a pixel's stroke on a 1x Mac display:
+    // the Mac's contrast audit measured it drawn at 2.3:1. On the Mac it is 11 pt in the
+    // body grey, untracked (the same width); iOS draws mono at 11 pt at least already.
+    #if os(macOS)
+    static let honestySize: CGFloat = 11
+    static let honestyTracking: CGFloat = 0
+    static let honestyColour = MGWeb.textBody
+    #else
+    static let honestySize: CGFloat = 9
+    static let honestyTracking: CGFloat = 0.14
+    static let honestyColour = MGWeb.textFaint
+    #endif
+
     public var body: some View {
         let layout = typeSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
@@ -480,9 +493,9 @@ public struct HeimdallStatsFooter: View {
             WebStatBlock(value: "0.4s", label: "FUSION LATENCY")
             WebStatBlock(value: "1", label: "ANOMALIES", accent: accent)
             Text(honesty)
-                .font(MGWebFont.mono(9))
-                .mgTracking(0.14, size: MGWebFont.monoSize(9))
-                .foregroundStyle(MGWeb.textFaint)
+                .font(MGWebFont.mono(Self.honestySize))
+                .mgTracking(Self.honestyTracking, size: MGWebFont.monoSize(Self.honestySize))
+                .foregroundStyle(Self.honestyColour)
                 .accessibilityIdentifier("mg.heimdall.honesty")
         }
         .padding(.horizontal, 12)
@@ -666,12 +679,17 @@ public struct HeimdallInspector: View {
 /// out (the web's `flex-wrap: wrap`).
 struct FlowRow: Layout {
     var spacing: CGFloat = 5
+    /// An item wider than a whole line is given the line's width, to wrap its text (a
+    /// table drawn as a list: in the Mac's 900 pt window "Re-task sensor feed NORTH-2…"
+    /// ran past the row's edge at the inspector). Off elsewhere: a heading or a one-line
+    /// tag given less than its width truncated, and the iPhone audit reported it clipped.
+    var wrapsWide = false
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let width = proposal.width ?? .infinity
         var x: CGFloat = 0, y: CGFloat = 0, line: CGFloat = 0, widest: CGFloat = 0
         for s in subviews {
-            let size = s.sizeThatFits(.unspecified)
+            let size = wrapsWide ? Self.size(s, in: width) : s.sizeThatFits(.unspecified)
             if x > 0 && x + size.width > width {
                 y += line + spacing
                 x = 0
@@ -684,10 +702,19 @@ struct FlowRow: Layout {
         return CGSize(width: min(widest, width), height: y + line)
     }
 
+    /// A subview's ideal size, or, when it is wider than a whole line and wraps onto more
+    /// lines at the line's width, that size; one that would only truncate keeps its own.
+    private static func size(_ s: LayoutSubview, in width: CGFloat) -> CGSize {
+        let ideal = s.sizeThatFits(.unspecified)
+        guard width.isFinite, ideal.width > width else { return ideal }
+        let fitted = s.sizeThatFits(ProposedViewSize(width: width, height: nil))
+        return fitted.width <= width + 0.5 && fitted.height > ideal.height + 0.5 ? fitted : ideal
+    }
+
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         var x = bounds.minX, y = bounds.minY, line: CGFloat = 0
         for s in subviews {
-            let size = s.sizeThatFits(.unspecified)
+            let size = wrapsWide ? Self.size(s, in: bounds.width) : s.sizeThatFits(.unspecified)
             // A point's grace: the bounds can come back a fraction narrower than the
             // width measured (rounding to pixels), and a line that fitted when measured
             // must not wrap when placed, over what follows it.
@@ -923,6 +950,7 @@ public struct HeimdallPictureReadoutStrip: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text(Self.focusSentence(t)))
                 .accessibilityIdentifier("mg.heimdall.readout.focus")
+                .accessibilityAddTraits(.isStaticText)
             }
         }
         .lineLimit(1)

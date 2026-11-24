@@ -159,7 +159,9 @@ struct ForgeDatasetsScreen: View {
             WebColumn("Branch", width: 130, mono: true) { $0.item.branch },
             WebColumn("Rows", width: 90, align: .trailing, mono: true) { $0.item.rows },
             WebColumn("Columns", width: 90, align: .trailing, mono: true) { "\(Int($0.item.columns))" },
-            WebColumn("Marking", width: 150, text: { $0.marking.label }) { r in WebMarkingChip(r.marking) },
+            // Fitted: "CONFIDENTIAL // OPS-N" was cut at the column's edge; in 150 pt the
+            // chip drops its compartment (the inspector and VoiceOver say it whole).
+            WebColumn("Marking", width: 150, fitted: true, text: { $0.marking.label }) { r in WebMarkingChip(r.marking) },
             WebColumn("State", width: 150, text: { $0.item.stateLabel }) { r in forgePill(r.item.state, r.item.stateLabel) },
         ], rows: model.rows, id: \.id, selected: currentIndex, minWidth: 820, asList: ctx.compact, accent: ctx.accent,
            identifier: "mg.forge.datasets.table") { i in ctx.select(i, { selected = $0 }, $inspecting) }
@@ -259,6 +261,7 @@ struct ForgeHealthScreen: View {
                 .overlay(RoundedRectangle(cornerRadius: MGRadius.md).strokeBorder(MGWeb.border))
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text("\(t.capitalized): \(v)"))
+                .accessibilityAddTraits(.isStaticText)
             }
         }
         if ctx.compact, let c = current {

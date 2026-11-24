@@ -495,6 +495,7 @@ public struct WebMeterBar: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(format(value)))
+        .accessibilityAddTraits(.isStaticText)
     }
 }
 
@@ -762,6 +763,10 @@ public struct WebColumn<Row> {
     let mono: Bool
     let text: (Row) -> String
     let cell: ((Row) -> AnyView)?
+    /// A drawn cell given its column's width rather than its own, so it wraps or
+    /// shortens to fit (the core's "not checked (demo)" badge in Bifrost's fleet, a
+    /// marking chip without its compartment), rather than keep one line and be cut.
+    var fitted = false
 
     /// A text column (sans 14, or mono 12).
     public init(_ header: String, width: CGFloat? = nil, align: Align = .leading, mono: Bool = false,
@@ -775,14 +780,15 @@ public struct WebColumn<Row> {
     }
 
     /// A column drawn by `cell`; `text` is what it says to VoiceOver and in the list form.
-    public init<V: View>(_ header: String, width: CGFloat? = nil, align: Align = .leading, text: @escaping (Row) -> String,
-                         @ViewBuilder cell: @escaping (Row) -> V) {
+    public init<V: View>(_ header: String, width: CGFloat? = nil, align: Align = .leading, fitted: Bool = false,
+                         text: @escaping (Row) -> String, @ViewBuilder cell: @escaping (Row) -> V) {
         self.header = header
         self.width = width
         self.align = align
         self.mono = false
         self.text = text
         self.cell = { AnyView(cell($0)) }
+        self.fitted = fitted
     }
 }
 
@@ -892,7 +898,7 @@ public struct WebTable<Row>: View {
 
     @ViewBuilder private func cellView(_ column: WebColumn<Row>, _ row: Row, first: Bool, list: Bool) -> some View {
         if let cell = column.cell {
-            if column.width != nil {
+            if column.width != nil && !column.fitted {
                 // Chips and badges keep their one line, as the web's `nowrap` cells do.
                 cell(row).fixedSize(horizontal: true, vertical: false)
             } else {
@@ -916,7 +922,7 @@ public struct WebTable<Row>: View {
             if list {
                 VStack(alignment: .leading, spacing: 6) {
                     if let first = columns.first { cellView(first, row, first: true, list: true) }
-                    FlowRow(spacing: 10) {
+                    FlowRow(spacing: 10, wrapsWide: true) {
                         ForEach(Array(columns.dropFirst().enumerated()), id: \.offset) { _, column in
                             HStack(spacing: 6) {
                                 Text(column.header.uppercased())

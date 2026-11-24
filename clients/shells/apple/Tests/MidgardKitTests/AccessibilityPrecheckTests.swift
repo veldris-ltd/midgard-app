@@ -298,12 +298,13 @@ final class AccessibilityPrecheckTests: XCTestCase {
     /// mg.chip.*). Each such modifier chain also adds a trait that gives it a role. A
     /// source rule: SwiftUI builds its accessibility tree only for a connected assistive
     /// client, which `swift test` cannot be without a TCC grant, so the role itself is
-    /// measured by the XCUITest audit.
+    /// measured by the XCUITest audit. Every view source of the kit, the consoles' included
+    /// (the Mac audit of the finish pass found sixteen such elements on their screens).
     func testCombinedElementsHaveARole() throws {
         let combined = try NSRegularExpression(
             pattern: #"\.accessibilityElement\(children: \.ignore\)(?:\s*\.accessibility\w+\([^\n]*\))*"#)
         var found = 0
-        for (file, text) in try viewSources() {
+        for (file, text) in try allKitSources() {
             for match in combined.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
                 found += 1
                 let chain = String(text[Range(match.range, in: text)!])
@@ -343,6 +344,15 @@ final class AccessibilityPrecheckTests: XCTestCase {
             .compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" }
         XCTAssertGreaterThan(files.count, 10)
         return try files.map { ($0.lastPathComponent, try String(contentsOf: $0, encoding: .utf8)) }
+    }
+
+    /// Every Swift source under MidgardKit, by its path inside the kit.
+    private func allKitSources() throws -> [(String, String)] {
+        let root = sourceRoot()
+        let files = (FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)?.allObjects as? [URL] ?? [])
+            .filter { $0.pathExtension == "swift" }
+        XCTAssertGreaterThan(files.count, 50)
+        return try files.map { (String($0.path.dropFirst(root.path.count + 1)), try String(contentsOf: $0, encoding: .utf8)) }
     }
 
     private func viewSources() throws -> [(String, String)] {

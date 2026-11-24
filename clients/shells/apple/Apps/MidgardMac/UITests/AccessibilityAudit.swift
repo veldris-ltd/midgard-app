@@ -60,6 +60,14 @@ final class AccessibilityAudit: AccessibilityAuditBase {
             }
             XCTAssertTrue(app.windows.containing(.any, identifier: "mg.yourdata").firstMatch.waitForExistence(timeout: 10),
                           "Your Data did not open")
+            // The console window under it is closed: its screens were audited on their
+            // own, and the audit measured every element the Your Data window covered
+            // (eleven contrast findings were the console's covered texts).
+            let console = app.windows.containing(.any, identifier: "mg.console.selected").firstMatch
+            if console.exists {
+                console.buttons[XCUIIdentifierCloseWindow].click()
+                XCTAssertTrue(console.waitForNonExistence(timeout: 5), "the console window did not close")
+            }
         }
         return list + Edition.auditedScreens + [yourData]
     }

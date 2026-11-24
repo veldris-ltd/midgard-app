@@ -27,6 +27,7 @@ struct MidgardMacApp: App {
         Window("Your Data", id: YourDataWindow.id) {
             YourDataView(app: delegate.model, compact: false)
                 .frame(minWidth: 560, minHeight: 560)
+                .background(WindowName(label: "Your Data window"))
         }
         .defaultSize(width: 720, height: 860)
 
@@ -71,6 +72,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { await model.start(making: Launch.environment) }
         #if DEBUG
         if UITestingEnvironment.requested() {
+            // The tests' `-AppleInterfaceStyle Light` or `Dark`: AppKit follows the
+            // system's appearance whatever the argument says (a Mac in dark mode ran the
+            // "light" contrast audit and screenshots dark), so the app sets it itself.
+            switch UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)["AppleInterfaceStyle"] as? String {
+            case "Light": NSApp.appearance = NSAppearance(named: .aqua)
+            case "Dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+            default: break
+            }
             NSApp.activate(ignoringOtherApps: true)
             // SwiftUI sometimes opens no window at launch under XCUITest (the app is
             // launched in the background): open one, as File ▸ New Window would.

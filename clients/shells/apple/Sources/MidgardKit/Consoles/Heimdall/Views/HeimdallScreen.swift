@@ -277,5 +277,6 @@ struct HeimdallConfBar: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("\(Int(v.rounded()))%"))
+        .accessibilityAddTraits(.isStaticText)
     }
 }

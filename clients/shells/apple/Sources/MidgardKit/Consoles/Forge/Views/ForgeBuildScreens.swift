@@ -61,6 +61,9 @@ struct ForgePipelineScreen: View {
             ScrollView([.horizontal, .vertical]) {
                 ForgeGraphCanvas(model: model, editable: true) { _ in }
             }
+            // From the graph's first column: centred, the sources were cut at the left
+            // edge at the default window (the graph is wider than the column).
+            .defaultScrollAnchor(.topLeading)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(MGWeb.bgSunken)
             .overlay(alignment: .bottomLeading) {
@@ -162,6 +165,7 @@ struct ForgePipelineScreen: View {
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text("Mode: low-code"))
+                .accessibilityAddTraits(.isStaticText)
             }
         }
     }
@@ -607,6 +611,7 @@ struct ForgeTransformScreen: View {
             .background(MGWeb.bgSunken)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text("Transform code, \(lines.count) lines: \(model.code)"))
+            .accessibilityAddTraits(.isStaticText)
             .accessibilityIdentifier("mg.forge.ide.code")
         }
     }

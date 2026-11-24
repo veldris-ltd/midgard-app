@@ -679,3 +679,33 @@ extension Console {
         }
     }
 }
+
+/// Names a window's unlabelled root group for VoiceOver: the Your Data window's had no
+/// description (the Mac audit's screen-reader check), as the console window's had before
+/// `WindowSetup` named it.
+struct WindowName: NSViewRepresentable {
+    let label: String
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        let label = label
+        DispatchQueue.main.async { Self.name(view.window, label) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { Self.name(view.window, label) }
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {}
+
+    /// The shallowest group in the window's content (breadth first), if unlabelled.
+    private static func name(_ window: NSWindow?, _ label: String) {
+        guard let content = window?.contentView else { return }
+        var level = [content]
+        while !level.isEmpty {
+            if let group = level.first(where: { $0.accessibilityRole() == .group }) {
+                if (group.accessibilityLabel() ?? "").isEmpty { group.setAccessibilityLabel(label) }
+                return
+            }
+            level = level.flatMap(\.subviews)
+        }
+    }
+}

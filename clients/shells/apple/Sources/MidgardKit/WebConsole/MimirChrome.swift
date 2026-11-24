@@ -99,6 +99,7 @@ public struct MimirPassBar: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("\(mimirPercent(value)) percent"))
+        .accessibilityAddTraits(.isStaticText)
     }
 }
 
@@ -137,5 +138,6 @@ public struct MimirScoreMeter: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("Score: \(mimirPercent(value)) percent"))
+        .accessibilityAddTraits(.isStaticText)
     }
 }

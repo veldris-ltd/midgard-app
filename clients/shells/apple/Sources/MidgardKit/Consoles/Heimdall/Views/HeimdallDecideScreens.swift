@@ -108,6 +108,7 @@ struct HeimdallWorkflowsScreen: View {
                     .overlay(alignment: .bottom) { Rectangle().fill(MGWeb.divider).frame(height: 1) }
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(Text("\(stage.0): \(stage.1 ? "done" : "waiting")"))
+                    .accessibilityAddTraits(.isStaticText)
                     .accessibilityIdentifier("mg.heimdall.workflows.stage.\(i + 1)")
                 }
             }

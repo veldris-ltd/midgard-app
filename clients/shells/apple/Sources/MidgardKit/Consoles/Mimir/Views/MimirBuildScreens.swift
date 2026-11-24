@@ -190,6 +190,7 @@ struct MimirStudioScreen: View {
                             .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(MGWeb.border))
                             .accessibilityElement(children: .ignore)
                             .accessibilityLabel(Text("Citation: \(c)"))
+                            .accessibilityAddTraits(.isStaticText)
                         }
                     }
                 }
@@ -291,6 +292,7 @@ struct MimirStudioScreen: View {
                 .overlay(alignment: .bottom) { Rectangle().fill(MGWeb.divider).frame(height: 1) }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text("\(name): \(secure ? "secure" : "warning")"))
+                .accessibilityAddTraits(.isStaticText)
             }
         }
         VStack(alignment: .leading, spacing: 0) {
