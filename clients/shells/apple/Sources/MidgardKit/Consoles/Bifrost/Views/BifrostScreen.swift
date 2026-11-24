@@ -130,7 +130,9 @@ public struct BifrostToolbarItem: View {
         switch screen {
         case "Release Console":
             HStack(spacing: 8) {
+                // Spoken as words: "v2.5.0" alone is not a readable label (first audit pass).
                 WebBadge("v\(toolbar.version)", tone: .accent, accent: .bifrost)
+                    .accessibilityLabel(Text("Version \(toolbar.version)"))
                 if !compact && !typeSize.isAccessibilitySize {
                     WebButton(toolbar.channel, trailingSymbol: "chevron.down", variant: .secondary, size: .sm,
                               disabledReason: "Not available in this app: a release's channel is set in the enclosure",

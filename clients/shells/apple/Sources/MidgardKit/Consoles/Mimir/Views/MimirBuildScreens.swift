@@ -167,11 +167,15 @@ struct MimirStudioScreen: View {
                 .modifier(WholeElement(label: m.operatorSaid ? "Operator" : "Mimir, Mistral Small 3.2, local",
                                        traits: .isStaticText, identifier: "", action: nil))
             VStack(alignment: .leading, spacing: 10) {
+                // One element over the drawn text (`WholeElement`): on the iPhone the answer
+                // rests under the console bar's edge, where it was measured against the
+                // bar (Phase H's first audit pass).
                 Text(m.text)
                     .font(MGWebFont.sans(14))
                     .foregroundStyle(MGWeb.textBody)
                     .lineSpacing(4)
                     .fixedSize(horizontal: false, vertical: true)
+                    .modifier(WholeElement(label: m.text, traits: .isStaticText, identifier: "", action: nil))
                 if !m.cites.isEmpty {
                     FlowRow(spacing: 6) {
                         ForEach(m.cites, id: \.self) { c in

@@ -124,10 +124,11 @@ struct BifrostReleaseScreen: View {
             }
             .frame(width: ctx.compact ? nil : 190, alignment: .leading)
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text("\(r.name)\(r.offlineBundle == true ? ", offline bundle" : ""): \(bifrostCount(r.done)) of \(bifrostCount(r.total)), \(pct) percent"))
-        .accessibilityAddTraits(.isStaticText)
-        .accessibilityIdentifier("mg.bifrost.ring.\(r.id)")
+        // One element over the drawn card (`WholeElement`): on the iPhone the last ring
+        // rests under the console bar, where its texts were measured against the bar
+        // (first audit pass, "0/9").
+        .modifier(WholeElement(label: "\(r.name)\(r.offlineBundle == true ? ", offline bundle" : ""): \(bifrostCount(r.done)) of \(bifrostCount(r.total)), \(pct) percent",
+                               traits: .isStaticText, identifier: "mg.bifrost.ring.\(r.id)", action: nil))
     }
 
     @ViewBuilder private var aside: some View {
