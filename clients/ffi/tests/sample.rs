@@ -60,8 +60,10 @@ fn sample_lists_the_mock_personas_and_collections() {
     let ids: Vec<String> = c.personas().into_iter().map(|p| p.id).collect();
     assert_eq!(ids, ["k.rao", "j.benjamin", "k.osei", "a.holt"]);
     let names: Vec<String> = c.collections().into_iter().map(|x| x.name).collect();
-    assert_eq!(names.len(), 54);
+    assert_eq!(names.len(), 56);
     assert!(names.contains(&"heimdall.tracks".to_string()));
+    assert!(names.contains(&"mimir.studioExchange".to_string()));
+    assert!(names.contains(&"mimir.audit".to_string()));
     assert!(!names.contains(&"heimdall.motion".to_string()));
 }
 

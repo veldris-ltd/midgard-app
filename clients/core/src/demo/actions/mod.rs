@@ -5,3 +5,4 @@ pub mod admin;
 pub mod forge;
 pub mod heimdall;
 pub mod midgard;
+pub mod mimir;

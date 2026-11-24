@@ -22,3 +22,5 @@ pub mod midgard;
 pub mod mimir;
 /// The hand-written motion read model has a hand-written mirror (`crate::motion`).
 pub use crate::motion;
+/// So has Mimir's studio exchange (`crate::studio`).
+pub use crate::studio;

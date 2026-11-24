@@ -26,6 +26,7 @@ pub mod generated;
 mod key_root;
 pub mod motion;
 mod rows;
+pub mod studio;
 
 pub use client::*;
 pub use error::ClientError;

@@ -50,12 +50,22 @@
 //!   required to commit \"fuse_positions\""). Their rows go to `forge.audit`, numbered
 //!   `FRG-2044`, `FRG-2045`, … from `14:02:13`, as `ForgeMock` numbers them.
 //!
-//! The other consoles' actions come with their phases (Phases G and H, Task 2); until
-//! then an action on them is refused as unknown ("no such action").
+//! - Mimir's, ported from `MimirMock` (`crate::demo::actions::mimir`, which lists them
+//!   and where they knowingly differ): `mimir.runEval` on `mimir.evals/<id>` (the
+//!   suite's battery, score and 90 % gate), `mimir.simulateGuardrail` on
+//!   `mimir.guardrails/*` (param `input`, the mock's two patterns as literal
+//!   alternations), the Agent Studio's human-gated `mimir.applyProposal` on
+//!   `mimir.studioExchange/<id>` (param `humanGateToken`) and the Logic Builder's
+//!   `mimir.saveLogic` on `mimir.logic/<id>` (param `steps`; a human gate is never
+//!   deleted). Their rows go to the runtime `mimir.audit`, numbered `A-77121`,
+//!   `A-77122`, … from `14:32:10`, as `MimirMock` numbers them.
+//!
+//! Bifrost's actions come with its phase (Phase H, Task 2); until then an action on it
+//! is refused as unknown ("no such action").
 
 use attest::json::{parse, Json};
 
-use crate::demo::actions::{admin, forge, heimdall, midgard};
+use crate::demo::actions::{admin, forge, heimdall, midgard, mimir};
 use crate::demo::canon;
 use crate::demo::enclosure::{
     ActionRequest, Collection, DemoEnclosure, DemoState, MockAuditClock, Outcome, StoredRow,
@@ -116,7 +126,22 @@ impl SampleSource {
         inner
             .state_mut()
             .set_mock_clock("forge", forge::FORGE_CLOCK);
+        inner
+            .state_mut()
+            .set_mock_clock("mimir", mimir::MIMIR_CLOCK);
+        // Mimir's mock keeps no audit records of its own: its actions start the ledger.
+        inner.state_mut().collections.insert(
+            mimir::AUDIT.to_string(),
+            Collection {
+                type_name: crate::demo::audit::AUDIT_TYPE.into(),
+                rows: Vec::new(),
+            },
+        );
         inner.register("heimdall.authoriseWorkflow", heimdall::authorise_workflow);
+        inner.register("mimir.runEval", mimir::run_eval);
+        inner.register("mimir.simulateGuardrail", mimir::simulate_guardrail);
+        inner.register("mimir.applyProposal", mimir::apply_proposal);
+        inner.register("mimir.saveLogic", mimir::save_logic);
         inner.register("forge.runPipeline", forge::run_pipeline);
         inner.register("forge.previewTransform", forge::preview_transform);
         inner.register("forge.applyTransform", forge::apply_transform);

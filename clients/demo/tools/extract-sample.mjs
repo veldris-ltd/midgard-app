@@ -7,8 +7,12 @@
 // keeps every collection the mocks serve, row for row, with the fixtures' markings
 // (the row's own marking, or the committed overlay's), and the personas named in the
 // mocks. It drops what the mocks do not serve: the synthetic Heimdall hour
-// (`heimdall.motion`, the extractor's own addition for the map). Output is canonical
-// JSON (sorted keys, no whitespace), as the fixtures are.
+// (`heimdall.motion`, the extractor's own addition for the map). It adds one thing
+// the mocks do not hold but a web screen does: Mimir's Agent Studio exchange
+// (`clients/demo/studio.json`, copied once from `AgentStudioScreen.tsx`), served as
+// `mimir.studioExchange`; the copy names the screen's git blob, and extraction stops
+// when the screen is no longer that blob. Output is canonical JSON (sorted keys, no
+// whitespace), as the fixtures are.
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
@@ -47,7 +51,25 @@ for (const f of files.filter((f) => f !== 'personas.json')) {
 for (const name of NOT_IN_MOCKS) if (name in collections) die(`${name} is not mock data`);
 
 const blob = (p) => execFileSync('git', ['hash-object', join(ROOT, p)], { encoding: 'utf8' }).trim();
-const inputs = { ...manifest.inputs, 'clients/demo/tools/extract-sample.mjs': blob('clients/demo/tools/extract-sample.mjs') };
+
+// Mimir's Agent Studio exchange: written in the web screen, not the mock.
+const STUDIO = 'clients/demo/studio.json';
+const studio = JSON.parse(readFileSync(join(ROOT, STUDIO), 'utf8'));
+if (studio.format !== 'midgard-studio-exchange' || studio.version !== 1) die(`${STUDIO}: not a studio exchange`);
+if (blob(studio.source.path) !== studio.source.blob)
+  die(`${studio.source.path} is no longer the blob ${STUDIO} was copied from: copy the exchange again and update its blob`);
+if ('mimir.studioExchange' in collections) die('mimir.studioExchange appears twice');
+collections['mimir.studioExchange'] = {
+  type: 'MimirStudioExchange',
+  rows: [{ id: studio.exchange.id, marking: studio.marking, item: studio.exchange }],
+};
+
+const inputs = {
+  ...manifest.inputs,
+  'clients/demo/tools/extract-sample.mjs': blob('clients/demo/tools/extract-sample.mjs'),
+  [STUDIO]: blob(STUDIO),
+  [studio.source.path]: studio.source.blob,
+};
 const body = {
   format: 'midgard-sample-data',
   version: 1,

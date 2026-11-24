@@ -258,6 +258,7 @@ row_items! {
     mimir::MimirLogicFn,
     mimir::MimirModel,
     mimir::MimirSession,
+    studio::MimirStudioExchange,
 }
 
 #[cfg(test)]

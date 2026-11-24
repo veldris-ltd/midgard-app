@@ -42,7 +42,7 @@ fn the_sample_is_this_releases_mock_data_and_nothing_else() {
     );
     let s = SampleSource::new().unwrap();
     let names: Vec<String> = s.collections().into_iter().map(|(n, _)| n).collect();
-    assert_eq!(names.len(), 54, "{names:?}");
+    assert_eq!(names.len(), 56, "{names:?}");
     assert!(
         !names.iter().any(|n| n == "heimdall.motion"),
         "no synthetic hour"

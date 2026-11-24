@@ -1,0 +1,24 @@
+{
+  "format": "midgard-studio-exchange",
+  "version": 1,
+  "note": "Mimir's Agent Studio exchange, copied once from the rc.3 web screen, which writes it into the screen itself (not into MimirMock): the opening question (line 80), the canned grounded answer with its citations and its human-gated proposal (CANNED, lines 25-29), and the follow-up answer every later question gets (line 97). extract-sample.mjs serves it as mimir.studioExchange and stops if the screen's blob is no longer the one below.",
+  "source": {
+    "path": "products/mimir/ui/src/screens/AgentStudioScreen.tsx",
+    "blob": "100d1cf070343e84ea7cf4b31f2b2ec6213697db",
+    "lines": [25, 29, 80, 97]
+  },
+  "marking": { "level": "internal", "compartments": [] },
+  "exchange": {
+    "id": "dispatch",
+    "prompt": "Any aircraft trending toward a maintenance risk this week?",
+    "answer": {
+      "text": "AC-2214 shows a recurring hydraulic pressure drift across the last 3 legs. Object history links it to open event ME-88121. Recommended action: Schedule maintenance at FAC-DUB within 48h, schedule slack allows it without route impact.",
+      "cites": ["Aircraft/AC-2214", "MaintenanceEvent/ME-88121", "fn check_slack()"]
+    },
+    "proposal": "Schedule maintenance · AC-2214 → FAC-DUB",
+    "followUp": {
+      "text": "Grounded answer from the object fabric (OAG): retrieval scoped to your role, markings, and declared purpose. Every citation is a live object reference.",
+      "cites": ["ObjectSet/aircraft·risk>0.6", "Policy/purpose:maintenance"]
+    }
+  }
+}

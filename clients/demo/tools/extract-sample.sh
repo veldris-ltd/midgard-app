@@ -26,7 +26,8 @@ case "${1:-}" in
         fi
         # Every mock the sample was read from is byte-identical to the signed tag's
         # copy, and nothing else under sdk/ts/src has moved from the tag either (the
-        # mocks import from it). Without the tag (a shallow clone) this part is skipped
+        # mocks import from it); so is the web screen Mimir's studio exchange was
+        # copied from (clients/demo/studio.json). Without the tag (a shallow clone) this part is skipped
         # with a warning, unless MIDGARD_REQUIRE_TAG=1 (CI), where a missing tag fails.
         # MIDGARD_SAMPLE_TAG names another tag or commit (the tests' seeded cases).
         tag="${MIDGARD_SAMPLE_TAG:-v$release}"
@@ -37,7 +38,7 @@ case "${1:-}" in
                 exit 1
             fi
             node -e 'const b = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-                     for (const [p, id] of Object.entries(b.inputs)) if (p.startsWith("sdk/ts/src/mock/")) console.log(p, id);' \
+                     for (const [p, id] of Object.entries(b.inputs)) if (p.startsWith("sdk/ts/src/mock/") || p.startsWith("products/")) console.log(p, id);' \
                 "$committed" | while read -r path id; do
                 want="$(git rev-parse -q --verify "$tag:$path" 2>/dev/null || echo missing)"
                 if [ "$want" != "$id" ]; then
