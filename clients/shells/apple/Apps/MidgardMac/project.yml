@@ -2,7 +2,7 @@
 # XcodeGen 2.46 spec; the generated MidgardMac.xcodeproj is committed beside it and
 # tools/ci/tests/apple-projects.test.sh holds the two together: after editing this file
 # run `xcodegen generate` here and commit both.
-# One app, MidgardMacMaps (bundle io.veldris.midgardmaps.mac, shown as "Midgard"):
+# One app, MidgardMacMaps (bundle io.veldris.midgard, shown as "Midgard"):
 # Info.plist (MidgardEdition maps), App Sandbox with the client network entitlement
 # (Phase I's map tiles), and MidgardGlobeKit. tools/check-edition.sh checks what the
 # build carries.
@@ -43,7 +43,7 @@ targets:
       base:
         PRODUCT_NAME: Midgard
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        PRODUCT_BUNDLE_IDENTIFIER: io.veldris.midgardmaps.mac
+        PRODUCT_BUNDLE_IDENTIFIER: io.veldris.midgard
         INFOPLIST_FILE: Info.plist
         GENERATE_INFOPLIST_FILE: NO
         # Ad hoc without a team, the full set with one (Config/Signing.xcconfig).
@@ -82,7 +82,7 @@ targets:
       Release: Config/Signing.xcconfig
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.veldris.midgardmaps.mac.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: io.veldris.midgard.uitests
         GENERATE_INFOPLIST_FILE: YES
         TEST_TARGET_NAME: MidgardMacMaps
     dependencies:

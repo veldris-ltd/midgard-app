@@ -15,7 +15,7 @@
 // and nothing else changes: signing becomes automatic under that team with the
 // "Apple Development" identity and MidgardMacMaps.entitlements (App Sandbox, the client
 // network entitlement for map tiles, keychain-access-groups =
-// $(AppIdentifierPrefix)io.veldris.midgardmaps.mac, which the Secure Enclave key root
+// $(AppIdentifierPrefix)io.veldris.midgard, which the Secure Enclave key root
 // needs). Xcode then needs the team's account signed in.
 //
 // How: MIDGARD_NO_TEAM is YES only while MIDGARD_TEAM_ID is empty, because

@@ -2,7 +2,7 @@
 # 23 Nov 2026). The generated MidgardiOS.xcodeproj is committed beside it, and
 # tools/ci/tests/apple-projects.test.sh holds the two together: after editing this file,
 # run `xcodegen generate` here and commit both. [DD-6] [FR-C-1]
-# One app, MidgardiOSMaps (bundle io.veldris.midgardmaps.ios, shown as "Midgard"):
+# One app, MidgardiOSMaps (bundle io.veldris.midgard, shown as "Midgard"):
 # Info.plist (MidgardEdition maps), its entitlements (Config/Signing.xcconfig), and
 # MidgardGlobeKit. iOS has no network entitlement (an iPhone app may use the network).
 # tools/check-edition.sh checks what the build carries.
@@ -39,7 +39,7 @@ targets:
         buildPhase: resources
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.veldris.midgardmaps.ios
+        PRODUCT_BUNDLE_IDENTIFIER: io.veldris.midgard
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_NAME: MidgardiOSMaps
         INFOPLIST_FILE: Info.plist
@@ -80,7 +80,7 @@ targets:
       - UITests-Maps
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.veldris.midgardmaps.ios.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: io.veldris.midgard.uitests
         GENERATE_INFOPLIST_FILE: YES
         TEST_TARGET_NAME: MidgardiOSMaps
     dependencies:

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Release build of the Mac app (Task B4): MidgardMacMaps, io.veldris.midgardmaps.mac,
+# Release build of the Mac app (Task B4): MidgardMacMaps, io.veldris.midgard,
 # shown as "Midgard". [DD-6] [FR-C-1]
 #
 #   bash clients/shells/apple/tools/release-mac.sh [--release <name>] [--build <n>]
@@ -139,12 +139,11 @@ elif [ "$mode" = app-store ]; then
     installers="$(security find-identity -v -p basic 2>/dev/null | sed -E 's/^ *[0-9]+\) [0-9A-F]{40} //')"
     grep -Eq '"(Mac Installer Distribution|3rd Party Mac Developer Installer): ' <<<"$installers" \
         || missing="${missing:+$missing and }a Mac Installer Distribution (or 3rd Party Mac Developer Installer) identity"
-    if [ -n "$missing" ]; then
-        say "missing from this Mac's keychain: $missing."
-        say "The Account Holder or an Admin creates the certificates (Certificates, Identifiers & Profiles); then run this again."
-        say "For a Release build signed for development now: release-mac.sh --development."
-        stop "Nothing was built."
-    fi
+    # Missing local identities are fine with Xcode's cloud-managed distribution signing:
+    # the export below signs through the Apple account signed in to Xcode (an Admin or the
+    # Account Holder), and fails, saying so, when there is none.
+    [ -z "$missing" ] \
+        || say "not in this Mac's keychain: $missing; using Xcode's cloud-managed distribution signing (an Admin or the Account Holder signed in to Xcode)."
 else
     grep -q '"Apple Development: ' <<<"$identities" \
         || stop "no Apple Development identity in this Mac's keychain. Nothing was built."
@@ -223,7 +222,7 @@ if [ "$mode" = app-store ]; then
     say "  file       $pkg"
     say "  size       $size bytes"
     say "  sha256     $sum"
-    say "  app        io.veldris.midgardmaps.mac, signed by: $authority"
+    say "  app        io.veldris.midgard, signed by: $authority"
     say "  installer  signed by: $installer"
     say "  how        xcrun altool --upload-package -t macos --apiKey \$MIDGARD_ASC_KEY_ID --apiIssuer \$MIDGARD_ASC_ISSUER_ID"
     printf 'release-mac: type upload to send it, anything else to stop: ' >&2
@@ -273,7 +272,7 @@ say "about to send to Apple's notary service:"
 say "  file    $dmg"
 say "  size    $size bytes"
 say "  sha256  $sum"
-say "  app     io.veldris.midgardmaps.mac, signed by: $authority"
+say "  app     io.veldris.midgard, signed by: $authority"
 say "  how     xcrun notarytool submit --keychain-profile $profile --wait, then xcrun stapler staple"
 printf 'release-mac: type upload to send it, anything else to stop: ' >&2
 read -r word || word=""

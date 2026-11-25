@@ -154,7 +154,7 @@ drops the release-only and 3D-only apps):
 |---|---|---|
 | Target and scheme | `MidgardMacMaps` | `MidgardiOSMaps` |
 | UI-test target | `MidgardMacMapsUITests` (`UITests`, `UITests-Maps`) | `MidgardiOSMapsUITests` (`UITests`, `UITests-Maps`) |
-| Bundle ID | `io.veldris.midgardmaps.mac` | `io.veldris.midgardmaps.ios` |
+| Bundle ID | `io.veldris.midgard` (one App Store record, iOS and macOS) | `io.veldris.midgard` |
 | Shown as | "Midgard" (`CFBundleDisplayName`; the product is `Midgard.app`) | "Midgard" (`CFBundleDisplayName`) |
 | Info.plist `MidgardEdition` | `maps` | `maps` |
 | Entitlements | `MidgardMacMaps.entitlements` (team), `MidgardMacMaps-AdHoc.entitlements`: App Sandbox, the client network entitlement and read access to the files the user picks (Your Data) | `MidgardiOSMaps.entitlements` (team), `MidgardiOSMaps-NoTeam.entitlements`; iOS has no network entitlement |

@@ -2,9 +2,9 @@
 # Each app carries what its edition allows, and nothing more. There is one edition, Maps
 # (owner decision, 23 November 2026: two apps, one branch), built as one app per platform:
 #
-#   MidgardMacMaps  io.veldris.midgardmaps.mac   the edition library and the client
+#   MidgardMacMaps  io.veldris.midgard   the edition library and the client
 #                                                network entitlement (map tiles)
-#   MidgardiOSMaps  io.veldris.midgardmaps.ios   the edition library (iOS has no network
+#   MidgardiOSMaps  io.veldris.midgard   the edition library (iOS has no network
 #                                                entitlement)
 #
 # Builds each app present (Debug, the one configuration that builds without a team) and

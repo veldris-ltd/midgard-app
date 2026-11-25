@@ -368,7 +368,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = io.veldris.midgardmaps.mac;
+				PRODUCT_BUNDLE_IDENTIFIER = io.veldris.midgard;
 				PRODUCT_NAME = Midgard;
 				SDKROOT = macosx;
 			};
@@ -388,7 +388,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = io.veldris.midgardmaps.mac;
+				PRODUCT_BUNDLE_IDENTIFIER = io.veldris.midgard;
 				PRODUCT_NAME = Midgard;
 				SDKROOT = macosx;
 			};
@@ -406,7 +406,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = io.veldris.midgardmaps.mac.uitests;
+				PRODUCT_BUNDLE_IDENTIFIER = io.veldris.midgard.uitests;
 				SDKROOT = macosx;
 				TEST_TARGET_NAME = MidgardMacMaps;
 			};
@@ -549,7 +549,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = io.veldris.midgardmaps.mac.uitests;
+				PRODUCT_BUNDLE_IDENTIFIER = io.veldris.midgard.uitests;
 				SDKROOT = macosx;
 				TEST_TARGET_NAME = MidgardMacMaps;
 			};

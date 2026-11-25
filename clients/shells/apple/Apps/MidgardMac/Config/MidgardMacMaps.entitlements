@@ -16,7 +16,7 @@
 	<true/>
 	<key>keychain-access-groups</key>
 	<array>
-		<string>$(AppIdentifierPrefix)io.veldris.midgardmaps.mac</string>
+		<string>$(AppIdentifierPrefix)io.veldris.midgard</string>
 	</array>
 </dict>
 </plist>

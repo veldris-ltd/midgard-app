@@ -132,7 +132,7 @@ check "no apps: passes, saying so" "out=\$(compare_projects $tmp/empty) && grep 
 # One app per project, the Maps edition (owner decision, 23 Nov 2026). Each
 # Apps/<App>/project.yml declares exactly one application, <App>Maps, with its scheme, its
 # UI-test target <App>MapsUITests that links MidgardAuditKit, an Info.plist saying
-# MidgardEdition maps, a bundle identifier io.veldris.midgardmaps.*, and MidgardGlobeKit
+# MidgardEdition maps, the bundle identifier io.veldris.midgard (both platforms, one App Store record), and MidgardGlobeKit
 # linked. Entitlement files: never the network server entitlement; on the Mac every one
 # names the client one, and the app names its own (<App>Maps[-AdHoc|-NoTeam].entitlements,
 # here or through Config/Signing.xcconfig). tools/check-edition.sh checks what the build
@@ -165,7 +165,7 @@ check_editions() {
             (if ($root.schemes // {})[$m] == null then "no scheme \($m)" else empty end),
             (($root.schemes // {}) | keys[] | select(. != $m) | "scheme \(.) is not for \($m)"),
             (if links($m; "MidgardGlobeKit") | not then "\($m) does not link MidgardGlobeKit" else empty end),
-            (if bid($m) | test("^io[.]veldris[.]midgardmaps[.](mac|ios)$") | not then "\($m) bundle id \(bid($m)) is not io.veldris.midgardmaps.mac or .ios" else empty end)
+            (if bid($m) | test("^io[.]veldris[.]midgard$") | not then "\($m) bundle id \(bid($m)) is not io.veldris.midgard" else empty end)
             ' <<<"$json" 2>&1)"
         platform="$(jq -r --arg t "${app}Maps" '.targets[$t].platform // ""' <<<"$json")"
         plist="$(jq -r --arg t "${app}Maps" '.targets[$t].settings.base.INFOPLIST_FILE // ""' <<<"$json")"
@@ -218,7 +218,7 @@ if command -v jq >/dev/null 2>&1 && command -v plutil >/dev/null 2>&1; then
             '<key>com.apple.security.network.client</key><true/></dict></plist>' >"$d/Config/EdMaps.entitlements"
         printf '%s\n' 'name: Ed' 'packages:' '  MidgardKit:' '    path: ../..' 'targets:' \
             '  EdMaps:' '    type: application' '    platform: macOS' '    sources: [Sources]' \
-            '    settings:' '      base:' '        PRODUCT_BUNDLE_IDENTIFIER: io.veldris.midgardmaps.mac' \
+            '    settings:' '      base:' '        PRODUCT_BUNDLE_IDENTIFIER: io.veldris.midgard' \
             '        INFOPLIST_FILE: Info.plist' '        CODE_SIGN_ENTITLEMENTS: Config/EdMaps.entitlements' \
             '    dependencies:' '      - package: MidgardKit' '        product: MidgardKit' \
             '      - package: MidgardKit' '        product: MidgardGlobeKit' \
@@ -252,8 +252,8 @@ if command -v jq >/dev/null 2>&1 && command -v plutil >/dev/null 2>&1; then
         "plutil -replace MidgardEdition -string 3d Info.plist"
     seeded "the Info.plist missing its edition" "MidgardEdition maps" \
         "plutil -remove MidgardEdition Info.plist"
-    seeded "a bundle id outside io.veldris.midgardmaps" "bundle id" \
-        "edit_spec '{ sub(/io.veldris.midgardmaps.mac/, \"io.veldris.midgard.mac\"); print }'"
+    seeded "a bundle id other than io.veldris.midgard" "bundle id" \
+        "edit_spec '{ sub(/io.veldris.midgard$/, \"io.veldris.midgard.mac\"); print }'"
     seeded "a leftover entitlements file of another app" "is not an entitlements file of EdMaps" \
         "cp Config/EdMaps.entitlements Config/Ed3D.entitlements"
     seeded "a Mac entitlement without network" "lacks the network client" \

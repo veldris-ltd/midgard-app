@@ -112,7 +112,7 @@ public final class DiskTileCache: @unchecked Sendable {
     /// The app's own tile cache.
     public static func appDefault() -> DiskTileCache? {
         guard let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return nil }
-        let bundle = Bundle.main.bundleIdentifier ?? "io.veldris.midgardmaps"
+        let bundle = Bundle.main.bundleIdentifier ?? "io.veldris.midgard"
         return DiskTileCache(directory: caches.appendingPathComponent(bundle, isDirectory: true)
             .appendingPathComponent("tiles", isDirectory: true))
     }

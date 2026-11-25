@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Release build of the iPhone app (Task B5): MidgardiOSMaps, io.veldris.midgardmaps.ios,
+# Release build of the iPhone app (Task B5): MidgardiOSMaps, io.veldris.midgard,
 # shown as "Midgard". [DD-6] [FR-C-1]
 #
 #   bash clients/shells/apple/tools/release-ios.sh [--release <name>] [--build <n>] [--development] [--upload]
@@ -7,8 +7,8 @@
 # Default (App Store Connect export): archives Release for generic iOS with automatic
 # signing under the team in Config/Signing.local.xcconfig and exports an .ipa with method
 # app-store-connect and destination export (Config/ExportOptions-AppStore.plist): the
-# .ipa is written locally and nothing is sent. It stops before that when this Mac has no
-# Apple Distribution identity, and says that nothing was built or uploaded.
+# .ipa is written locally and nothing is sent. With no Apple Distribution identity in the
+# keychain it uses Xcode's cloud-managed distribution signing (the Xcode account).
 #
 # --development: the same Release archive, exported with the Apple Development identity
 # (method debugging, Config/ExportOptions-Development.plist): an .ipa that installs on
@@ -97,12 +97,11 @@ grep -Eq '^[[:space:]]*MIDGARD_TEAM_ID[[:space:]]*=[[:space:]]*[A-Z0-9]{10}[[:sp
 [ "$team_set" = 1 ] || stop "no team: put MIDGARD_TEAM_ID in $app_dir/Config/Signing.local.xcconfig (README, Signing). Nothing was built."
 identities="$(security find-identity -v -p codesigning 2>/dev/null | sed -E 's/^ *[0-9]+\) [0-9A-F]{40} //')"
 if [ "$mode" = app-store ]; then
-    if ! grep -Eq '"(Apple|iPhone) Distribution: ' <<<"$identities"; then
-        say "no Apple Distribution identity in this Mac's keychain (security find-identity -v -p codesigning)."
-        say "The Account Holder or an Admin creates the certificate; then run this again."
-        say "For a Release build signed for development now: release-ios.sh --development."
-        stop "Nothing was built."
-    fi
+    # No local identity is fine with Xcode's cloud-managed distribution signing: the
+    # export below signs through the Apple account signed in to Xcode (an Admin or the
+    # Account Holder), and fails, saying so, when there is none.
+    grep -Eq '"(Apple|iPhone) Distribution: ' <<<"$identities" \
+        || say "no local Apple Distribution identity: using Xcode's cloud-managed distribution signing (an Admin or the Account Holder signed in to Xcode)."
 else
     grep -q '"Apple Development: ' <<<"$identities" \
         || stop "no Apple Development identity in this Mac's keychain. Nothing was built."
@@ -181,7 +180,7 @@ say "about to send to App Store Connect (TestFlight):"
 say "  file    $ipa"
 say "  size    $size bytes"
 say "  sha256  $sum"
-say "  app     io.veldris.midgardmaps.ios, signed by: $authority"
+say "  app     io.veldris.midgard, signed by: $authority"
 say "  how     xcrun altool --upload-app -t ios --apiKey \$MIDGARD_ASC_KEY_ID --apiIssuer \$MIDGARD_ASC_ISSUER_ID"
 printf 'release-ios: type upload to send it, anything else to stop: ' >&2
 read -r word || word=""
