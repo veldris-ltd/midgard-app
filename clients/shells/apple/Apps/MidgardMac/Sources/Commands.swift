@@ -56,10 +56,10 @@ struct MidgardCommands: Commands {
     }
 }
 
-/// Settings: Reset demo (behind a confirmation) and the acknowledgements; in the 3D and
-/// maps editions only, About, from the edition provider (`AppModel.about`). The release
-/// app has no provider, so its Settings are unchanged. With no data source, Reset demo empties the local store
-/// and forgets this device's key. [FR-C-1] [FR-C-9] [DD-6] [DD-7]
+/// Settings: Reset this device (behind a confirmation) and the acknowledgements; in the
+/// 3D and maps editions only, About, from the edition provider (`AppModel.about`). The
+/// release app has no provider, so its Settings are unchanged. With no data source, the
+/// reset empties the local store and forgets this device's key. [FR-C-1] [FR-C-9] [DD-6] [DD-7]
 struct SettingsView: View {
     @ObservedObject var model: AppModel
 
@@ -85,20 +85,18 @@ struct GeneralSettings: View {
     @State private var confirming = false
 
     private var explanation: String {
-        model.banner == .noSource
-            ? "Deletes the local store on this Mac and this device's key. You will set up this device again."
-            : "Deletes this device's saved data and key. Signing in again starts the demo from the beginning."
+        model.banner == .noSource ? ResetText.noSource : ResetText.explanation
     }
 
     var body: some View {
         Form {
             Section {
                 Text(explanation).font(MGFonts.sans(.body))
-                Button("Reset demo", role: .destructive) { confirming = true }
+                Button("Reset this device", role: .destructive) { confirming = true }
                     .frame(minHeight: 44)
                     .accessibilityIdentifier("mg.settings.reset")
-                    .confirmationDialog("Reset the demo?", isPresented: $confirming) {
-                        Button("Reset demo", role: .destructive) { Task { await model.resetDemo() } }
+                    .confirmationDialog("Reset this device?", isPresented: $confirming) {
+                        Button("Reset this device", role: .destructive) { Task { await model.resetDemo() } }
                     } message: {
                         Text(explanation)
                     }

@@ -1,7 +1,7 @@
 import XCTest
 
 /// The session end to end over the release's sample data (owner decision 22 Nov 2026):
-/// enrol, see the mock personas, sign in, see the web consoles' demonstration notice,
+/// enrol, see the mock personas, sign in, see the data chip name the sample workspace,
 /// open each console, go offline and back, lock and unlock. [FR-C-1] [FR-C-5] [FR-C-9]
 /// [AC-C-13]
 final class SessionFlowTests: XCTestCase {
@@ -28,11 +28,11 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertTrue(osei.label.hasPrefix("K. Osei"), "persona label: \(osei.label)")
         osei.click()
 
-        // The banner is the web consoles' own demonstration notice.
-        let banner = Nav.element(app, "mg.banner.demo")
-        XCTAssertTrue(banner.waitForExistence(timeout: 20), app.debugDescription)
-        XCTAssertEqual(Nav.text(banner),
-                       "Demonstration data. This console runs on built-in sample data and is not connected to an enclosure.")
+        // No banner: the data chip names the sample workspace (owner decision 25 Nov 2026).
+        let chip = Nav.element(app, "mg.chip.source")
+        XCTAssertTrue(chip.waitForExistence(timeout: 20), app.debugDescription)
+        XCTAssertTrue(Nav.wait(chip, value: "SAMPLE WORKSPACE"), "data chip shows: \(String(describing: chip.value))")
+        XCTAssertFalse(Nav.element(app, "mg.banner.demo").exists)
         XCTAssertFalse(Nav.element(app, "mg.banner.nosource").exists)
 
         // Each console, from the sidebar, shows its first screen, built (Phases C to H):
@@ -71,6 +71,6 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertFalse(Nav.element(app, "mg.console.selected").exists)
         unlock.click()
         XCTAssertTrue(Nav.element(app, "mg.console.selected").waitForExistence(timeout: 20))
-        XCTAssertTrue(Nav.element(app, "mg.banner.demo").exists)
+        XCTAssertTrue(Nav.element(app, "mg.chip.source").exists)
     }
 }

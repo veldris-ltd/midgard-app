@@ -93,3 +93,29 @@ public struct StatusChipsPresentation: Equatable, Sendable {
         }
     }
 }
+
+/// The data chip, first in the status row: which data the consoles show. The sample
+/// workspace is named as such and never called live; "LIVE · <host>" only while a gateway
+/// the user connected is serving Midgard's screens. [AC-C-13]
+public enum DataSourceChip {
+    public static func make(kind: DataSourceKind?, liveHost: String?, imported: Bool) -> ChipText? {
+        switch kind {
+        case DataSourceKind.sample?, DataSourceKind.demo?:
+            if let host = liveHost {
+                return ChipText(text: "LIVE · \(host)",
+                                accessibilityLabel: "Data: live from \(host). Midgard's screens read this gateway; the other consoles show the sample workspace.",
+                                tone: .secure)
+            }
+            if imported {
+                return ChipText(text: "SAMPLE WORKSPACE + IMPORTED",
+                                accessibilityLabel: "Data: the sample workspace and your imported files", tone: .info)
+            }
+            return ChipText(text: "SAMPLE WORKSPACE",
+                            accessibilityLabel: "Data: the sample workspace, built into the app", tone: .info)
+        case DataSourceKind.none?:
+            return ChipText(text: "NO DATA SOURCE", accessibilityLabel: "Data: no data source connected", tone: .warn)
+        case nil:
+            return nil
+        }
+    }
+}

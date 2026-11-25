@@ -77,13 +77,21 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(relaunched.phase, .locked)
     }
 
-    func testTheDemoBannerIsAlwaysShown() async throws {
+    /// Sample data has no banner (owner decision 25 Nov 2026): the data chip names it,
+    /// and the invitation shows once signed in, until dismissed.
+    func testTheSampleWorkspaceIsNamedByItsChipAndInvitation() async throws {
         let model = await started()
         XCTAssertEqual(model.dataSourceKind, .demo)
-        XCTAssertEqual(model.banner, .demo)
-        XCTAssertEqual(model.banner?.text, DemoBanner.notice)
+        XCTAssertNil(model.banner)
+        XCTAssertEqual(model.sourceChip?.text, "SAMPLE WORKSPACE")
+        XCTAssertFalse(model.showsSampleInvite, "not before sign-in")
         await model.enrol()
-        XCTAssertEqual(model.banner?.text, DemoBanner.notice)
+        let persona = try XCTUnwrap(model.personas.first)
+        await model.signIn(persona)
+        XCTAssertNil(model.banner)
+        if !model.sampleInviteDismissed {
+            XCTAssertTrue(model.showsSampleInvite)
+        }
     }
 
     func testWithNoDataSourceTheLocalUserSignsInAndEveryActionIsRefused() async throws {
@@ -119,15 +127,14 @@ final class AppModelTests: XCTestCase {
     }
 
     /// The shipped apps' mode (owner decision 22 Nov 2026): the release's own sample
-    /// data, under the web consoles' demonstration notice, with the mock personas and
+    /// data, named by the data chip ("SAMPLE WORKSPACE"), with the mock personas and
     /// Heimdall's authorise behaving as the web mock does.
     func testWithTheSampleDataTheMockPersonasSeeTheWebPicture() async throws {
         let model = await started(environment(dataSource: .sample))
         XCTAssertEqual(model.phase, .needsEnrolment)
         XCTAssertEqual(model.dataSourceKind, DataSourceKind.sample)
-        XCTAssertEqual(model.banner, .demo)
-        XCTAssertEqual(model.banner?.text,
-                       "Demonstration data. This console runs on built-in sample data and is not connected to an enclosure.")
+        XCTAssertNil(model.banner, "the sample workspace has no banner")
+        XCTAssertEqual(model.sourceChip?.text, "SAMPLE WORKSPACE")
         XCTAssertEqual(model.personas.map(\.id), ["k.rao", "j.benjamin", "k.osei", "a.holt"])
         XCTAssertEqual(model.collections.count, 56,
                        "the sample's 53 (with Mimir's studio exchange) and the runtime midgard.approvals, admin.audit and mimir.audit")
@@ -419,7 +426,7 @@ final class AppModelTests: XCTestCase {
         let model = AppModel()
         await model.start(environment(dataSource: .bundled(tampered)))
         XCTAssertEqual(model.phase, .failed(ErrorText.describe(ClientError.SignatureFailure(detail: ""))))
-        XCTAssertNil(model.banner, "the demonstration banner is not shown for data that did not verify")
+        XCTAssertNil(model.banner, "no banner is shown for data that did not verify")
         XCTAssertNil(model.dataSourceKind)
     }
 

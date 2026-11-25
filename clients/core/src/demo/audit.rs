@@ -144,7 +144,7 @@ pub fn with_status(item: &Json, status: SignatureStatus) -> Json {
 }
 
 /// The word that replaces an unchecked signature or verification claim.
-pub const NOT_CHECKED: &str = "not checked (demo)";
+pub const NOT_CHECKED: &str = "not checked (sample)";
 
 /// Fields outside audit rows whose fixture text claims a signature or a verification
 /// (`ML-DSA ✓`, `Verified`) that nothing in the demo checks: `(read-model type, field)`.

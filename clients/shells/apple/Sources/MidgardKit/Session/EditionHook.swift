@@ -42,12 +42,11 @@ public protocol HeimdallPictureViewsProvider: AnyObject, Sendable {
                              context: HeimdallPictureViewContext) -> AnyView
 }
 
-/// What an edition library adds to an app for its edition: a banner under the source
-/// banner, an About screen and Heimdall's further picture views, or nothing (nil) for an
-/// edition that has none. MidgardKit holds no edition wording or view: it only asks.
+/// What an edition library adds to an app for its edition: an About screen and
+/// Heimdall's further picture views, or nothing (nil) for an edition that has none (no
+/// edition banner since the owner's decision of 25 Nov 2026). MidgardKit holds no edition wording or view: it only asks.
 /// [FR-C-1]
 public protocol EditionProvider: AnyObject, Sendable {
-    @MainActor func banner(for edition: AppEdition) -> AnyView?
     @MainActor func about(for edition: AppEdition) -> AnyView?
     func pictureViews(for edition: AppEdition) -> HeimdallPictureViewsProvider?
 }

@@ -1,40 +1,32 @@
 import MidgardCore
 
-/// The demonstration notice, word for word the web consoles' (`DEMONSTRATION_NOTICE`
-/// in ui/shared/src/DemonstrationBanner.tsx): shown above everything while the app
-/// runs on the release's sample data (owner decision 22 Nov 2026) or the bundled demo
-/// dataset (owner decision 10). [AC-C-13]
-public enum DemoBanner {
-    public static let notice =
-        "Demonstration data. This console runs on built-in sample data and is not connected to an enclosure."
-}
-
-/// With no data source (the shipped apps, owner decision 19 Nov 2026), this replaces
-/// the demonstration notice. [FR-C-5] [AC-C-13]
+/// With no data source (owner decision 19 Nov 2026), the banner above everything.
+/// [FR-C-5] [AC-C-13]
 public enum NoSourceBanner {
     public static let notice = "No data source connected"
 }
 
-/// Which banner the session shows above everything, and its accessibility identifier.
+/// The banner above everything, and its accessibility identifier. The built-in sample
+/// workspace has none (owner decision 25 Nov 2026): it is named by the status row's data
+/// chip (`DataSourceChip`) and introduced by a dismissible invitation
+/// (`SampleWorkspaceInvite`). A banner is shown only with no data source, or connected to
+/// a gateway, where it says which screens read it.
 public enum SourceBanner: Equatable, Sendable {
     /// `live(host)`: connected to the enclosure gateway at `host` (Your Data): Midgard's
-    /// screens read it; everything else is still the demonstration data, and is said
-    /// to be.
-    case demo, noSource, live(String)
+    /// screens read it; everything else is still the sample workspace, and is said to be.
+    case noSource, live(String)
 
     public var text: String {
         switch self {
-        case .demo: return DemoBanner.notice
         case .noSource: return NoSourceBanner.notice
         case let .live(host):
-            return "LIVE · \(host) · Midgard's screens read this gateway. The other consoles show demonstration data, not live data."
+            return "LIVE · \(host) · Midgard's screens read this gateway. The other consoles show the sample workspace, not live data."
         }
     }
 
     /// The banner at accessibility text sizes.
     public var compactText: String {
         switch self {
-        case .demo: return "Demonstration data · not connected"
         case .noSource: return NoSourceBanner.notice
         case let .live(host): return "LIVE · \(host) · Midgard only"
         }
@@ -42,11 +34,20 @@ public enum SourceBanner: Equatable, Sendable {
 
     public var identifier: String {
         switch self {
-        case .demo: return "mg.banner.demo"
         case .noSource: return "mg.banner.nosource"
         case .live: return "mg.banner.live"
         }
     }
+}
+
+/// The invitation shown over the sample workspace until the user dismisses it or adds
+/// data of their own (owner decision 25 Nov 2026). [AC-C-13]
+public enum SampleWorkspaceInvite {
+    public static let text =
+        "Exploring the sample workspace. Connect your own data server or import JSON to see your data."
+    public static let action = "Connect your data"
+    /// The preference that remembers a dismissal (reset by Reset this device).
+    public static let dismissedKey = "MidgardSampleInviteDismissed"
 }
 
 /// Third-party notices shown in Settings → Acknowledgements and listed in the release
@@ -76,9 +77,9 @@ public enum ErrorText {
         case KeyRootFactory.Failure.keychainUnavailable, SessionController.Failure.keychainUnavailable:
             return "The keychain is not available right now. Unlock the device and try again."
         case KeyRootFactory.Failure.mismatch:
-            return "This device's saved keys do not match its key store. Reset the demo to start again."
+            return "This device's saved keys do not match its key store. Reset this device to start again."
         case PersonaStateStore.Failure.namingKeyDamaged:
-            return "This device's saved data cannot be found again. Reset the demo to start again."
+            return "This device's saved data cannot be found again. Reset this device to start again."
         case SessionController.Failure.stateFileUnavailable:
             return "Saved data on this device cannot be read right now. Unlock the device and try again."
         case SessionController.Failure.notEnrolled:
@@ -100,21 +101,21 @@ public enum ErrorText {
         case .BadTarget: return "That item cannot be acted on."
         case .Stale: return "Saved data on this device was older than expected and was discarded."
         case .Reserved: return "That name is reserved."
-        case .DeviceKey: return "This device's audit key could not be opened. Reset the demo to start again."
-        case .SignatureFailure: return "The demo data failed its signature check and was not loaded."
+        case .DeviceKey: return "This device's audit key could not be opened. Reset this device to start again."
+        case .SignatureFailure: return "The sample data failed its signature check and was not loaded."
         case .Integrity: return "Saved data on this device could not be opened."
         case .Malformed: return "The data could not be read."
         case .Locked: return "Locked."
         case .AlreadyUnlocked: return "Already signed in."
         case .UnlockInProgress: return "Unlock is already in progress."
-        case .UnknownPersona: return "That persona is not part of this demo."
-        case .UnknownCollection: return "That view is not part of this demo."
+        case .UnknownPersona: return "That persona is not part of this workspace."
+        case .UnknownCollection: return "That view is not part of this workspace."
         case .Cancelled: return "Unlock cancelled."
         case .KeyRootUnavailable: return "This device's key is not available. Check Face ID, Touch ID or the passcode."
-        case .SealedRootMalformed: return "The saved keys are damaged. Reset the demo to start again."
-        case .UnsealFailed: return "This device's key could not open the saved keys. Reset the demo to start again."
+        case .SealedRootMalformed: return "The saved keys are damaged. Reset this device to start again."
+        case .UnsealFailed: return "This device's key could not open the saved keys. Reset this device to start again."
         case let .Refused(reason): return "Not available: \(reason)."
-        case .NotFound: return "The demo data is missing from the app."
+        case .NotFound: return "The sample data is missing from the app."
         case .Internal: return "Something went wrong on this device. Try again."
         }
     }

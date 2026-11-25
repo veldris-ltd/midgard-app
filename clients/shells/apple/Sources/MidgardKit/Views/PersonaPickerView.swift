@@ -24,7 +24,7 @@ public struct PersonaPickerView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: MGSpace.s4) {
                 Text("Sign in").font(MGFonts.display(.title)).accessibilityAddTraits(.isHeader)
-                Text("Demo personas").font(MGFonts.mono(.caption)).foregroundStyle(MGStyle.secondaryText)
+                Text("Sample personas").font(MGFonts.mono(.caption)).foregroundStyle(MGStyle.secondaryText)
                 ForEach(Array(model.personas.enumerated()), id: \.element.id) { index, persona in
                     Button {
                         Task { await model.signIn(persona) }

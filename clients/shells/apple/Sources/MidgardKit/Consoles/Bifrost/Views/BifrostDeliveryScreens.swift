@@ -245,7 +245,7 @@ struct BifrostArtefactsScreen: View {
             WebColumn("Size", width: 90, align: .trailing, mono: true) { $0.item.size },
             WebColumn("Reproducible", width: 110, mono: true) { $0.item.reproducible },
             WebColumn("Crit. CVEs", width: 90, align: .trailing, mono: true) { bifrostCount($0.item.criticalCves) },
-            // Wider than the web's 150: the core's "not checked (demo)" and "Not reproducible"
+            // Wider than the web's 150: the core's "not checked (sample)" and "Not reproducible"
             // were cut at the table's edge.
             WebColumn("State", width: 200, text: { $0.item.stateLabel }) { r in bifrostPill(r.item.state, r.item.stateLabel) },
         ], rows: model.rows, id: \.id, selected: model.rows.isEmpty ? nil : model.selected, minWidth: 820,

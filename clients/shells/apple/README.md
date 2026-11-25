@@ -164,13 +164,15 @@ Both link `MidgardGlobeKit`. Content: the signed release `v0.1.0-rc.3` (`ea5899a
 plus Heimdall's MAP and 3D views with their map tiles (Phase I; the planned tag is
 `apple-midgard3dmaps-v0.1.0-rc.3`). The tile loader lives in `MidgardGlobeKit` itself:
 with the release-only and 3D-only apps gone there is no app it must be kept out of, so
-the separate `MidgardTileKit` of the 22 November notes was not needed. The banners are "Demonstration data. …" (the web consoles' notice) and
-"Maps edition, not in the signed release" (`mg.banner.editionmaps`).
+the separate `MidgardTileKit` of the 22 November notes was not needed. Since 25 November
+2026 (owner decision, for the App Store) neither app shows a demonstration or edition
+banner: the sample workspace is named by the status row's data chip ("SAMPLE WORKSPACE",
+"SAMPLE WORKSPACE + IMPORTED" once files are imported, the LIVE chips once a gateway is
+connected), and a dismissible invitation (`SampleWorkspaceInviteView`, `mg.invite`)
+offers Your Data. Sample data is still never called live.
 
-Everything the edition shows lives in `MidgardGlobeKit`: the edition banner (at
-accessibility text sizes the compact "Maps edition · not the signed release", with the
-full text as its accessibility label), the About screen (Settings on the Mac, the session
-menu on the iPhone; it names the edition and says it is not the signed release), and
+Everything the edition shows lives in `MidgardGlobeKit`: the About screen (Settings on
+the Mac, the session menu on the iPhone; the app, its version and what it does), and
 Heimdall's MAP and 3D views behind the Operating Picture's view switch. MidgardKit only asks an
 `EditionProvider` for them, and a package test holds its sources (and MidgardHooks') to
 no edition wording, no `Globe` and no Metal import. A missing or unknown `MidgardEdition`
@@ -231,9 +233,8 @@ their own data, a gateway or feeds: [Your data](#your-data-phase-j)). Each app's
   Mimir's Agent Studio exchange (`clients/demo/studio.json`, copied once from the web
   screen, served as `mimir.studioExchange`; `extract-sample.sh --check` holds that screen
   to the tag);
-- the banner above everything is the web consoles' own demonstration notice,
-  "Demonstration data. This console runs on built-in sample data and is not connected to
-  an enclosure." (`mg.banner.demo`).
+- there is no banner over the sample data: the data chip reads "SAMPLE WORKSPACE" and the
+  invitation offers Your Data (owner decision, 25 November 2026).
 
 The other accepted values are `none` (no data, one `local` user, "No data source
 connected", `mg.banner.nosource`; owner decision, 19 November 2026) and `bundled` (the
@@ -442,7 +443,7 @@ Where the apps knowingly differ from the web console:
   signed figure ("TAIL SIGNED · CHECKED", the web's fixed "100% SIGNED + REPLAYABLE") and
   the chain verification lines count those rows, "—" when none is shown.
 - **No check mark the app did not check.** A decision's signature arrives from the core
-  as "not checked (demo)" and is shown so; a feed's PQ authentication reads
+  as "not checked (sample)" and is shown so; a feed's PQ authentication reads
   "ML-DSA · AUTH" (the web's "ML-DSA ✓"), FAILED, or UNVERIFIED for a user's feed.
 - **Feeds counts the user's feeds**: REGISTERED and QUARANTINED add them (the web's 12 and
   1 otherwise); a notice says how many were added on this device. The contribution's

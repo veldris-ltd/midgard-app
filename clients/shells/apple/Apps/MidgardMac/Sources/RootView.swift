@@ -17,7 +17,7 @@ struct RootView: View {
     var body: some View {
         let reduced = MotionPolicy.reduced(system: systemReduceMotion)
         VStack(spacing: 0) {
-            SessionRootView(model: model) { persona in
+            SessionRootView(model: model, openYourData: { openWindow(id: YourDataWindow.id) }) { persona in
                 ConsoleShell(model: model, persona: persona, route: $route)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

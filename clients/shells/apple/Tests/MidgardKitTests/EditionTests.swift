@@ -75,7 +75,6 @@ final class EditionTests: XCTestCase {
             XCTAssertTrue(ErrorText.describe(failure).contains("MidgardEdition"))
             XCTAssertTrue(ErrorText.describe(failure).hasPrefix("This app is misconfigured"))
             XCTAssertNil(model.edition, "no edition is claimed")
-            XCTAssertNil(model.editionBanner)
             XCTAssertNil(model.about)
             XCTAssertNil(model.pictureViews)
         }
@@ -106,7 +105,6 @@ final class EditionTests: XCTestCase {
         await release.start(environment(edition: .release))
         XCTAssertEqual(release.phase, .needsEnrolment)
         XCTAssertEqual(release.edition, .release)
-        XCTAssertNil(release.editionBanner)
         XCTAssertNil(release.about)
         XCTAssertNil(release.pictureViews)
         XCTAssertEqual(release.banner, .noSource, "the source banner is unchanged")
@@ -115,7 +113,6 @@ final class EditionTests: XCTestCase {
             let model = AppModel()
             await model.start(environment(edition: edition))
             XCTAssertEqual(model.edition, edition)
-            XCTAssertNotNil(model.editionBanner, "\(edition)")
             XCTAssertNotNil(model.about, "\(edition)")
             XCTAssertNotNil(model.pictureViews, "\(edition)")
             XCTAssertEqual(model.banner, .noSource)

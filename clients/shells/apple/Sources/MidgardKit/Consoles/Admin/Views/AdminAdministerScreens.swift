@@ -102,7 +102,7 @@ struct AdminIamScreen: View {
         let roleCount = roleRows.isEmpty ? 5 : roleRows.count
         WebPageHeader(number: 4, section: "IDENTITY", title: "Admin RBAC") {
             WebStatBlock(value: "\(roleCount)", label: "SEPARATED ROLES")
-            WebStatBlock(value: "13", label: "LIVE BINDINGS · ALL EXPIRING")
+            WebStatBlock(value: "13", label: "ACTIVE BINDINGS · ALL EXPIRING")
             WebStatBlock(value: "0", label: "SUPER-ADMIN ROLES", accent: .midgard)
         }
         WebTabs([("Roles", "\(roleCount)"), ("Bindings", "13")], selection: $tab, identifier: "mg.admin.iam.tab")

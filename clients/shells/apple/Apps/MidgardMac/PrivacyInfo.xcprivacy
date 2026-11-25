@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Privacy manifest. No tracking, no tracking domains, no data collected: the app sends
+  nothing to its developer. A data server or feed the user adds is the user's own, and
+  map tiles are fetched from public tile hosts only while a map is shown.
+
+  Required-reason APIs, from the symbols the Release binary imports:
+  - UserDefaults (NSUserDefaults, @AppStorage): the app's own settings, its feeds and
+    gateway address, and whether the sample-workspace invitation was dismissed. CA92.1.
+  - File timestamps (NSURLContentModificationDateKey, NSFileModificationDate; stat,
+    fstat and lstat in the Rust core and the Swift runtime): the map-tile cache's
+    least-recently-used eviction and the sealed store, inside the app's container
+    (C617.1); and the size and state of files the user picks to import (3B52.1).
+  No disk-space, system-boot-time or active-keyboard API is used.
+-->
+<plist version="1.0">
+<dict>
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>C617.1</string>
+				<string>3B52.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

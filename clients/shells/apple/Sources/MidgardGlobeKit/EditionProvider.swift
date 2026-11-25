@@ -1,18 +1,15 @@
 import MidgardKit
 import SwiftUI
 
-/// Everything the 3D and maps editions show that the release edition does not: the
-/// edition banner, About and Heimdall's MAP and 3D views. Linked only by the 3D and maps apps
-/// (MidgardMac3D, MidgardiOS3D, MidgardMacMaps, MidgardiOSMaps); a release app carries
-/// none of this code or wording (tools/check-edition.sh). [FR-C-1] [AC-C-13]
+/// Everything the 3D and maps editions show that the release edition does not: About and
+/// Heimdall's MAP and 3D views. Linked only by the 3D and maps apps (MidgardMacMaps,
+/// MidgardiOSMaps); a release app carries none of this code or wording
+/// (tools/check-edition.sh). The edition banner was removed by the owner's decision of
+/// 25 Nov 2026. [FR-C-1] [AC-C-13]
 public final class EditionUIProvider: EditionProvider {
     public static let shared = EditionUIProvider()
 
     private init() {}
-
-    @MainActor public func banner(for edition: AppEdition) -> AnyView? {
-        EditionBanner(edition).map { AnyView(EditionBannerView($0)) }
-    }
 
     @MainActor public func about(for edition: AppEdition) -> AnyView? {
         EditionAbout(edition).map { AnyView(AboutView($0)) }
@@ -31,14 +28,9 @@ public func midgardEditionHook() -> UnsafeRawPointer? {
     UnsafeRawPointer(Unmanaged.passUnretained(EditionUIProvider.shared).toOpaque())
 }
 
-/// The signed official release every edition is built from.
-public enum SignedRelease {
-    public static let tag = "v0.1.0-rc.3"
-    public static let commit = "ea5899ab"
-}
-
-/// The edition banner, under the source banner. The one mapping from an edition to what
-/// it shows: an edition with no banner (release) has no About and no MAP or 3D view either.
+/// Which edition this is, for About and the picture views: the one mapping from an
+/// edition to what it adds. An edition with none (release) has no About and no MAP or 3D
+/// view. (The name is kept from when each edition also showed a banner.)
 public enum EditionBanner: Equatable, Sendable {
     case threeD, maps
 
@@ -57,29 +49,6 @@ public enum EditionBanner: Equatable, Sendable {
         case .maps: return "Midgard Maps"
         }
     }
-
-    public var text: String {
-        switch self {
-        case .threeD: return "3D edition, not in the signed release"
-        case .maps: return "Maps edition, not in the signed release"
-        }
-    }
-
-    /// Shown at accessibility text sizes, where the full text took several lines and left
-    /// the iPhone's screen list no room. The full text stays the accessibility label.
-    public var compactText: String {
-        switch self {
-        case .threeD: return "3D edition · not the signed release"
-        case .maps: return "Maps edition · not the signed release"
-        }
-    }
-
-    public var identifier: String {
-        switch self {
-        case .threeD: return "mg.banner.edition3d"
-        case .maps: return "mg.banner.editionmaps"
-        }
-    }
 }
 
 /// What an edition's About screen says. nil for the release edition, which has none.
@@ -92,7 +61,7 @@ public struct EditionAbout: Equatable, Sendable {
         guard let banner = EditionBanner(edition) else { return nil }
         name = banner.name
         editionLine = "Edition: \(banner.name)"
-        releaseLine = "\(banner.text). It is \(SignedRelease.tag) (\(SignedRelease.commit)) "
-            + "with map and 3D views added to Heimdall."
+        releaseLine = "Operations consoles with map and 3D views in Heimdall. The app starts on a "
+            + "built-in sample workspace; connect your own data server or import JSON files from Your Data."
     }
 }

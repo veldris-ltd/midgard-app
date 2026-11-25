@@ -186,7 +186,7 @@ struct HeimdallLineageScreen: View {
     }
 
     /// A decision's signature as delivered: the core replaces the sample's claim with
-    /// "not checked (demo)", which is shown as such, never as a check mark.
+    /// "not checked (sample)", which is shown as such, never as a check mark.
     private func signature(_ text: String) -> some View {
         let checked = text.contains("\u{2713}")
         return WebBadge(checked ? text : text.uppercased(), tone: checked ? .secure : .warn)
@@ -219,7 +219,7 @@ struct HeimdallLineageScreen: View {
         if model.state == .loading { WebMicro("VERIFYING CHAIN…") }
 
         VStack(alignment: .leading, spacing: 8) {
-            WebSectionLabel(number: 6, "DECISION LINEAGE · LIVE", accent: ctx.accent, muted: true)
+            WebSectionLabel(number: 6, "DECISION LINEAGE", accent: ctx.accent, muted: true)
             WebTable([
                 WebColumn("Authoriser", mono: true) { (r: MidgardRow<AuditRecord>) in r.item.actor },
                 WebColumn("Decision") { $0.item.action },

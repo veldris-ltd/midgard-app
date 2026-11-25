@@ -72,7 +72,7 @@ struct BifrostFleetScreen: View {
             WebColumn("Desired", width: 90, mono: true) { $0.item.desired },
             WebColumn("Actual", width: 100, mono: true) { $0.item.actual },
             WebColumn("Drift", width: 140, mono: true) { $0.item.drift },
-            // Wider than the web's 110 and 160: the core's "not checked (demo)" in place of
+            // Wider than the web's 110 and 160: the core's "not checked (sample)" in place of
             // the mock's agent claim, wrapped, and "Awaiting courier" were cut at the Mac's
             // default window.
             WebColumn("Agent", width: 126, fitted: true, text: { $0.item.agent }) { r in

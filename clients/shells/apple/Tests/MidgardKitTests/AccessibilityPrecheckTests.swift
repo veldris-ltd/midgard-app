@@ -79,7 +79,7 @@ final class AccessibilityPrecheckTests: XCTestCase {
         XCTAssertEqual(lightFailing, [.secure, .warn, .danger, .info])
     }
 
-    func testDemoBannerMeetsAA() {
+    func testWarningBannerMeetsAA() {
         XCTAssertGreaterThanOrEqual(MGContrast.ratio(MGContrast.ink(on: MGToken.warn), MGToken.warn), aa)
     }
 

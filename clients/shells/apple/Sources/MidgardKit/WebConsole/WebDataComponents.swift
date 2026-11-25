@@ -767,7 +767,7 @@ public struct WebColumn<Row> {
     let text: (Row) -> String
     let cell: ((Row) -> AnyView)?
     /// A drawn cell given its column's width rather than its own, so it wraps or
-    /// shortens to fit (the core's "not checked (demo)" badge in Bifrost's fleet, a
+    /// shortens to fit (the core's "not checked (sample)" badge in Bifrost's fleet, a
     /// marking chip without its compartment), rather than keep one line and be cut.
     var fitted = false
 

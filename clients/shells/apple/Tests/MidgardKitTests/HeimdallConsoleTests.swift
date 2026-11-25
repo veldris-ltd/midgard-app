@@ -145,7 +145,7 @@ final class HeimdallConsoleTests: XCTestCase {
         await lineage.load()
         XCTAssertEqual(lineage.decisions.map(\.item.id), ["D-4472", "D-4468", "D-4461"])
         // The sample's claim is delivered as not checked, never as a check mark.
-        XCTAssertEqual(lineage.decisions[0].item.signature, "not checked (demo)")
+        XCTAssertEqual(lineage.decisions[0].item.signature, "not checked (sample)")
         XCTAssertEqual(lineage.tail.map(\.item.id), ["D-4472", "D-4471", "D-4470", "D-4469", "D-4468"])
         XCTAssertEqual(lineage.signedText, "0/5")
 

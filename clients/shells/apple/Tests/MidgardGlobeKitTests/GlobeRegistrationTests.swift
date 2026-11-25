@@ -7,8 +7,8 @@ import XCTest
 /// The 3D editions' library (Task B7): linked in, it registers its edition provider at
 /// link time (its strong `midgard_edition_hook` replaces MidgardHooks' weak default), with
 /// no call at launch and no runtime switch. The provider gives the 3D and maps editions
-/// their banner, About and Heimdall's MAP and 3D views (Phase I), and the release edition
-/// nothing. [FR-C-1] [FR-H-1] [AC-C-13]
+/// About and Heimdall's MAP and 3D views (Phase I), and the release edition nothing (no
+/// edition banner since 25 Nov 2026). [FR-C-1] [FR-H-1] [AC-C-13]
 @MainActor
 final class GlobeRegistrationTests: XCTestCase {
     func testLinkingTheLibraryRegistersItsProvider() throws {
@@ -18,17 +18,15 @@ final class GlobeRegistrationTests: XCTestCase {
 
     func testTheReleaseEditionGetsNothing() {
         let provider = EditionUIProvider.shared
-        XCTAssertNil(provider.banner(for: .release))
         XCTAssertNil(provider.about(for: .release))
         XCTAssertNil(provider.pictureViews(for: .release))
         XCTAssertNil(EditionBanner(.release))
         XCTAssertNil(EditionAbout(.release))
     }
 
-    func testThe3DEditionsGetTheirBannerAboutAndPictureViews() throws {
+    func testThe3DEditionsGetTheirAboutAndPictureViews() throws {
         let provider = EditionUIProvider.shared
         for edition in [AppEdition.threeD, .maps] {
-            XCTAssertNotNil(provider.banner(for: edition))
             XCTAssertNotNil(provider.about(for: edition))
             XCTAssertTrue(provider.pictureViews(for: edition) === GlobeRegistration.shared)
         }
@@ -38,44 +36,27 @@ final class GlobeRegistrationTests: XCTestCase {
         XCTAssertEqual(HeimdallPictureView.reference, HeimdallPictureView(id: "2d", label: "2D"))
     }
 
-    func testBannerTexts() {
-        XCTAssertEqual(EditionBanner.threeD.text, "3D edition, not in the signed release")
-        XCTAssertEqual(EditionBanner.maps.text, "Maps edition, not in the signed release")
-        XCTAssertEqual(EditionBanner.threeD.compactText, "3D edition · not the signed release")
-        XCTAssertEqual(EditionBanner.maps.compactText, "Maps edition · not the signed release")
-        XCTAssertEqual(EditionBanner.threeD.identifier, "mg.banner.edition3d")
-        XCTAssertEqual(EditionBanner.maps.identifier, "mg.banner.editionmaps")
-    }
-
-    func testTheCompactTextsAreShort() {
-        for banner in [EditionBanner.threeD, .maps] {
-            XCTAssertLessThan(banner.compactText.count, banner.text.count)
-            XCTAssertLessThanOrEqual(banner.compactText.count, 37, banner.compactText)
-        }
-    }
-
-    func testAboutNamesTheEditionAndNeverCallsItTheSignedRelease() throws {
-        XCTAssertEqual(SignedRelease.tag, "v0.1.0-rc.3")
-        XCTAssertEqual(SignedRelease.commit, "ea5899ab")
+    func testAboutNamesTheEditionAndNeverCallsItADemo() throws {
         let about = try XCTUnwrap(EditionAbout(.threeD))
         XCTAssertEqual(about.name, "Midgard 3D")
         XCTAssertEqual(about.editionLine, "Edition: Midgard 3D")
-        XCTAssertEqual(about.releaseLine,
-                       "3D edition, not in the signed release. It is v0.1.0-rc.3 (ea5899ab) with map and 3D views added to Heimdall.")
         let maps = try XCTUnwrap(EditionAbout(.maps))
         XCTAssertEqual(maps.name, "Midgard Maps")
         XCTAssertEqual(maps.editionLine, "Edition: Midgard Maps")
-        XCTAssertTrue(maps.releaseLine.hasPrefix("Maps edition, not in the signed release. It is v0.1.0-rc.3"))
+        XCTAssertEqual(maps.releaseLine,
+                       "Operations consoles with map and 3D views in Heimdall. The app starts on a built-in sample "
+                           + "workspace; connect your own data server or import JSON files from Your Data.")
+        for word in ["demo", "trial", "beta", "signed release", "rc."] {
+            XCTAssertFalse(maps.releaseLine.lowercased().contains(word), word)
+        }
     }
 
     func testTheViewsRenderIncludingAtTheLargestAccessibilitySize() throws {
         MGFonts.registerAll()
         XCTAssertNotNil(ImageRenderer(content: AboutView(try XCTUnwrap(EditionAbout(.maps))).frame(width: 390, height: 600)).cgImage)
-        for banner in [EditionBanner.threeD, .maps] {
-            for size in [DynamicTypeSize.large, .accessibility5] {
-                let view = EditionBannerView(banner).environment(\.dynamicTypeSize, size).frame(width: 390)
-                XCTAssertNotNil(ImageRenderer(content: view).cgImage, "\(banner) at \(size)")
-            }
+        for size in [DynamicTypeSize.large, .accessibility5] {
+            let view = AboutView(try XCTUnwrap(EditionAbout(.maps))).environment(\.dynamicTypeSize, size).frame(width: 390)
+            XCTAssertNotNil(ImageRenderer(content: view).cgImage, "About at \(size)")
         }
         XCTAssertNotNil(ImageRenderer(content: HeimdallViewSwitch(views: GlobeRegistration.shared.views,
                                                                   selection: .constant("3d"))).cgImage)

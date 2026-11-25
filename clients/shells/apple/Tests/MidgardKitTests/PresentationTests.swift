@@ -4,7 +4,7 @@ import XCTest
 
 @testable import MidgardKit
 
-/// What the screens say: chips, withheld rows, signature status, the demo banner, the
+/// What the screens say: chips, withheld rows, signature status, the data chip and invitation, the
 /// acknowledgements and error messages. Chip and row inputs come from the real core.
 /// [AC-C-13] [FR-C-9] [DD-7]
 final class PresentationTests: XCTestCase {
@@ -90,8 +90,8 @@ final class PresentationTests: XCTestCase {
     }
 
     func testMockClaimsAreNotCheckedAndNeverACheckMark() {
-        let claim = SignatureBadge(claim: "not checked (demo)")
-        XCTAssertEqual(claim.text, "NOT CHECKED (DEMO)")
+        let claim = SignatureBadge(claim: "not checked (sample)")
+        XCTAssertEqual(claim.text, "NOT CHECKED (SAMPLE)")
         XCTAssertFalse(claim.showsCheck)
         // Any check mark left in free text is removed: only Verified/Device get one.
         let marks: Set<UInt32> = [0x2713, 0x2714, 0x2705, 0x2611, 0x1F5F8, 0x1F5F9, 0xFE0F]
@@ -105,11 +105,11 @@ final class PresentationTests: XCTestCase {
         }
     }
 
-    func testMimirProvenanceVerifiedCarriesADemoQualifier() {
+    func testMimirProvenanceVerifiedCarriesASampleQualifier() {
         let prov = SignatureBadge(provenance: "verified")
-        XCTAssertEqual(prov.text, "verified (demo label)")
+        XCTAssertEqual(prov.text, "verified (sample label)")
         XCTAssertFalse(prov.showsCheck)
-        XCTAssertEqual(prov.accessibilityLabel, "Provenance: verified, a demo label, not a checked signature")
+        XCTAssertEqual(prov.accessibilityLabel, "Provenance: verified, a sample label, not a checked signature")
     }
 
     func testAuditRowsFromTheCoreRenderTheirStatus() throws {
@@ -121,7 +121,7 @@ final class PresentationTests: XCTestCase {
 
     func testOnlyVerifiedAndDeviceEverShowACheck() {
         let all = [SignatureStatus.verified, .device, .unsigned].map { SignatureBadge($0) }
-            + ["not checked (demo)", "ok", "\u{2713}"].map { SignatureBadge(claim: $0) }
+            + ["not checked (sample)", "ok", "\u{2713}"].map { SignatureBadge(claim: $0) }
             + ["verified", "user"].map { SignatureBadge(provenance: $0) }
         for badge in all where badge.showsCheck {
             XCTAssertTrue(badge.status == .verified || badge.status == .device, badge.text)
@@ -130,9 +130,30 @@ final class PresentationTests: XCTestCase {
 
     // MARK: banner, acknowledgements, errors
 
-    func testDemoBannerMatchesTheWebConsoles() {
-        XCTAssertEqual(DemoBanner.notice,
-                       "Demonstration data. This console runs on built-in sample data and is not connected to an enclosure.")
+    func testTheSampleWorkspaceHasAChipAndAnInvitationNotABanner() {
+        XCTAssertEqual(SampleWorkspaceInvite.text,
+                       "Exploring the sample workspace. Connect your own data server or import JSON to see your data.")
+        let sample = try! XCTUnwrap(DataSourceChip.make(kind: .sample, liveHost: nil, imported: false))
+        XCTAssertEqual(sample.text, "SAMPLE WORKSPACE")
+        XCTAssertEqual(sample.tone, .info)
+        XCTAssertEqual(DataSourceChip.make(kind: .sample, liveHost: nil, imported: true)?.text, "SAMPLE WORKSPACE + IMPORTED")
+        let live = try! XCTUnwrap(DataSourceChip.make(kind: .sample, liveHost: "gw.example", imported: true))
+        XCTAssertEqual(live.text, "LIVE · gw.example")
+        XCTAssertEqual(DataSourceChip.make(kind: DataSourceKind.none, liveHost: nil, imported: false)?.text, "NO DATA SOURCE")
+        XCTAssertNil(DataSourceChip.make(kind: nil, liveHost: nil, imported: false))
+        // The sample workspace is never called live, and no user-facing text calls the
+        // app a demonstration, a trial or a beta.
+        for chip in [sample, DataSourceChip.make(kind: .sample, liveHost: nil, imported: true)!] {
+            XCTAssertFalse(chip.text.uppercased().contains("LIVE"), chip.text)
+            XCTAssertFalse(chip.accessibilityLabel.lowercased().contains("live"), chip.accessibilityLabel)
+        }
+        let texts = [SampleWorkspaceInvite.text, SampleWorkspaceInvite.action, sample.text, sample.accessibilityLabel,
+                     SourceBanner.live("h").text, SourceBanner.live("h").compactText, ResetText.explanation]
+        for text in texts {
+            for word in ["demo", "demonstration", "trial", "beta"] {
+                XCTAssertNil(text.range(of: "\\b\(word)\\b", options: [.regularExpression, .caseInsensitive]), text)
+            }
+        }
     }
 
     func testAcknowledgementsNameUniFFI() {
@@ -153,6 +174,6 @@ final class PresentationTests: XCTestCase {
         let detail = ErrorText.describe(ClientError.KeyRootUnavailable(detail: "NSOSStatusErrorDomain -34018"))
         XCTAssertFalse(detail.contains("-34018"), "platform details stay out of the screen text")
         XCTAssertEqual(ErrorText.describe(ClientError.UnsealFailed),
-                       "This device's key could not open the saved keys. Reset the demo to start again.")
+                       "This device's key could not open the saved keys. Reset this device to start again.")
     }
 }

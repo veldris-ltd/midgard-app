@@ -35,7 +35,7 @@ struct RootView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            SessionRootView(model: model) { persona in
+            SessionRootView(model: model, openYourData: { model.showingYourData = true }) { persona in
                 ConsoleShell(model: model, persona: persona, selection: $console)
             }
             // The banner at the top of the screen, whatever the phase's content.
@@ -43,6 +43,20 @@ struct RootView: View {
             StatusLine(reduced: reducedMotion, console: model.isUnlocked ? console : nil)
         }
         .tint(MGStyle.accent)
+        // Your Data: from the session menu or the sample-workspace invitation.
+        .sheet(isPresented: $model.showingYourData) {
+            NavigationStack {
+                YourDataView(app: model, compact: true)
+                    .navigationTitle("Your data")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { model.showingYourData = false }
+                                .accessibilityIdentifier("mg.yourdata.done")
+                        }
+                    }
+            }
+        }
         .overlay {
             if covered { PrivacyCover() }
         }
@@ -534,7 +548,6 @@ struct SessionMenu: View {
     @ObservedObject var model: AppModel
     let persona: PersonaInfo
     @State private var showingAbout = false
-    @State private var showingData = false
 
     var body: some View {
         let offline = model.isOffline
@@ -570,7 +583,7 @@ struct SessionMenu: View {
             }
             .accessibilityIdentifier("mg.session.offline")
             Button {
-                showingData = true
+                model.showingYourData = true
             } label: {
                 Label("Your data", systemImage: "tray.and.arrow.down")
             }
@@ -596,19 +609,6 @@ struct SessionMenu: View {
         .accessibilityLabel(Text("Session: \(model.signedInName(persona))"))
         .accessibilityIdentifier("mg.0.session-menu")
         .modifier(AboutSheet(about: model.about, showing: $showingAbout))
-        .sheet(isPresented: $showingData) {
-            NavigationStack {
-                YourDataView(app: model, compact: true)
-                    .navigationTitle("Your data")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("Done") { showingData = false }
-                                .accessibilityIdentifier("mg.yourdata.done")
-                        }
-                    }
-            }
-        }
     }
 }
 

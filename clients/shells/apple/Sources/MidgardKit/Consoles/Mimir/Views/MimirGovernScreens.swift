@@ -243,7 +243,7 @@ struct MimirGuardrailsScreen: View {
     /// the core's verdict.
     private var interception: some View {
         VStack(alignment: .leading, spacing: 8) {
-            WebSectionLabel(number: 3, "LIVE INTERCEPTION · SELF-DEFENDING", accent: ctx.accent, muted: true)
+            WebSectionLabel(number: 3, "ACTIVE INTERCEPTION · SELF-DEFENDING", accent: ctx.accent, muted: true)
             VStack(alignment: .leading, spacing: 12) {
                 FlowRow(spacing: 6) {
                     ForEach(Array(MimirGuardrailsModel.presets.enumerated()), id: \.offset) { i, p in

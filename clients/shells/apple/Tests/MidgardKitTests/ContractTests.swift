@@ -115,7 +115,7 @@ final class ContractTests: XCTestCase {
     }
 
     /// Over the release's sample data: the mock personas and collections, and the
-    /// demonstration banner's kind.
+    /// sample workspace's kind.
     func testSampleData() throws {
         let client = try MidgardClient(config: makeConfig(source: .sample), keyRoot: TestKeyRoot())
         XCTAssertEqual(client.dataSourceKind(), DataSourceKind.sample)

@@ -263,7 +263,7 @@ final class KeyRootTests: XCTestCase {
             XCTAssertEqual(probes.count, 0)
         }
         XCTAssertEqual(ErrorText.describe(KeyRootFactory.Failure.mismatch(stored: nil, sealed: .software)),
-                       "This device's saved keys do not match its key store. Reset the demo to start again.")
+                       "This device's saved keys do not match its key store. Reset this device to start again.")
     }
 
     func testAnUnreadableChoiceIsAnError() {

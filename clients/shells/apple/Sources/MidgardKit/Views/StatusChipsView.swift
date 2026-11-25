@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// The header chips — sync, AI tier, key custody. Each chip is outlined in its tone over
+/// The header chips — the data chip (which data the consoles show: `DataSourceChip`),
+/// then sync, AI tier, key custody. Each chip is outlined in its tone over
 /// the tone's tint, lettered in the tone's text token for the mode, which meets AA on the
 /// tint over every surface. [FR-C-9] [AC-C-13] [RC-49]
 ///
@@ -19,8 +20,12 @@ import SwiftUI
 /// is too wide, one chip under the other, each free to wrap.
 public struct StatusChipsView: View {
     let chips: StatusChipsPresentation
+    let source: ChipText?
     @Environment(\.dynamicTypeSize) private var typeSize
-    public init(_ chips: StatusChipsPresentation) { self.chips = chips }
+    public init(_ chips: StatusChipsPresentation, source: ChipText? = nil) {
+        self.chips = chips
+        self.source = source
+    }
 
     public var body: some View {
         if typeSize.isAccessibilitySize {
@@ -39,6 +44,7 @@ public struct StatusChipsView: View {
     }
 
     @ViewBuilder private var all: some View {
+        if let source { chip(source, id: "mg.chip.source") }
         chip(chips.sync, id: "mg.chip.sync")
         chip(chips.tier, id: "mg.chip.tier")
         chip(chips.custody, id: "mg.chip.custody")

@@ -1,12 +1,17 @@
 import Foundation
 import SwiftUI
 
-/// Whether motion is reduced: the system's Reduce Motion, or `MIDGARD_REDUCE_MOTION=1`
-/// in the launch environment (how the accessibility audit asks for it). [RC-49] [AC-C-11]
+/// Whether motion is reduced: the system's Reduce Motion, or, in Debug builds only,
+/// `MIDGARD_REDUCE_MOTION=1` in the launch environment (how the accessibility audit asks
+/// for it; a Release build reads no test variable). [RC-49] [AC-C-11]
 public enum MotionPolicy {
     public static func reduced(system: Bool,
                                environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
-        system || environment["MIDGARD_REDUCE_MOTION"] == "1"
+        #if DEBUG
+        return system || environment["MIDGARD_REDUCE_MOTION"] == "1"
+        #else
+        return system
+        #endif
     }
 }
 

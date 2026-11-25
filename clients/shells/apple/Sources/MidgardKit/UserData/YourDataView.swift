@@ -83,10 +83,10 @@ public struct YourDataView: View {
             WebPanel() {
                 VStack(alignment: .leading, spacing: 8) {
                     FlowRow(spacing: 8) {
-                        WebStatusPill(.secure, "RELEASE \(coreVersion().uppercased()) · SIGNED")
-                        WebBadge("DEMONSTRATION DATA · NOT LIVE", tone: .warn)
+                        WebStatusPill(.secure, "SIGNED SAMPLE DATA")
+                        WebBadge("SAMPLE WORKSPACE · NOT LIVE", tone: .info)
                     }
-                    Text("The signed release's built-in sample data, as its web consoles show it in mock mode. Always present; never live.")
+                    Text("Built-in sample data for exploring every console, signed and included with the app. Always present; never live.")
                         .font(MGWebFont.sans(13, .callout)).foregroundStyle(MGWeb.textBody)
                         .fixedSize(horizontal: false, vertical: true)
                 }

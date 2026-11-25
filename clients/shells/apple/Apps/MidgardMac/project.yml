@@ -30,13 +30,19 @@ targets:
   MidgardMacMaps:
     type: application
     platform: macOS
-    sources: [Sources]
+    # The app icon (tools/make-app-icon.swift draws it) and the privacy manifest.
+    sources:
+      - Sources
+      - Assets.xcassets
+      - path: PrivacyInfo.xcprivacy
+        buildPhase: resources
     configFiles:
       Debug: Config/Signing.xcconfig
       Release: Config/Signing.xcconfig
     settings:
       base:
         PRODUCT_NAME: Midgard
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_BUNDLE_IDENTIFIER: io.veldris.midgardmaps.mac
         INFOPLIST_FILE: Info.plist
         GENERATE_INFOPLIST_FILE: NO

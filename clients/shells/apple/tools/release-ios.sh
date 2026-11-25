@@ -2,7 +2,7 @@
 # Release build of the iPhone app (Task B5): MidgardiOSMaps, io.veldris.midgardmaps.ios,
 # shown as "Midgard". [DD-6] [FR-C-1]
 #
-#   bash clients/shells/apple/tools/release-ios.sh [--release <name>] [--development] [--upload]
+#   bash clients/shells/apple/tools/release-ios.sh [--release <name>] [--build <n>] [--development] [--upload]
 #
 # Default (App Store Connect export): archives Release for generic iOS with automatic
 # signing under the team in Config/Signing.local.xcconfig and exports an .ipa with method
@@ -33,6 +33,12 @@
 # when the variable is not set. Without it the script ends with "nothing was uploaded".
 # App Store submission is out of scope.
 #
+# --build <n>: CFBundleVersion (CURRENT_PROJECT_VERSION) for this archive. App Store
+# Connect needs a higher build number for every upload of a version, so the App Store
+# export defaults it to the number of commits on HEAD (`git rev-list --count HEAD`);
+# --development keeps the project's value unless it is given. CFBundleShortVersionString
+# stays MARKETING_VERSION (0.1.0).
+#
 # Output: ~/Library/Caches/midgard-build/clients-archive/ (MIDGARD_BUILD_CACHE names
 # another cache): MidgardiOS-<release>-<mode>.xcarchive and ios-<mode>/. Derived data:
 # clients-derived-ios-release. tools/clean.sh removes both.
@@ -45,6 +51,7 @@ cache="${MIDGARD_BUILD_CACHE:-$HOME/Library/Caches/midgard-build}"
 release=""
 mode=app-store
 upload=0
+build=""
 
 say() { echo "release-ios: $*" >&2; }
 stop() { say "$*"; say "nothing was uploaded."; exit 1; }
@@ -54,7 +61,8 @@ while [ "$#" -gt 0 ]; do
         --release) release="${2:?--release needs a name}"; shift ;;
         --development) mode=development ;;
         --upload) upload=1 ;;
-        -h | --help) sed -n '2,41p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        --build) build="${2:?--build needs a number}"; shift ;;
+        -h | --help) sed -n '2,47p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) say "unknown argument: $1"; exit 2 ;;
     esac
     shift
@@ -63,6 +71,15 @@ done
 if [ -z "$release" ]; then
     release="$(ls "$here/../../demo/sample" 2>/dev/null | sort | tail -n 1)"
     [ -n "$release" ] || stop "no release under clients/demo/sample; pass --release <name>."
+fi
+
+# The build number: a positive integer; for the App Store, by default the commit count.
+if [ -z "$build" ] && [ "$mode" = app-store ]; then
+    build="$(git -C "$here" rev-list --count HEAD 2>/dev/null || true)"
+    [ -n "$build" ] || stop "no build number: pass --build <n>."
+fi
+if [ -n "$build" ]; then
+    [[ "$build" =~ ^[1-9][0-9]{0,8}$ ]] || stop "--build must be a positive integer, not $build."
 fi
 
 # The upload gate is checked before anything is built.
@@ -100,10 +117,12 @@ derived="$cache/clients-derived-ios-release"
 mkdir -p "$out"
 rm -rf "$archive" "$export_dir"
 
-say "archiving $scheme (Release, $mode) for $release"
+say "archiving $scheme (Release, $mode${build:+, build $build}) for $release"
+build_setting=()
+[ -z "$build" ] || build_setting=("CURRENT_PROJECT_VERSION=$build")
 if ! xcodebuild archive -project "$proj" -scheme "$scheme" -configuration Release \
     -destination 'generic/platform=iOS' -derivedDataPath "$derived" \
-    -archivePath "$archive" -allowProvisioningUpdates -quiet; then
+    -archivePath "$archive" -allowProvisioningUpdates -quiet ${build_setting[@]+"${build_setting[@]}"}; then
     stop "the archive failed."
 fi
 archived_app="$archive/Products/Applications/$scheme.app"
@@ -145,6 +164,7 @@ codesign --verify --deep --strict "$app" || stop "codesign --verify --deep --str
 check_app "$app" exported
 authority="$(codesign -dvv "$app" 2>&1 | sed -n 's/^Authority=//p' | head -n 1)"
 say "exported app signed by: $authority"
+say "version $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Info.plist") ($(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Info.plist"))"
 
 say "sizes:"
 du -sh "$archive" "$ipa" "$app" | sed 's/^/  /' >&2

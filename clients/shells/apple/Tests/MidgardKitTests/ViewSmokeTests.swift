@@ -23,12 +23,15 @@ final class ViewSmokeTests: XCTestCase {
         renders(VStack { ForEach(Array(rows.enumerated()), id: \.offset) { ConsoleRowView($0.element) } })
         renders(StatusChipsView(StatusChipsPresentation(try client.statusChips())))
         renders(SignatureBadgeView(SignatureBadge(provenance: "verified")))
-        renders(DemoBannerView())
-        renders(DemoBannerView(.noSource))
+        renders(SourceBannerView(.noSource))
+        renders(SourceBannerView(.live("gateway.example")))
         renders(NavigationStack { AcknowledgementsView() })
 
         let model = AppModel()
-        renders(SessionRootView(model: model) { _ in Text("console") })
+        renders(SessionRootView(model: model, openYourData: {}) { _ in Text("console") })
+        renders(SampleWorkspaceInviteView(model: model, openYourData: {}))
+        renders(StatusChipsView(StatusChipsPresentation(try client.statusChips()),
+                                source: DataSourceChip.make(kind: .sample, liveHost: nil, imported: false)))
         renders(PersonaPickerView(model: model))
         renders(EnrolView(model: model))
         renders(LockView(model: model, persona: try client.sessionPersona()))

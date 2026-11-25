@@ -7,11 +7,13 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0F7E62338250763C2B281815 /* StoreScreenshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 367786A9A1F8D8491DD407FF /* StoreScreenshotTests.swift */; };
 		2BCF3AED59747988FC7DD14E /* MidgardGlobeKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4F1560A8F53E3761A484D3E7 /* MidgardGlobeKit */; };
 		3118570DA2F023B745C6BC50 /* YourDataFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42D8EDCE9DE689079DBF21D7 /* YourDataFlowTests.swift */; };
 		37549767AF849D7B48163655 /* MidgardKit in Frameworks */ = {isa = PBXBuildFile; productRef = E92ECC69BDBB66C2316FE0C8 /* MidgardKit */; };
 		3856C18D3015F16729C0F287 /* MidgardFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D039A818E322D133521F3E9A /* MidgardFlowTests.swift */; };
 		40BC10DD225D6FC6CDF25E6F /* HeimdallPictureFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0921C9C2A4C059101F8C3936 /* HeimdallPictureFlowTests.swift */; };
+		47A10C29B8CD376BC310A25C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 09807176ADCFAA94C9F0D29A /* Assets.xcassets */; };
 		4BA089763D6823ECAA779EC6 /* AdminFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 223C959AEB6A7F8220782A99 /* AdminFlowTests.swift */; };
 		4E05142893FE5E23FA9C0EDC /* HeimdallMapsFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AE7A3A5938BADB873A1EBDC /* HeimdallMapsFlowTests.swift */; };
 		590023073AC207A06265843C /* MidgardiOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEAD789E2E1859BD0DD1CC83 /* MidgardiOSApp.swift */; };
@@ -22,6 +24,7 @@
 		A6CA25FADB86F5188BE750EE /* SessionFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF02CDCC2435DDB79E9FBD42 /* SessionFlowTests.swift */; };
 		B822A33A63240316986D58BD /* BifrostFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 889EC19857B5BEB1102D0745 /* BifrostFlowTests.swift */; };
 		BB6C4945FE5D272330C7F475 /* AccessibilityAudit.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC2A3D5A6F5594F93A07AFF4 /* AccessibilityAudit.swift */; };
+		C48F3A93CB8135DF13C246E6 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = D7722ADD8FAD0E0DD0ECE100 /* PrivacyInfo.xcprivacy */; };
 		D349070D94C8D7A4FDB95432 /* HeimdallFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8525C30A74E6A5AECF5FB7E7 /* HeimdallFlowTests.swift */; };
 		E72FA0FF5999CD0731FC2065 /* AppNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C7C5AB080B324A94894BFF /* AppNavigation.swift */; };
 		E7FAB5210820A0368D911DD8 /* MimirFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCD1CB8282A40C110D197EF8 /* MimirFlowTests.swift */; };
@@ -40,8 +43,10 @@
 
 /* Begin PBXFileReference section */
 		0921C9C2A4C059101F8C3936 /* HeimdallPictureFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeimdallPictureFlowTests.swift; sourceTree = "<group>"; };
+		09807176ADCFAA94C9F0D29A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		223C959AEB6A7F8220782A99 /* AdminFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdminFlowTests.swift; sourceTree = "<group>"; };
 		34824E36E0A06B2673FF4D6A /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		367786A9A1F8D8491DD407FF /* StoreScreenshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreScreenshotTests.swift; sourceTree = "<group>"; };
 		42D8EDCE9DE689079DBF21D7 /* YourDataFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YourDataFlowTests.swift; sourceTree = "<group>"; };
 		49D6B35EFADEBFE6B5B92AA7 /* MidgardiOSMapsUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = MidgardiOSMapsUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		57336E7E400D5D3788353F2B /* EditionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditionTests.swift; sourceTree = "<group>"; };
@@ -57,6 +62,7 @@
 		CCD1CB8282A40C110D197EF8 /* MimirFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MimirFlowTests.swift; sourceTree = "<group>"; };
 		CDA680AC8C5741514BEDB7FE /* Edition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Edition.swift; sourceTree = "<group>"; };
 		D039A818E322D133521F3E9A /* MidgardFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidgardFlowTests.swift; sourceTree = "<group>"; };
+		D7722ADD8FAD0E0DD0ECE100 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		FCA691AC4CE9B877E1875A4D /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		FEAD789E2E1859BD0DD1CC83 /* MidgardiOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidgardiOSApp.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -93,6 +99,8 @@
 		79EB394A54C16AE83A845304 = {
 			isa = PBXGroup;
 			children = (
+				09807176ADCFAA94C9F0D29A /* Assets.xcassets */,
+				D7722ADD8FAD0E0DD0ECE100 /* PrivacyInfo.xcprivacy */,
 				C5E2D55CF1BDDA39AA46EB12 /* Config */,
 				204312D2F51C736AFFA684CB /* Packages */,
 				BE1AEE2090702B90D50C40D7 /* Sources */,
@@ -125,6 +133,7 @@
 				D039A818E322D133521F3E9A /* MidgardFlowTests.swift */,
 				CCD1CB8282A40C110D197EF8 /* MimirFlowTests.swift */,
 				BF02CDCC2435DDB79E9FBD42 /* SessionFlowTests.swift */,
+				367786A9A1F8D8491DD407FF /* StoreScreenshotTests.swift */,
 				42D8EDCE9DE689079DBF21D7 /* YourDataFlowTests.swift */,
 			);
 			path = UITests;
@@ -186,6 +195,7 @@
 				E4D0F4E40490A3863F54F511 /* Refuse a non-Debug build without a team */,
 				A6904C6DA73E3BFFCD30E4E1 /* Ensure MidgardCoreFFI.xcframework */,
 				F45C4FB7199976BF5E8D6FB4 /* Sources */,
+				AF86C3872FD4F2CD6FD76E98 /* Resources */,
 				E913E177EC94132C085C1535 /* Frameworks */,
 			);
 			buildRules = (
@@ -243,6 +253,18 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		AF86C3872FD4F2CD6FD76E98 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				47A10C29B8CD376BC310A25C /* Assets.xcassets in Resources */,
+				C48F3A93CB8135DF13C246E6 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
 		A6904C6DA73E3BFFCD30E4E1 /* Ensure MidgardCoreFFI.xcframework */ = {
@@ -303,6 +325,7 @@
 				3856C18D3015F16729C0F287 /* MidgardFlowTests.swift in Sources */,
 				E7FAB5210820A0368D911DD8 /* MimirFlowTests.swift in Sources */,
 				A6CA25FADB86F5188BE750EE /* SessionFlowTests.swift in Sources */,
+				0F7E62338250763C2B281815 /* StoreScreenshotTests.swift in Sources */,
 				3118570DA2F023B745C6BC50 /* YourDataFlowTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

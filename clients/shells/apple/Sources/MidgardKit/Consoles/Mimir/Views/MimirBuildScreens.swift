@@ -350,7 +350,7 @@ struct MimirLogicScreen: View {
                       accent: ctx.accent) {
             WebStatBlock(value: "\(model.steps.count)", label: "STEPS")
             WebStatBlock(value: "\(model.gates)", label: "HUMAN GATES", accent: ctx.accent)
-            WebStatBlock(value: "96%", label: "EVALS · V6 LIVE")
+            WebStatBlock(value: "96%", label: "EVALS · V6 ACTIVE")
         }
         if ctx.compact, let s = model.step {
             MidgardInspectButton(title: "Inspect step \(model.selected + 1) · \(s.title)", identifier: "mg.mimir.inspect") {

@@ -272,7 +272,7 @@ struct HeimdallSyncScreen: View {
     @ViewBuilder private var main: some View {
         WebPageHeader(number: 6, section: "SYNC", title: "Picture sync", accent: ctx.accent) {
             WebStatBlock(value: "4", label: "SITES")
-            WebStatBlock(value: "0.8s", label: "WORST LIVE LAG", accent: ctx.accent)
+            WebStatBlock(value: "0.8s", label: "WORST FEED LAG", accent: ctx.accent)
             WebStatBlock(value: "216", label: "MARKING-FILTERED OBJECTS")
         }
         topology

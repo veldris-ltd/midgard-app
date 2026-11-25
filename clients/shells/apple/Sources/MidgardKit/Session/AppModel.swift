@@ -31,25 +31,70 @@ public final class AppModel: ObservableObject {
     @Published public var message: String?
     /// What the client runs on, once the environment is known.
     @Published public private(set) var dataSourceKind: DataSourceKind?
-    /// The banner above everything: the demonstration notice while the source is the
-    /// release's sample data or the demo dataset (the web consoles' own words in mock
-    /// mode), "No data source connected" with none. [AC-C-13] [FR-C-5]
+    /// The banner above everything: none over the sample workspace (the status row's
+    /// data chip names it, owner decision 25 Nov 2026), the LIVE banner while a gateway is
+    /// connected, "No data source connected" with none. [AC-C-13] [FR-C-5]
     public var banner: SourceBanner? {
         switch dataSourceKind {
         case DataSourceKind.demo?, DataSourceKind.sample?:
             if let live = userData.live { return .live(live.host) }
-            return .demo
+            return nil
         case DataSourceKind.none?: return .noSource
         case nil: return nil
         }
     }
+
+    /// The status row's data chip: "SAMPLE WORKSPACE" (with "+ IMPORTED" once the user has
+    /// imported files), "LIVE · <host>" while a gateway is connected, "NO DATA SOURCE"
+    /// with none. Sample data is never called live. [AC-C-13]
+    public var sourceChip: ChipText? {
+        DataSourceChip.make(kind: dataSourceKind, liveHost: userData.live?.host,
+                            imported: !(userData.summary?.files.isEmpty ?? true))
+    }
+
+    /// Your Data is open (the iPhone's sheet: the session menu's "Your data" and the
+    /// invitation's "Connect your data" both set it).
+    @Published public var showingYourData = false
+
+    /// Whether the user dismissed the sample-workspace invitation. Remembered in the app's
+    /// preferences; a UI-testing launch reads only its launch arguments
+    /// (`-MidgardSampleInviteDismissed YES`) and writes nothing.
+    @Published public private(set) var sampleInviteDismissed: Bool = AppModel.readInviteDismissed()
+
+    /// The invitation shows over the sample workspace, signed in, until it is dismissed
+    /// or the user's own data is there (a gateway, imported files or a feed).
+    public var showsSampleInvite: Bool {
+        guard isUnlocked, !sampleInviteDismissed else { return false }
+        guard dataSourceKind == .sample || dataSourceKind == .demo else { return false }
+        return userData.live == nil && (userData.summary?.files.isEmpty ?? true) && userData.feeds.isEmpty
+    }
+
+    public func dismissSampleInvite() {
+        sampleInviteDismissed = true
+        if !Self.uiTesting { UserDefaults.standard.set(true, forKey: SampleWorkspaceInvite.dismissedKey) }
+    }
+
+    private static var uiTesting: Bool {
+        #if DEBUG
+        return UITestingEnvironment.requested()
+        #else
+        return false
+        #endif
+    }
+
+    private static func readInviteDismissed() -> Bool {
+        if uiTesting {
+            let args = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+            return (args[SampleWorkspaceInvite.dismissedKey] as? String).map { ["YES", "1", "true"].contains($0) } ?? false
+        }
+        return UserDefaults.standard.bool(forKey: SampleWorkspaceInvite.dismissedKey)
+    }
     public private(set) var custodyLabel: String?
     /// Which app this is, once the environment is known (Task B7).
     @Published public private(set) var edition: AppEdition?
-    /// The edition's banner under the source banner, its About screen and Heimdall's
+    /// The edition's About screen and Heimdall's
     /// further picture views (MAP and 3D): each from the linked edition provider
     /// (`EditionHook`), so nil in a release app, which links none. [AC-C-13]
-    public var editionBanner: AnyView? { edition.flatMap { EditionHook.registered?.banner(for: $0) } }
     public var about: AnyView? { edition.flatMap { EditionHook.registered?.about(for: $0) } }
     public var pictureViews: HeimdallPictureViewsProvider? {
         edition.flatMap { EditionHook.registered?.pictureViews(for: $0) }
@@ -230,6 +275,9 @@ public final class AppModel: ObservableObject {
         idle.stop()
         await userData.disconnect()
         guard await call({ try $0.resetDemo() }) != nil else { return }
+        // Starting again from the beginning: the invitation shows again.
+        sampleInviteDismissed = false
+        if !Self.uiTesting { UserDefaults.standard.removeObject(forKey: SampleWorkspaceInvite.dismissedKey) }
         chips = nil
         lastPersona = nil
         phase = .needsEnrolment

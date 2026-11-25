@@ -22,7 +22,7 @@ struct AdminBreakGlassScreen: View {
     ]
     static let constraints: [(String, String)] = [
         ("Scope", "unwrap only · one key family"), ("Excluded", "no policy edits · no IAM · no export"),
-        ("Session recording", "every call ledgered live"), ("Hard stop", "07:00:00 · no extension without re-approval"),
+        ("Session recording", "every call ledgered as it happens"), ("Hard stop", "07:00:00 · no extension without re-approval"),
     ]
 
     init(ctx: AdminScreenContext) {
@@ -147,7 +147,7 @@ struct AdminBreakGlassScreen: View {
     private var constraints: some View {
         WebPanel {
             VStack(alignment: .leading, spacing: 4) {
-                WebLabel("LIVE SESSION CONSTRAINTS")
+                WebLabel("ACTIVE SESSION CONSTRAINTS")
                 WebKeyValues(Self.constraints, keyWidth: 120, upperKeys: true)
             }
         }

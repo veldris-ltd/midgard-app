@@ -1,7 +1,7 @@
 import XCTest
 
 /// The session on the shipped app, over the release's sample data (owner decision 22
-/// Nov 2026): enrol, the mock personas, the web consoles' demonstration notice, all six
+/// Nov 2026): enrol, the mock personas, the data chip naming the sample workspace, all six
 /// consoles, offline, lock and unlock. [FR-C-1] [FR-C-5] [FR-C-9] [AC-C-13]
 final class SessionFlowTests: XCTestCase {
     private var app: XCUIApplication!
@@ -48,11 +48,11 @@ final class SessionFlowTests: XCTestCase {
         AppNavigation.personaButton(app).tap()
         XCTAssertTrue(AppNavigation.consoleMarker(app).waitForExistence(timeout: AppNavigation.timeout))
 
-        // The banner is the web consoles' own demonstration notice.
-        let banner = element("mg.banner.demo")
-        XCTAssertTrue(banner.exists, "no demonstration banner")
-        XCTAssertEqual(banner.label,
-                       "Demonstration data. This console runs on built-in sample data and is not connected to an enclosure.")
+        // No banner: the data chip names the sample workspace (owner decision 25 Nov 2026).
+        let chip = element("mg.chip.source")
+        XCTAssertTrue(chip.waitForExistence(timeout: AppNavigation.timeout), "no data chip")
+        XCTAssertEqual(chip.label, "Data: the sample workspace, built into the app")
+        XCTAssertFalse(element("mg.banner.demo").exists)
         XCTAssertFalse(element("mg.banner.nosource").exists)
 
         // Each console opens at its list of screens.
@@ -76,7 +76,7 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertFalse(AppNavigation.consoleMarker(app).exists, "the consoles are still shown while locked")
         AppNavigation.unlockButton(app).tap()
         XCTAssertTrue(AppNavigation.consoleMarker(app).waitForExistence(timeout: AppNavigation.timeout))
-        XCTAssertTrue(element("mg.banner.demo").exists)
+        XCTAssertTrue(element("mg.chip.source").exists)
     }
 
     func testEveryConsoleListsItsScreensAndNoneIsAPlaceholder() {

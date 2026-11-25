@@ -1,8 +1,9 @@
 import XCTest
 
 /// The edition the app under test says it is (Task B7), against `Edition`, which the
-/// UI-test target defines in UITests-Maps (the one edition since 23 Nov 2026): the
-/// edition banner, Heimdall's view switch (2D, MAP, 3D), and About. The branches for an app without
+/// UI-test target defines in UITests-Maps (the one edition since 23 Nov 2026): no banner
+/// over the sample workspace but its data chip and invitation (owner decision 25 Nov
+/// 2026), Heimdall's view switch (2D, MAP, 3D), and About. The branches for an app without
 /// them stay, so the tests still hold if an edition without them returns. [FR-C-1] [AC-C-13]
 final class EditionTests: XCTestCase {
     private var app: XCUIApplication!
@@ -20,17 +21,30 @@ final class EditionTests: XCTestCase {
 
     private func element(_ id: String) -> XCUIElement { app.descendants(matching: .any)[id] }
 
-    func testTheBannersSayWhichEditionThisIs() {
+    func testTheSampleWorkspaceHasADataChipAndAnInvitationNoBanner() {
         AppNavigation.signIn(app)
-        XCTAssertTrue(element("mg.banner.demo").waitForExistence(timeout: AppNavigation.timeout))
-        for id in ["mg.banner.edition3d", "mg.banner.editionmaps"] where id != Edition.banner?.id {
-            XCTAssertFalse(element(id).exists, "\(id) is not this edition's banner")
+        let chip = element("mg.chip.source")
+        XCTAssertTrue(chip.waitForExistence(timeout: AppNavigation.timeout), app.debugDescription)
+        XCTAssertEqual(chip.label, "Data: the sample workspace, built into the app")
+        for id in ["mg.banner.demo", "mg.banner.edition3d", "mg.banner.editionmaps", "mg.banner.live", "mg.banner.nosource"] {
+            XCTAssertFalse(element(id).exists, "\(id) is shown")
         }
-        if let expected = Edition.banner {
-            let banner = element(expected.id)
-            XCTAssertTrue(banner.waitForExistence(timeout: 5), app.debugDescription)
-            XCTAssertEqual(banner.label, expected.text)
-        }
+        // The invitation: its words, and Connect your data opens Your Data (the sheet the
+        // session menu opens).
+        let text = element("mg.invite.text")
+        XCTAssertTrue(text.waitForExistence(timeout: AppNavigation.timeout), app.debugDescription)
+        XCTAssertEqual(text.label,
+                       "Exploring the sample workspace. Connect your own data server or import JSON to see your data.")
+        app.buttons["mg.invite.connect"].tap()
+        let done = app.buttons["mg.yourdata.done"]
+        XCTAssertTrue(done.waitForExistence(timeout: AppNavigation.timeout), "Your Data did not open")
+        done.tap()
+        // Dismissed, it goes; the chip stays.
+        let dismiss = app.buttons["mg.invite.dismiss"]
+        XCTAssertTrue(dismiss.waitForExistence(timeout: AppNavigation.timeout))
+        dismiss.tap()
+        XCTAssertFalse(element("mg.invite").waitForExistence(timeout: 2), "the invitation is still shown")
+        XCTAssertTrue(chip.exists)
     }
 
     func testHeimdallOffersTheViewSwitchOnlyIn3D() {
@@ -51,7 +65,7 @@ final class EditionTests: XCTestCase {
 
     func testOnlyThe3DAppsHaveAbout() {
         AppNavigation.signIn(app)
-        guard let aboutName = Edition.aboutName, let banner = Edition.banner else {
+        guard let aboutName = Edition.aboutName, let description = Edition.aboutRelease else {
             app.buttons["mg.0.session-menu"].firstMatch.tap()
             XCTAssertTrue(app.buttons["mg.session.lock"].waitForExistence(timeout: AppNavigation.timeout))
             XCTAssertFalse(app.buttons["mg.session.about"].exists, "the release app's menu is unchanged: no About")
@@ -63,7 +77,8 @@ final class EditionTests: XCTestCase {
         XCTAssertEqual(name.label, aboutName)
         XCTAssertEqual(element("mg.about.edition").label, "Edition: \(aboutName)")
         let release = element("mg.about.release").label
-        XCTAssertTrue(release.hasPrefix(banner.text), "About says: \(release)")
+        XCTAssertTrue(release.hasPrefix(description), "About says: \(release)")
+        XCTAssertTrue(element("mg.about.version").label.hasPrefix("Version 0.1.0 ("))
         app.buttons["mg.about.done"].tap()
         XCTAssertTrue(AppNavigation.consoleMarker(app).waitForExistence(timeout: AppNavigation.timeout))
     }
