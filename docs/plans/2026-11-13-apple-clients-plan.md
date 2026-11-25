@@ -7800,3 +7800,43 @@ On the iPhone with UI automation approved (25 Nov, 12:43–14:30, Xcode 27.2, iO
   - re-run the contrast and screen-reader-label audit tests;
   - run `MimirFlowTests` for its screenshots, and the Heimdall flow for the one-line pill;
   - reinstall the new Release development `.ipa`.
+
+Final phone round (25 Nov, 14:20–15:20, at `cbe7bd6d`):
+
+- **Forge Pipelines, unlabelled text (fixed, `cbe7bd6d`):** a probe of the screen found
+  the source in the strip above the graph. The build meter's drawn "BUILD" sat in a view
+  hidden from VoiceOver, because the status pill already said "Ready, build 0%". The pill
+  and the meter are now one static-text element with that label. The screen-reader-label
+  audit passes, and so does hit target size with the new element.
+- **Contrast:** two findings remain in the light and the dark pass. Both are drawn above
+  AA, measured from the audit's own element screenshots, so no colour was changed:
+
+  | Text | Light | Dark |
+  |---|---|---|
+  | Policies' Purposes count "3" (one 7 pt-wide digit) | #A8171E on #ECF0F0, 6.5:1 | #F26B70 on #08080C, 6.8:1 |
+  | The system Done button on the Your Data sheet | #A8171E on #F4F4F8, 6.8:1 | #F26B70 on #28282C glass, 5.0:1 |
+
+  - Making the count bold, or making the tab one element, did not change the finding
+    (the audit measures the digit's text run on its own). Both changes were reverted.
+  - One run also flagged the status chips on Mimir Guardrails in dark mode. A system
+    notification banner had slid over them during the audit; that is not the app.
+- **Flows:** `MimirFlowTests` (226 s) and `HeimdallFlowTests` (207 s) pass, with the
+  alert-to-inspector fix and the tap retries.
+- **"12 FEEDS" seal:** one line in the iPhone header at the default size (pill 22 pt
+  tall) and at AX XXXL (text 50 pt tall, one line), on the picture and on Workflows.
+  VoiceOver says "12 FEEDS · FUSED".
+- **Swift package:** 230 tests pass.
+- **Release development build:** rebuilt at `cbe7bd6d` with `release-ios.sh
+  --development` and installed on the phone with `devicectl` (Midgard 0.1.0 (1)).
+  `check-edition.sh` passes on the archived and the exported apps, and
+  `codesign --verify --deep --strict` passes. Archive 43 MB, `.ipa` 3.9 MB, app 9.5 MB.
+  Nothing was uploaded.
+- **iPhone audit on the device (iOS 27.2.1), latest results:**
+  - Passed: Dynamic Type, focus order, hit target size, reduced motion and screen-reader
+    labels.
+  - Contrast: only the two drawn-above-AA findings above.
+  - Keyboard navigation: failed, as expected (setting kept).
+- **Open:**
+  - At AX XXXL, the picture's alert-bell count badge overlaps the bell icon (seen in the
+    pill screenshots); not changed.
+  - The owner's acceptance of the two contrast findings above.
