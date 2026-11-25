@@ -7617,3 +7617,33 @@ Last round (owner's go, 24 Nov evening):
   18:32), and the alert was still on screen. The full Mac suite, the Mac `audit.sh` pass
   and the Phase J re-take (`phaseE-gw.sh`) have still not run. They are the next
   unlocked session's first steps, with the alert cleared.
+
+Measured (25 Nov, screen unlocked, alert gone):
+
+- **Full Mac UI suite (22 tests):**
+  - Every flow passed, including the Maps flow and the 900 pt Workflows test.
+  - The three `YourDataFlowTests` skipped as designed.
+  - Screen-reader labels, focus order, hit targets and reduced motion passed.
+  - Contrast failed only on the 1x false positives: every flagged element's drawn
+    contrast measured 4.6:1 or more, except Forge's suggestion footer at 4.4:1, which is
+    now 11 pt on the Mac too.
+  - Keyboard navigation failed as expected: not measured, setting kept.
+- **`audit.sh`, `MIDGARD_AUDIT_KBD=keep`, one pass:**
+  - Mac: as in the suite. Contrast failed, every finding drawn at 4.62:1 or more; the
+    banner and Your Data findings are gone.
+  - iPhone: passed everything but keyboard navigation and one "nearly passed" contrast
+    finding on Bifrost's "05 // ROLLBACK" section label, drawn at 5.4:1. That label's
+    code is unchanged, and it passed in both earlier passes, so it is borderline rather
+    than a regression.
+- **Phase J re-take (`phaseE-gw.sh`):** `testAGatewaySignInReadsMidgardLive` passed
+  against a local gateway built from this tree, as the script runs it. The screenshots
+  show the LIVE banner and the `LIVE · LOOPBACK` chip, the persona chip as the `/whoami`
+  subject ("sam"), Audit lineage decoding the gateway's rows (no `unknown key "outcome"`),
+  and Admin saying it is not served.
+- **Screenshots:** the Heimdall, Forge, Mimir and Bifrost flows ran again in dark and in
+  light, and all passed. The changed screens are kept for review; no clipping remains on
+  them.
+- **Swift package:** 230 tests pass.
+
+Still open: signed builds, the on-device iPhone check and H4's audit record. The 1x
+contrast false positives on the Mac need a Retina display, or the owner's acceptance.

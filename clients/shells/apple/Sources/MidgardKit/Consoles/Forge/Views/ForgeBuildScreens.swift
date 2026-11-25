@@ -231,7 +231,7 @@ struct ForgePipelineScreen: View {
                           accent: ctx.accent, identifier: "mg.forge.pipeline.suggestion.dismiss")
             }
             Text("LOCAL INFERENCE · Mistral Small 3.2 · PREVIEW-BEFORE-COMMIT [FR-F-7]")
-                .font(MGWebFont.mono(9))
+                .font(MGWebFont.mono(MGWebFont.macLegible(9)))
                 .foregroundStyle(MGWeb.textFaint)
                 .fixedSize(horizontal: false, vertical: true)
         }
