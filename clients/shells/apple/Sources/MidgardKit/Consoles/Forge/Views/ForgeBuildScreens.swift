@@ -137,17 +137,21 @@ struct ForgePipelineScreen: View {
     /// The build status, meter and the pipeline tags (the web's strip above the graph).
     private var strip: some View {
         FlowRow(spacing: 10) {
-            // The pill says the meter's figure too: the meter is drawn only (as one
-            // element it measured under the touch target's height in the second audit
-            // pass, a frame around it notwithstanding).
-            forgePill(model.building ? "live" : "healthy", model.building ? model.phase : "Ready")
-                .accessibilityLabel(Text("\(model.building ? model.phase : "Ready"), build \(model.progress)%"))
-                .accessibilityIdentifier("mg.forge.pipeline.status")
-            HStack(spacing: 8) {
-                WebLabel("BUILD")
-                WebMeterBar(Double(model.progress), width: 90, accent: ctx.accent)
+            // The pill and the meter are one static-text element that says both ("Ready,
+            // build 0%"). The meter on its own measured under the touch target's height
+            // in the second audit pass; hidden, its drawn "BUILD" was text with no element
+            // behind it (iOS 27's screen-reader audit on the phone).
+            HStack(spacing: 10) {
+                forgePill(model.building ? "live" : "healthy", model.building ? model.phase : "Ready")
+                HStack(spacing: 8) {
+                    WebLabel("BUILD")
+                    WebMeterBar(Double(model.progress), width: 90, accent: ctx.accent)
+                }
             }
-            .accessibilityHidden(true)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text("\(model.building ? model.phase : "Ready"), build \(model.progress)%"))
+            .accessibilityAddTraits(.isStaticText)
+            .accessibilityIdentifier("mg.forge.pipeline.status")
 
             ForEach(Array(model.rows.enumerated()), id: \.offset) { i, r in
                 WebTag(r.item.name, active: model.pipelineIndex == i, accent: ctx.accent,
