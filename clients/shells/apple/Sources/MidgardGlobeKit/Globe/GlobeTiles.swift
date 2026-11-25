@@ -1,7 +1,7 @@
 import CoreGraphics
 import Foundation
 import Metal
-import MetalKit
+@preconcurrency import MetalKit
 
 /// The globe's styles: CLEAN (flat land and sea from the design tokens), TOPOGRAPHIC
 /// (tints, hillshade and contours from the terrain tiles) and SATELLITE (EOX Sentinel-2
@@ -225,7 +225,7 @@ final class GlobeTiles {
         let device = self.device
         let textureLoader = self.textureLoader
         let queue = self.queue
-        TileLoader.decodeQueue.async {
+        TileLoader.decodeQueue.async { [weak self] in
             let mesh = job.build(device: device, textureLoader: textureLoader, queue: queue)
             DispatchQueue.main.async { [weak self] in
                 MainActor.assumeIsolated {

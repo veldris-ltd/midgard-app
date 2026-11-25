@@ -202,7 +202,7 @@ final class GlobeRenderer: NSObject, MTKViewDelegate {
         let close = outlines.close
         let device = self.device
         let queue = self.queue
-        TileLoader.decodeQueue.async {
+        TileLoader.decodeQueue.async { [weak self] in
             let texture = Self.landTexture(close, palette: palette, device: device, queue: queue)
             DispatchQueue.main.async { [weak self] in
                 MainActor.assumeIsolated {

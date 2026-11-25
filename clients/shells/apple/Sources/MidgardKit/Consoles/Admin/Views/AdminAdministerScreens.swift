@@ -175,8 +175,8 @@ struct AdminConfigScreen: View {
             }
         }
         .task(id: ctx.persona) { await model.load() }
-        .onAppear {
-            ctx.bar.rollback = { [weak model] in Task { await model?.rollback() } }
+        .onAppear { [weak model] in
+            ctx.bar.rollback = { Task { await model?.rollback() } }
         }
         .onChange(of: rollbackDisabled, initial: true) { _, why in ctx.bar.rollbackDisabled = why }
     }

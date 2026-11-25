@@ -7696,3 +7696,36 @@ contrast false positives on the Mac need a Retina display, or the owner's accept
   - The phone was left with the Release development build installed and running.
 - **Live gateway on the phone:** needs an https gateway the phone can reach. A loopback
   gateway on the Mac is not reachable from the phone.
+
+Xcode 27.2 (25 Nov, afternoon). The owner's Xcode 27.2 (27B52, iOS 27.2 SDK) is on the X9's
+build image, at `/Volumes/MidgardBuild/Applications/Xcode.app`. Every `xcodebuild`, `xcrun`
+and `devicectl` call names it with `DEVELOPER_DIR`; `xcode-select` was not changed.
+
+- **New warnings under Xcode 27 (fixed):**
+  - `[#ImplicitStrongCapture]`: an inner `[weak self]` or `[weak model]` closure inside an
+    outer closure that held a strong capture. This was in the globe's tile build
+    (`GlobeTiles.ensureMesh`), the land texture (`GlobeRenderer.paintLand`) and Admin
+    Config's rollback action. The outer closures now capture weakly too.
+  - `MTKTextureLoader` is not `Sendable` in the iOS 27 SDK. `GlobeTiles.swift` imports
+    MetalKit with `@preconcurrency`; the loader is thread-safe and was already used from
+    the decode queue.
+  - Unchanged: "All interface orientations must be supported unless the app requires full
+    screen". The iPhone-only app leaves out upside-down portrait, as Apple's iPhone
+    template does.
+- **Swift package under Xcode 27:** SwiftPM now builds one test bundle per test target,
+  so `MidgardKitTests` no longer linked `MidgardGlobeKit`. The edition test then saw no
+  provider. `MidgardKitTests` now depends on `MidgardGlobeKit`. `Data(someData)` now
+  shares its buffer, so the UI-testing key-root test handed `seal`, which wipes its input
+  in place, the test's own expected key. The test now passes a separate copy. The app's
+  callers already pass fresh buffers. 230 tests pass. The FocusState "outside of the
+  body of a View" messages are runtime notes from the render tests, not failures.
+- **Builds:**
+  - The Debug device test build (`clients-derived-ios-device`) builds for testing.
+  - `release-ios.sh --development` archived and exported. `check-edition.sh` passes on
+    the archived and the exported apps. `codesign --verify --deep --strict` passes. The
+    archive is 43 MB, the `.ipa` 3.9 MB and the app 9.5 MB (arm64). Nothing was uploaded.
+- **On the iPhone: not run.** The UI suite's preflight stopped at "Unlock Phill's iPhone
+  to Continue" (the phone was locked). The run was stopped, so the full suite, the
+  `AccessibilityAudit` run and the on-device screenshots are still to do. With the phone
+  unlocked and awake, they are the next step, in that order. Then reinstall the Release
+  development `.ipa` from `clients-archive/ios-development/`.

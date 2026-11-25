@@ -54,7 +54,7 @@ final class UITestingEnvironmentTests: XCTestCase {
 
         // The key root seals and unseals without a prompt.
         let key = Data((0..<32).map { UInt8($0) })
-        let sealed = try env.keyRoot.seal(dataKey: Data(key))
+        let sealed = try env.keyRoot.seal(dataKey: key.withUnsafeBytes { Data($0) })  // its own buffer: seal wipes it
         XCTAssertEqual(try env.keyRoot.unseal(sealed: sealed), key)
 
         // The next launch removes this one's store; quitting removes its own.

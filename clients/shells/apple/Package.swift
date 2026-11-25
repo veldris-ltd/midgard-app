@@ -39,7 +39,10 @@ let package = Package(
         // loader and the bundled Natural Earth outlines (public domain).
         .target(name: "MidgardGlobeKit", dependencies: ["MidgardKit"], path: "Sources/MidgardGlobeKit",
                 resources: [.copy("Resources/Outlines")]),
-        .testTarget(name: "MidgardKitTests", dependencies: ["MidgardKit", "MidgardCore", "MidgardAuditKit"],
+        // MidgardGlobeKit is linked so that EditionTests reads its registered provider:
+        // SwiftPM's newer build system (Xcode 27) builds one bundle per test target.
+        .testTarget(name: "MidgardKitTests",
+                    dependencies: ["MidgardKit", "MidgardCore", "MidgardAuditKit", "MidgardGlobeKit"],
                     path: "Tests/MidgardKitTests"),
         // Recorded tiles (Fixtures/CREDITS.md): the tile tests never use the network.
         .testTarget(name: "MidgardGlobeKitTests", dependencies: ["MidgardGlobeKit", "MidgardKit"],
