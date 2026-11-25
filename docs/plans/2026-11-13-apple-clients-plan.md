@@ -7749,3 +7749,54 @@ and `devicectl` call names it with `DEVELOPER_DIR`; `xcode-select` was not chang
     development DMG, as expected. Nothing was notarised or uploaded.
   - The only Mac-visible changes are the weak captures, which do not change behaviour,
     so the Mac UI tests were not re-run.
+
+On the iPhone with UI automation approved (25 Nov, 12:43–14:30, Xcode 27.2, iOS 27.2.1):
+
+- **Full UI suite, one run (AccessibilityAudit skipped):**
+  - Passed: the Admin, Bifrost, Forge, Midgard and Heimdall Maps flows; the three
+    `EditionTests`; three `HeimdallPictureFlowTests` (`testHoldForScreenshots` skipped,
+    as designed); and all seven `SessionFlowTests`.
+  - Skipped as designed: the `YourDataFlowTests`.
+  - `HeimdallFlowTests` failed. Choosing an alert opened the track inspector, which was
+    then torn down.
+    - Cause: the iPhone layout presented the inspector 0.5 s after closing the alerts
+      sheet, and iOS 27's slower dismissal outlasted that delay.
+    - Fix: the alerts list now hands the chosen track on from its `onDisappear`, after the
+      sheet has gone (`fa3efdb4`).
+  - `MimirFlowTests` failed once: the tap on the Agents row did not navigate.
+  - Both passed when re-run alone.
+- **Screenshots:** the full suite's 55 phone screenshots were reviewed. There is no
+  clipping, no Dynamic Island or safe-area problem, and the sheets and the console bar are
+  fine. Two fixes followed:
+  - "2 AWAITING AUTHORISA…" was cut on Workflows; the badge is shorter at iPhone width
+    (`fa3efdb4`).
+  - The "12 FEEDS · FUSED" pill wrapped onto two lines inside the pill in the iPhone
+    Heimdall header (picture sync, workflows). The compact header now draws "12 FEEDS" on
+    one line (`HeimdallChrome.compactSeal`, `WebStatusPill(shown:)`). VoiceOver still says
+    "12 FEEDS · FUSED".
+- **`AccessibilityAudit`, one run (14:00–14:30):**
+  - Passed: Dynamic Type, focus order, hit target size and reduced motion.
+  - Keyboard navigation failed, as expected: setting kept.
+  - Dynamic Type had failed in an earlier run on the phone: a test step could not find
+    Heimdall's search field. It passed this time with the same app code, so the earlier
+    failure was in the test's navigation.
+  - **Contrast** failed on one element: the "3" count on Policies' Purposes tab, a single
+    7 pt-wide digit. Its colours read about 6:1 (#A8171E on #EFF0F3). Tab counts are now
+    bold, so that the audit samples solid glyph pixels.
+  - **Screen-reader labels** failed on Forge's Pipelines screen, in this run and the one
+    before it. The finding is "Potentially inaccessible text", with no element.
+    - The audit kit now logs every issue's element (identifier, label, frame), so
+      the result's log names it when there is one.
+    - A probe of that screen was started; the phone locked before it ran.
+- **Test navigation on a phone:** console-tab and list-row taps made during a transition
+  were sometimes dropped. `selectConsole` now taps the tab again until the console is
+  selected, and `open` taps the row once more if the screen has not opened.
+- **Swift package:** 230 tests pass.
+- **Builds:** the Debug device test build is rebuilt with these changes.
+  `release-ios.sh --development` was run again: `check-edition.sh` and
+  `codesign --verify --deep --strict` pass, and nothing was uploaded.
+- **Still to do, phone unlocked:**
+  - find and fix the Pipelines screen's unlabelled text;
+  - re-run the contrast and screen-reader-label audit tests;
+  - run `MimirFlowTests` for its screenshots, and the Heimdall flow for the one-line pill;
+  - reinstall the new Release development `.ipa`.

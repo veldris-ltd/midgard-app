@@ -44,7 +44,15 @@ open class AccessibilityAuditBase: XCTestCase {
             // element outside the app's own UI: the macOS Touch Bar) returns true.
             try app.performAccessibilityAudit(for: types) { issue in
                 let ignored = AuditIssueFilter.ignores(onMac: AuditIssueFilter.isMac, elementType: issue.element?.elementType)
-                if ignored { print("audit: ignored on macOS, Touch Bar element: \(issue.compactDescription)") }
+                if ignored {
+                    print("audit: ignored on macOS, Touch Bar element: \(issue.compactDescription)")
+                } else {
+                    // The failure names only the kind of issue: log the element too, so
+                    // the result's log says which one.
+                    let e = issue.element
+                    print("audit issue: \(issue.compactDescription) | identifier '\(e?.identifier ?? "")'"
+                          + " label '\(e?.label ?? "")' frame \(e.map { "\($0.frame)" } ?? "none")")
+                }
                 return ignored
             }
         }

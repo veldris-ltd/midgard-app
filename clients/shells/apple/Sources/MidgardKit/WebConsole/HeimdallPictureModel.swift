@@ -12,6 +12,9 @@ public enum HeimdallChrome {
     public static let seals: [(WebStatusPill.Status, String)] = [
         (.online, "12 FEEDS · FUSED"), (.secure, "FEEDS PQ-AUTH ✓"), (.secure, "SYNC · 3 SITES"),
     ]
+    /// The first seal as the iPhone's header draws it, on one line: "12 FEEDS · FUSED"
+    /// wrapped inside its pill there. VoiceOver says the whole seal.
+    public static let compactSeal = "12 FEEDS"
 
     /// One navigation item: the web's id, label, icon (as an SF Symbol) and badge, and
     /// the app's screen it opens (`ConsoleCatalog`'s Heimdall screens).

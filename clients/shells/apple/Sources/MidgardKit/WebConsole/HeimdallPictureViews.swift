@@ -39,7 +39,7 @@ public struct HeimdallHeader<Trailing: View>: View {
             if !typeSize.isAccessibilitySize { Spacer(minLength: 8) }
             ForEach(Array((compact ? Array(HeimdallChrome.seals.prefix(1)) : HeimdallChrome.seals).enumerated()),
                     id: \.offset) { _, seal in
-                WebStatusPill(seal.0, seal.1)
+                WebStatusPill(seal.0, seal.1, shown: compact ? HeimdallChrome.compactSeal : nil)
             }
             trailing
         }

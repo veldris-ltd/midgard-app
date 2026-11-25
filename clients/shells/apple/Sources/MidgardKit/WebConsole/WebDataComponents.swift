@@ -335,7 +335,10 @@ public struct WebTabs: View {
                             .lineLimit(1)
                             .fixedSize()
                         if let badge = tab.badge {
-                            Text(badge).font(MGWebFont.mono(12, .caption).weight(.semibold)).foregroundStyle(accent.text)
+                            // Bold: a lone semibold digit is mostly antialiased edge, and the
+                            // iPhone's contrast audit measured "3" under AA although its
+                            // colours read 6:1.
+                            Text(badge).font(MGWebFont.mono(12, .caption).weight(.bold)).foregroundStyle(accent.text)
                         }
                     }
                     .padding(.horizontal, 16)

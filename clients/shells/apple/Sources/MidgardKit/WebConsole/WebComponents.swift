@@ -106,12 +106,16 @@ public struct WebStatusPill: View {
     public enum Status { case secure, online, healthy, warn, offline, danger, live, gated }
     let status: Status
     let label: String
+    let shown: String?
     let live: Color
 
     /// `live` is the console's accent text (`--accent-hover`), the colour of a live dot.
-    public init(_ status: Status, _ label: String, live: Color = MGWebAccent.midgard.text) {
+    /// `shown`, when given, is a shorter text drawn on one line in the pill (an iPhone
+    /// header); VoiceOver still says `label`.
+    public init(_ status: Status, _ label: String, shown: String? = nil, live: Color = MGWebAccent.midgard.text) {
         self.status = status
         self.label = label
+        self.shown = shown
         self.live = live
     }
 
@@ -128,10 +132,12 @@ public struct WebStatusPill: View {
     public var body: some View {
         HStack(spacing: 7) {
             Circle().fill(dot).frame(width: 8, height: 8).accessibilityHidden(true)
-            Text(label)
+            Text(shown ?? label)
                 .font(MGWebFont.mono(12, .caption).weight(.medium))
                 .mgTracking(0.04, size: MGWebFont.monoSize(12))
                 .foregroundStyle(MGWeb.textBody)
+                .lineLimit(shown == nil ? nil : 1)
+                .fixedSize(horizontal: shown != nil, vertical: false)
         }
         .padding(.leading, 8)
         .padding(.trailing, 10)

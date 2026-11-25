@@ -57,7 +57,14 @@ enum AppNavigation {
     /// Console `n` (1…6) selected from the console bar, at its list of screens.
     static func selectConsole(_ app: XCUIApplication, _ n: Int, file: StaticString = #filePath, line: UInt = #line) {
         let name = consoles[n - 1]
-        app.buttons["mg.console.tab.\(name.lowercased())"].tap()
+        let tab = app.buttons["mg.console.tab.\(name.lowercased())"]
+        tab.tap()
+        // On a phone a tab tap made during a transition is sometimes dropped: tap again
+        // until the console is the selected one.
+        for _ in 0..<2 where !(consoleMarker(app).waitForExistence(timeout: 2)
+                               && consoleMarker(app).value as? String == "\(n)") {
+            tab.tap()
+        }
         // Back to the console's list if a screen was open.
         let list = app.navigationBars[name]
         for _ in 0..<3 where !list.waitForExistence(timeout: 3) {
@@ -103,8 +110,10 @@ enum AppNavigation {
             }
         }
         tapClearOfConsoleBar(app, row)
-        XCTAssertTrue(app.descendants(matching: .any)["mg.content.\(name).\(slug)"]
-            .waitForExistence(timeout: timeout), "\(consoles[n - 1])'s \(slug) screen did not open")
+        let content = app.descendants(matching: .any)["mg.content.\(name).\(slug)"]
+        // A row tap made as the list settles is sometimes dropped on a phone: once more.
+        if !content.waitForExistence(timeout: 5), row.exists { tapClearOfConsoleBar(app, row) }
+        XCTAssertTrue(content.waitForExistence(timeout: timeout), "\(consoles[n - 1])'s \(slug) screen did not open")
     }
 
     /// Heimdall's Operating Picture with view `id` chosen in the navigation bar's view
