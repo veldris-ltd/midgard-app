@@ -135,7 +135,14 @@ public struct HeimdallToolbarItem: View {
                       disabledReason: "Not available in this app: snapshots are cut by the sync service",
                       identifier: "mg.heimdall.sync.snapshot")
         case "Workflows":
-            WebBadge("\(awaiting) AWAITING AUTHORISATION", tone: .warn).accessibilityIdentifier("mg.heimdall.toolbar.awaiting")
+            // The whole wording where it fits; at an iPhone's width it was cut, so the
+            // badge is shortened there, and VoiceOver still says it whole.
+            ViewThatFits(in: .horizontal) {
+                WebBadge("\(awaiting) AWAITING AUTHORISATION", tone: .warn)
+                WebBadge("\(awaiting) AWAITING", tone: .warn)
+                    .accessibilityLabel(Text("\(awaiting) awaiting authorisation"))
+            }
+            .accessibilityIdentifier("mg.heimdall.toolbar.awaiting")
         case "Decision Lineage":
             WebButton("Export for review", symbol: WebIcon.symbol("download"), variant: .secondary, size: .sm,
                       disabledReason: "Not available in this app: the lineage is exported by the enclosure",

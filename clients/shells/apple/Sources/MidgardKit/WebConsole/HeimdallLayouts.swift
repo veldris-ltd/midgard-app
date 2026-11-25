@@ -116,8 +116,8 @@ public struct HeimdallOperatingPictureCompact: View {
                 WebClassificationBanner(level: HeimdallChrome.banner.level, text: HeimdallChrome.banner.text, compact: true)
                 HeimdallHeader(compact: true) {
                     HeimdallAlertsButton(model: model) { _ in
-                        // After the alerts' popover has gone: one presentation at a time.
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { inspecting = true }
+                        // Called once the alerts' sheet has gone: one presentation at a time.
+                        inspecting = true
                     }
                 }
                 // The readouts as a strip directly above the picture, not over it, at

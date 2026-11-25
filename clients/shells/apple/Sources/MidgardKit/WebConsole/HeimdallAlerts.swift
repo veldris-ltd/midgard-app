@@ -9,7 +9,10 @@ import SwiftUI
 public struct HeimdallAlertsButton: View {
     @ObservedObject var model: HeimdallPictureModel
     @State private var showing = false
-    /// On the iPhone, choosing a track's alert opens the inspector.
+    /// The track whose alert was chosen, handed on once the list has gone.
+    @State private var chosen: String?
+    /// On the iPhone, choosing a track's alert opens the inspector. It is called after
+    /// the list's sheet has been dismissed, so that one presentation follows the other.
     let onInspect: (String) -> Void
 
     public init(model: HeimdallPictureModel, onInspect: @escaping (String) -> Void = { _ in }) {
@@ -69,14 +72,21 @@ public struct HeimdallAlertsButton: View {
         .background(MGWeb.bgSunken)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("mg.heimdall.alerts.list")
+        .onDisappear {
+            // The list's sheet has finished going: present the inspector now, not after a
+            // guessed delay, which iOS 27's slower dismissal outlasted.
+            guard let track = chosen else { return }
+            chosen = nil
+            onInspect(track)
+        }
     }
 
     @ViewBuilder private func row(_ alert: HeimdallAlert) -> some View {
         if let track = alert.track {
             Button {
                 model.select(track)
+                chosen = track
                 showing = false
-                onInspect(track)
             } label: {
                 card(alert)
             }
