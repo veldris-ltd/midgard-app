@@ -7724,8 +7724,28 @@ and `devicectl` call names it with `DEVELOPER_DIR`; `xcode-select` was not chang
   - `release-ios.sh --development` archived and exported. `check-edition.sh` passes on
     the archived and the exported apps. `codesign --verify --deep --strict` passes. The
     archive is 43 MB, the `.ipa` 3.9 MB and the app 9.5 MB (arm64). Nothing was uploaded.
-- **On the iPhone: not run.** The UI suite's preflight stopped at "Unlock Phill's iPhone
-  to Continue" (the phone was locked). The run was stopped, so the full suite, the
-  `AccessibilityAudit` run and the on-device screenshots are still to do. With the phone
-  unlocked and awake, they are the next step, in that order. Then reinstall the Release
-  development `.ipa` from `clients-archive/ios-development/`.
+- **On the iPhone: still no UI tests.**
+  - First try: the preflight stopped at "Unlock Phill's iPhone to Continue", because the
+    phone was locked.
+  - With the phone unlocked (12:31): the test runner started on the phone. Before any
+    test ran, it failed to initialise for UI testing. The first attempt reported "Timed
+    out while enabling automation mode". The single retry (12:33) reported
+    LocalAuthentication -1000 ("UI service connection invalidated").
+  - The cause: iOS 27 asks for the passcode or Face ID on the phone before it turns on UI
+    automation, and nobody answered that prompt. No CoreDevice 10004 appeared, so Xcode
+    27.2 has got past the earlier launch problem.
+  - Next: start the suite while someone watches the phone, and authenticate when the
+    "Enable UI Automation" prompt appears. If it does not appear, turn on Settings >
+    Developer > Enable UI Automation. Only the owner changes the phone's settings. Then
+    run the full suite, `AccessibilityAudit` and the screenshots.
+  - The Release development `.ipa` (Xcode 27.2 build) is reinstalled on the phone with
+    `devicectl`, as `Midgard` 0.1.0 (1).
+- **Mac under Xcode 27.2:**
+  - The `MidgardMacMaps` Debug `build-for-testing` builds with no warnings from the code.
+  - `release-mac.sh --development` archived and exported. `check-edition.sh` passes on
+    the archived and the exported `Midgard.app`. `codesign --verify --deep --strict`
+    passes on both apps and on the DMG. The app is x86_64 and arm64.
+  - Sizes: archive 96 MB, app 22 MB, zip 8.9 MB, DMG 12 MB. Gatekeeper rejects the
+    development DMG, as expected. Nothing was notarised or uploaded.
+  - The only Mac-visible changes are the weak captures, which do not change behaviour,
+    so the Mac UI tests were not re-run.
