@@ -7647,3 +7647,39 @@ Measured (25 Nov, screen unlocked, alert gone):
 
 Still open: signed builds, the on-device iPhone check and H4's audit record. The 1x
 contrast false positives on the Mac need a Retina display, or the owner's acceptance.
+
+## Release builds and on-device check (25 Nov 2026)
+
+- **Scripts (B4, B5):** `tools/release-mac.sh` and `tools/release-ios.sh`, with
+  `ExportOptions-DeveloperID.plist`, `ExportOptions-AppStore.plist` and an
+  `ExportOptions-Development.plist` per app. The default runs (Developer ID DMG;
+  App Store Connect `.ipa`, destination export) stop before building on this Mac. Its
+  only identity is Apple Development, so each script says that no Developer ID
+  Application or Apple Distribution identity exists, and that nothing was built or
+  uploaded. `--notarise` and `--upload` are refused without `MIDGARD_APPLE_UPLOAD_OK=1`,
+  without a terminal, without the API key variables (iPhone), and with `--development`.
+- **`--development`:** the same Release archive, exported with the Apple Development
+  identity. It is in `~/Library/Caches/midgard-build/clients-archive/` (on the X9):
+  - Mac: archive 115 MB; `Midgard.app` 22 MB (x86_64 and arm64); zip 8.9 MB; DMG 12 MB;
+  - iPhone: archive 52 MB; `.ipa` 4.0 MB; app 9.6 MB (arm64).
+- **H3 checks on those builds:** `codesign --verify --deep --strict` passes on both apps
+  and on the DMG. `check-edition.sh` passes on the archived and the exported apps.
+  Neither bundle holds a `.mgdemo` or any other data file. H3's "exactly one `.mgdemo`"
+  predates the sample-data decision: the sample data is compiled into the core, and
+  `check-edition.sh` refuses a bundled `.mgdemo`. The resources are the fonts, the
+  Natural Earth outlines and the provisioning profile. Gatekeeper rejects the
+  development DMG, as expected for Apple Development signing.
+- **Fix:** Release executables are stripped, so `check-edition.sh` found no edition hook
+  in them. It now takes `--dsyms <dir>` and finds the strong hook in the archive's dSYM
+  whose UUID matches the app's binary. `apple-edition.test.sh` seeds a stripped bundle,
+  with its own dSYM and with another binary's dSYM.
+- **On the iPhone:** not run. The iPhone 15 Pro Max was available and unlocked at the
+  start. It went "unavailable" before the install, and stayed unavailable for 20 minutes
+  (not on USB). The device UI test build is ready
+  (`clients-derived-ios-device`, `build-for-testing`). UI tests run the Debug build,
+  because `-MidgardUITesting` exists only in Debug. Still to run:
+  - install and launch of the Release `.ipa`;
+  - the UI suite with `AccessibilityAudit` (`audit.sh` has no device destination);
+  - the on-device screenshots.
+- **Live gateway on the phone:** needs an https gateway the phone can reach. A loopback
+  gateway on the Mac is not reachable from the phone.
