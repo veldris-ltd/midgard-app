@@ -65,6 +65,7 @@ entitlements), `Sources/` and `UITests/`.
 | `typecheck-ios.sh` | typechecks the package for iOS without a simulator runtime |
 | `check-edition.sh` | builds both apps and fails if one carries more or less than its edition allows (see [Edition](#edition)) |
 | `audit-failures.js` | reads an audit result bundle's summary for `audit.sh` |
+| `release-mac.sh`, `release-ios.sh` | the signed Release builds and the gated uploads (see [Release and upload](#release-and-upload)) |
 | `clean.sh` | deletes the local build outputs |
 
 ## Prerequisites
@@ -186,8 +187,10 @@ is `maps`; on the Mac it is sandboxed; its target signs with its own entitlement
 the hook is defined strongly (the edition library is linked); and it has no network
 entitlement beyond the client one (no server, `com.apple.developer.networking.*` or
 temporary-exception entitlement), with the client one required on the Mac.
-`check-edition.sh [--maps] <app>...` checks built bundles only; B4 and B5 run it so on
-the signed Release archives. `audit.sh` runs it first and records nothing when it fails.
+`check-edition.sh [--maps] [--dsyms <dir>] <app>...` checks built bundles only; B4 and B5
+run it so on the signed Release archives. A Release executable is stripped, so its hook
+is looked up in the archive's dSYMs (`--dsyms`), in the dSYM whose UUID matches the
+app's binary. `audit.sh` runs it first and records nothing when it fails.
 `tools/ci/tests/apple-edition.test.sh` runs it against bundles it builds with seeded
 failures.
 
@@ -882,12 +885,44 @@ committed.
 
 ## Release and upload
 
-Not built yet. The release scripts of the plan's Tasks B4 (Developer ID DMG and
-notarisation for the Mac) and B5 (TestFlight archive for the iPhone) are deferred
-until a team ID exists, because neither can be checked without one; their archives
-will go to `~/Library/Caches/midgard-build/clients-archive/`. Any upload to Apple
-(notarisation, TestFlight, App Store Connect) always needs the owner's explicit
-go-ahead for that upload.
+Two scripts (the plan's Tasks B4 and B5) archive the Release configuration with
+automatic signing under the team in `Signing.local.xcconfig`, into
+`~/Library/Caches/midgard-build/clients-archive/`:
+
+```bash
+bash clients/shells/apple/tools/release-mac.sh                 # Developer ID: Midgard-<release>.dmg
+bash clients/shells/apple/tools/release-ios.sh                 # App Store Connect export: Midgard-<release>.ipa
+bash clients/shells/apple/tools/release-mac.sh --development   # Apple Development: Midgard.app, .zip, .dmg
+bash clients/shells/apple/tools/release-ios.sh --development   # Apple Development: .ipa for registered devices
+```
+
+| | Mac | iPhone |
+|---|---|---|
+| Default | `ExportOptions-DeveloperID.plist` (`developer-id`), a DMG signed with the Developer ID Application identity, `spctl` printed | `ExportOptions-AppStore.plist` (`app-store-connect`, destination `export`): the `.ipa` stays local |
+| Needs | a Developer ID Application certificate | an Apple Distribution certificate |
+| `--development` | `ExportOptions-Development.plist` (`debugging`): runs on the team's registered Macs | `ExportOptions-Development.plist` (`debugging`): installs on the team's registered devices (`xcrun devicectl device install app --device <id> <ipa>`) |
+| Output | `MidgardMac-<release>-<mode>.xcarchive`, `mac-<mode>/` | `MidgardiOS-<release>-<mode>.xcarchive`, `ios-<mode>/` (the `.ipa` and its app unpacked) |
+
+Without the certificate a mode needs, a script stops before building and says that
+nothing was built or uploaded. Each runs `check-edition.sh --dsyms` on the archived and
+the exported app, refuses any bundled data file (the sample data is compiled into the
+core; no `.mgdemo` is bundled), runs `codesign --verify --deep --strict` and prints the
+sizes. The release name is the one under `clients/demo/sample/` unless `--release`
+names one.
+
+Uploads are separate steps, never the default, each needing the owner's go-ahead for
+that upload:
+
+- `release-mac.sh --notarise` (Developer ID only): `xcrun notarytool submit
+  --keychain-profile midgard-notary --wait` (`MIDGARD_NOTARY_PROFILE` names another; the
+  owner stores it once with `notarytool store-credentials`), then `xcrun stapler staple`.
+- `release-ios.sh --upload` (App Store Connect export only): `xcrun altool --upload-app`
+  with the App Store Connect API key given at that moment as `MIDGARD_ASC_KEY_ID` and
+  `MIDGARD_ASC_ISSUER_ID` (key file in `~/.appstoreconnect/private_keys`).
+
+Both refuse before building unless `MIDGARD_APPLE_UPLOAD_OK=1` is set for that one
+invocation and a terminal is attached; after the build they print exactly what will be
+sent (file, size, SHA-256, signer) and send it only when `upload` is typed.
 
 ## Accessibility audit
 

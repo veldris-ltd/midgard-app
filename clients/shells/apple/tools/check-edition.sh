@@ -28,11 +28,15 @@
 #   - its App Transport Security asks for more than NSAllowsLocalNetworking (loopback HTTP
 #     for a gateway or feed on the device): no arbitrary loads, no exception domains.
 # Debug binaries keep their symbol tables, so a symbol the linker kept is seen. B4/B5
-# must also run this on the signed Release archives (<app>... below).
+# must also run this on the signed Release archives (<app>... below). A Release build's
+# executable is stripped and keeps no symbol table: give the archive's dSYMs with
+# --dsyms <dir>, and the hook is looked up in the dSYM whose UUID matches one of the
+# app's Mach-O files (the same binary, before stripping; re-signing keeps the UUID).
 # [FR-C-1] [DD-6]
 #
 #   bash clients/shells/apple/tools/check-edition.sh               build and check both apps present
-#   bash clients/shells/apple/tools/check-edition.sh [--maps] <app>...   check built bundles only
+#   bash clients/shells/apple/tools/check-edition.sh [--maps] [--dsyms <dir>] <app>...
+#                                                  check built bundles only
 #
 # Derived data goes to ~/Library/Caches/midgard-build/clients-derived-{mac,ios}
 # (MIDGARD_BUILD_CACHE names another cache); the iPhone app is built for the iPhone 17
@@ -49,10 +53,11 @@ say() { echo "check-edition: $*" >&2; }
 # DENY_MARKERS, the ones a public bundle file can never hold innocently).
 data_re='mauritius leaks|offshore leaks|panama papers|pandora papers|paradise papers|icij|port louis|agal[eé]ga|ceb\.mu|govmu\.org|live-feeds|midgard_replay|adsb\.lol|adsbexchange|airplanes\.live|opensky|aishub|aisstream|marinetraffic|seismicportal\.eu|api\.tfl\.gov\.uk|data\.elexon\.co\.uk|api\.carbonintensity\.org\.uk|environment\.data\.gov\.uk|data\.sensor\.community'
 data_ext_re='\.(jsonl|ndjson|tsv|csv|mgdemo|geojson)$'
+dsyms=""
 
 # check_bundle <app>: prints one line per problem; returns non-zero when there is one.
 check_bundle() {
-    local app="$1" bad=0 info said f ents mac=0 strong=0 net="" syms
+    local app="$1" bad=0 info said f ents mac=0 strong=0 net="" syms uuids="" hook_in="" d u
     fail() { echo "FAIL  $app: $*"; bad=1; }
     if [ ! -d "$app" ]; then
         echo "FAIL  $app: not a bundle"
@@ -71,6 +76,7 @@ check_bundle() {
             fi
             continue
         fi
+        uuids="$uuids $(dwarfdump --uuid "$f" 2>/dev/null | awk '{ print $2 }' | tr '\n' ' ')"
         syms="$(nm -m "$f" 2>/dev/null | grep -E " _${hook}\$" || true)"
         if grep -v 'weak external' <<<"$syms" | grep -q 'external'; then strong=1; fi
         net="$net $(LC_ALL=C grep -aoE "$net_re" "$f" | sort -u | tr '\n' ' ')"
@@ -80,6 +86,20 @@ check_bundle() {
     net="$net $(grep -oE "$net_re" <<<"$ents" | sort -u | tr '\n' ' ')"
     if [ "$mac" = 1 ] && ! grep -q '<key>com.apple.security.app-sandbox</key><true/>' <<<"$ents"; then
         fail "is not sandboxed (com.apple.security.app-sandbox is not true)"
+    fi
+    # A stripped Release binary: the hook in the dSYM of the same binary (matching UUID).
+    if [ "$strong" = 0 ] && [ -n "$dsyms" ]; then
+        while IFS= read -r -d '' d; do
+            for u in $(dwarfdump --uuid "$d" 2>/dev/null | awk '{ print $2 }'); do
+                case " $uuids " in
+                    *" $u "*)
+                        syms="$(nm -m "$d" 2>/dev/null | grep -E " _${hook}\$" || true)"
+                        if grep -v 'weak external' <<<"$syms" | grep -q 'external'; then
+                            strong=1; hook_in=", found in the matching dSYM"
+                        fi ;;
+                esac
+            done
+        done < <(find "$dsyms" -path '*.dSYM/Contents/Resources/DWARF/*' -type f -print0 2>/dev/null)
     fi
     if [ "$strong" = 0 ]; then
         fail "no Mach-O file defines $hook strongly; the app links the edition library"
@@ -96,7 +116,7 @@ check_bundle() {
         fail "App Transport Security asks for more than NSAllowsLocalNetworking ($ats)"
     fi
     if [ "$bad" -eq 0 ]; then
-        echo "ok    $app: maps edition: edition library linked (strong hook), network: $( [ "$mac" = 1 ] && echo "client only, sandboxed" || echo "none on iOS"), ATS: ${ats:-default}, no data bundled"
+        echo "ok    $app: maps edition: edition library linked (strong hook$hook_in), network: $( [ "$mac" = 1 ] && echo "client only, sandboxed" || echo "none on iOS"), ATS: ${ats:-default}, no data bundled"
     fi
     return "$bad"
 }
@@ -107,6 +127,10 @@ check_args() {
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --maps) ;;
+            --dsyms)
+                dsyms="${2:-}"
+                [ -d "$dsyms" ] || { say "--dsyms needs a directory"; return 2; }
+                shift ;;
             -*) say "unknown option: $1 (give app bundles, or no argument)"; return 2 ;;
             *) check_bundle "$1" || rc=1; n=$((n + 1)) ;;
         esac

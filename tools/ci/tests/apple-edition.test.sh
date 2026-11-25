@@ -132,6 +132,22 @@ check "seeded: a bundled data file fails" "fails SeedJsonl 'bundles a data file'
 make_app SeedLeak mac maps "$globe" - && printf '{"source":"Mauritius Leaks"}\n' >"$work/SeedLeak.app/Contents/Resources/x.json" \
     && codesign --force --sign - --entitlements "$work/Maps.entitlements" "$work/SeedLeak.app" >/dev/null 2>&1
 check "seeded: leak-archive data in a resource fails" "fails SeedLeak 'leak-archive data'"
+# A Release build's executable is stripped: the hook is found only in the dSYM of the same
+# binary (matching UUID), given with --dsyms.
+strip_app() { # strip_app <name>: dSYM of the executable into $work/dsyms-<name>, then strip and re-sign
+    local exe="$work/$1.app/Contents/MacOS/$1"
+    mkdir -p "$work/dsyms-$1"
+    dsymutil "$exe" -o "$work/dsyms-$1/$1.app.dSYM" >/dev/null 2>&1 && strip "$exe" 2>/dev/null \
+        && codesign --force --sign - --entitlements "$work/$1.entitlements" "$work/$1.app" >/dev/null 2>&1
+}
+make_app Stripped mac maps "$globe" "$sandbox$client" && strip_app Stripped
+make_app StrippedOther mac maps "$globe int other(void) { return 1; }" "$sandbox$client" && strip_app StrippedOther
+check "a stripped Release bundle without its dSYMs fails" "fails Stripped 'defines midgard_edition_hook strongly'"
+check "a stripped Release bundle passes with its own dSYM (--dsyms)" \
+    "bash $script --maps --dsyms $work/dsyms-Stripped $work/Stripped.app >/dev/null 2>&1"
+check "seeded: another binary's dSYM does not stand for the hook" \
+    "! bash $script --dsyms $work/dsyms-StrippedOther $work/Stripped.app >/dev/null 2>&1"
+check "--dsyms without a directory is refused" "! bash $script --dsyms $work/none $work/Maps.app >/dev/null 2>&1"
 check "both apps in one run pass together" "bash $script $work/Maps.app $work/MapsFlat.app >/dev/null 2>&1"
 check "one failing bundle among passing ones fails the run" \
     "! bash $script $work/Maps.app $work/SeedServer.app >/dev/null 2>&1"

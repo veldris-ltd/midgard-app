@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Export of the Mac app for distribution outside the App Store (Task B4), used by
+     tools/release-mac.sh. Signed with the team's Developer ID Application identity;
+     the team comes from the archive (Signing.local.xcconfig), never from this file.
+     Nothing is uploaded by the export: notarisation is release-mac.sh's separate,
+     gated step. -->
+<plist version="1.0">
+<dict>
+	<key>method</key>
+	<string>developer-id</string>
+	<key>signingStyle</key>
+	<string>automatic</string>
+	<key>destination</key>
+	<string>export</string>
+</dict>
+</plist>
