@@ -7673,13 +7673,26 @@ contrast false positives on the Mac need a Retina display, or the owner's accept
   in them. It now takes `--dsyms <dir>` and finds the strong hook in the archive's dSYM
   whose UUID matches the app's binary. `apple-edition.test.sh` seeds a stripped bundle,
   with its own dSYM and with another binary's dSYM.
-- **On the iPhone:** not run. The iPhone 15 Pro Max was available and unlocked at the
-  start. It went "unavailable" before the install, and stayed unavailable for 20 minutes
-  (not on USB). The device UI test build is ready
-  (`clients-derived-ios-device`, `build-for-testing`). UI tests run the Debug build,
-  because `-MidgardUITesting` exists only in Debug. Still to run:
-  - install and launch of the Release `.ipa`;
-  - the UI suite with `AccessibilityAudit` (`audit.sh` has no device destination);
-  - the on-device screenshots.
+- **On the iPhone (reconnected, 11:21):**
+  - The Release development `.ipa` installed with `xcrun devicectl device install app`
+    and launched. It kept running.
+  - The UI tests could not launch the app. Every test failed at
+    `XCUIApplication.launch()` with CoreDevice error 10004 ("The process identifier of
+    the launched application could not be determined"). This happened in the full run
+    (stopped after nine identical failures), in `SessionFlowTests` alone (twice, once
+    after reinstalling the Debug app by hand), and in the seven `AccessibilityAudit`
+    tests run with `-only-testing`.
+  - The cause is the tools, not the app. The phone runs iOS 27.2 (24B119), and Xcode
+    26.2 builds against the iOS 26.2 SDK. The same Debug app launched with `devicectl`
+    (with `-MidgardUITesting`) and kept running, and the device has no crash report.
+    XCTest's runner started on the phone; only its debugger-attached launch of the app
+    fails. Nothing was measured, so no app change was made.
+  - No on-device screenshots: they come from the UI tests, and `devicectl` has no
+    screenshot command.
+  - Next: an Xcode that supports iOS 27 (the owner's install), then the same three runs.
+    The device test build is in `clients-derived-ios-device`. Use the hardware UDID
+    `00008130-000C61C82E61001C` as the `xcodebuild` destination, not the `devicectl`
+    identifier.
+  - The phone was left with the Release development build installed and running.
 - **Live gateway on the phone:** needs an https gateway the phone can reach. A loopback
   gateway on the Mac is not reachable from the phone.
